@@ -12,6 +12,11 @@ fn greet(name: &str) -> String {
     format!("Hello, {}!", name)
 }
 
+#[tauri::command]
+fn exit_app(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -54,7 +59,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        app.exit(0);
+                        std::process::exit(0);
                     }
                     _ => {}
                 })
@@ -102,7 +107,7 @@ pub fn run() {
                 let _ = window.emit("window:close-requested", ());
             }
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, exit_app])
         .run(tauri::generate_context!())
         .expect("error while running Psysonic");
 }

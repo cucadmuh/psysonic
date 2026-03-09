@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Sidebar from './components/Sidebar';
 import PlayerBar from './components/PlayerBar';
@@ -207,6 +208,9 @@ function TauriEventBridge() {
       if (minimizeToTray) {
         event.preventDefault();
         await win.hide();
+      } else {
+        // If not minimizing to tray, we want to exit the app completely
+        await invoke('exit_app');
       }
     }).then(u => unlisten.push(u));
 

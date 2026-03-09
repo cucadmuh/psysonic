@@ -23,6 +23,10 @@
     "fs:allow-mkdir",
     "fs:scope-download-recursive",
     "fs:scope-home-recursive",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:app:allow-exit"
   ]
 }
