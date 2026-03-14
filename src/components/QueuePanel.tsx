@@ -132,6 +132,8 @@ export default function QueuePanel() {
   const draggedIdxRef = useRef<number | null>(null);
   const dragOverIdxRef = useRef<number | null>(null);
 
+  const queueListRef = useRef<HTMLDivElement>(null);
+
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loadModalOpen, setLoadModalOpen] = useState(false);
 
@@ -171,47 +173,48 @@ export default function QueuePanel() {
   };
 
   const onDragEnd = () => {
-    // Reset visual state immediately.
     setDraggedIdx(null);
     setDragOverIdx(null);
-    // Delay clearing refs so onDropQueue can read them first.
-    // On macOS WKWebView and Windows WebView2, dragend fires before drop
-    // (spec violation), so synchronously clearing refs here loses the
-    // drag source/destination indices before onDropQueue runs.
-    setTimeout(() => {
-      isDraggingInternalRef.current = false;
-      draggedIdxRef.current = null;
-      dragOverIdxRef.current = null;
-    }, 200);
+    isDraggingInternalRef.current = false;
+    draggedIdxRef.current = null;
+    dragOverIdxRef.current = null;
   };
 
   const onDropQueue = async (e: React.DragEvent) => {
     e.preventDefault();
 
-    // Refs are still valid here — onDragEnd delays clearing them so they survive
-    // the macOS/WebView2 dragend-before-drop race condition.
-    const fromIdx = draggedIdxRef.current;
-    const toIdx = dragOverIdxRef.current ?? queue.length;
-
-    // Cancel the pending timeout cleanup and clear refs immediately.
+    // Clear visual state immediately
     isDraggingInternalRef.current = false;
     draggedIdxRef.current = null;
     dragOverIdxRef.current = null;
     setDraggedIdx(null);
     setDragOverIdx(null);
 
-    // Read dataTransfer — set during dragstart, survives dragend on all platforms.
-    // Used as fallback for fromIdx in case refs somehow weren't set.
     let parsedData: any = null;
     try {
       const raw = e.dataTransfer.getData('text/plain');
       if (raw) parsedData = JSON.parse(raw);
     } catch { /* ignore */ }
 
-    // Internal reorder: refs are the primary source; dataTransfer is the fallback.
-    const reorderFrom = fromIdx ?? (parsedData?.type === 'queue_reorder' ? parsedData.index : null);
-    if (reorderFrom !== null) {
-      if (reorderFrom !== toIdx) reorderQueue(reorderFrom, toIdx);
+    if (parsedData?.type === 'queue_reorder') {
+      // fromIdx: always reliable from dataTransfer (set during dragstart)
+      const fromIdx: number = parsedData.index;
+
+      // toIdx: calculate from drop coordinates — avoids all ref timing issues.
+      // Works even when dragend fires before drop (macOS WKWebView / Windows WebView2).
+      let toIdx = queue.length;
+      if (queueListRef.current) {
+        const items = queueListRef.current.querySelectorAll<HTMLElement>('[data-queue-idx]');
+        for (let i = 0; i < items.length; i++) {
+          const rect = items[i].getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) {
+            toIdx = parseInt(items[i].dataset.queueIdx!);
+            break;
+          }
+        }
+      }
+
+      if (fromIdx !== toIdx) reorderQueue(fromIdx, toIdx);
       return;
     }
 
@@ -300,7 +303,7 @@ export default function QueuePanel() {
 
       {currentTrack && queue.length > 0 && <div className="queue-divider"><span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>{t('queue.nextTracks')}</span></div>}
       
-      <div className="queue-list">
+      <div className="queue-list" ref={queueListRef}>
         {queue.length === 0 ? (
           <div className="queue-empty">
             {t('queue.emptyQueue')}
@@ -324,8 +327,9 @@ export default function QueuePanel() {
             }
 
             return (
-              <div 
-                key={`${track.id}-${idx}`} 
+              <div
+                key={`${track.id}-${idx}`}
+                data-queue-idx={idx}
                 className={`queue-item ${isPlaying ? 'active' : ''}`}
                 onClick={() => playTrack(track, queue)}
                 onContextMenu={(e) => {

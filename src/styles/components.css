@@ -23,7 +23,9 @@
   background-position: center;
   transition: transform 8s ease, opacity 0.8s ease, filter 0.8s ease;
   transform: scale(1.05);
+  filter: blur(12px);
 }
+.hero:hover .hero-bg { filter: blur(8px); }
 .hero:hover .hero-bg { transform: scale(1); }
 
 .hero-dots {

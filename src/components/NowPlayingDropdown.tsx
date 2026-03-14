@@ -4,9 +4,11 @@ import { getNowPlaying, SubsonicNowPlaying, buildCoverArtUrl } from '../api/subs
 import { useAuthStore } from '../store/authStore';
 import { usePlayerStore } from '../store/playerStore';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 
 export default function NowPlayingDropdown() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<SubsonicNowPlaying[]>([]);
   const isPlaying = usePlayerStore(s => s.isPlaying);
@@ -121,7 +123,11 @@ export default function NowPlayingDropdown() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {visible.map((stream, idx) => (
-                <div key={`${stream.id}-${idx}`} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-hover)', padding: '0.5rem', borderRadius: '8px' }}>
+                <div
+                  key={`${stream.id}-${idx}`}
+                  onClick={() => { if (stream.albumId) { setIsOpen(false); navigate(`/album/${stream.albumId}`); } }}
+                  style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-hover)', padding: '0.5rem', borderRadius: '8px', cursor: stream.albumId ? 'pointer' : 'default' }}
+                >
                   <div style={{ width: '48px', height: '48px', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-surface)' }}>
                     {stream.coverArt ? (
                       <img src={buildCoverArtUrl(stream.coverArt, 100)} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
