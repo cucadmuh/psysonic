@@ -25,6 +25,8 @@ interface AuthState {
   scrobblingEnabled: boolean;
   maxCacheMb: number;
   downloadFolder: string;
+  excludeAudiobooks: boolean;
+  customGenreBlacklist: string[];
 
   // Status
   isLoggedIn: boolean;
@@ -44,6 +46,8 @@ interface AuthState {
   setScrobblingEnabled: (v: boolean) => void;
   setMaxCacheMb: (v: number) => void;
   setDownloadFolder: (v: string) => void;
+  setExcludeAudiobooks: (v: boolean) => void;
+  setCustomGenreBlacklist: (v: string[]) => void;
   logout: () => void;
 
   // Derived
@@ -68,6 +72,8 @@ export const useAuthStore = create<AuthState>()(
       scrobblingEnabled: true,
       maxCacheMb: 500,
       downloadFolder: '',
+      excludeAudiobooks: false,
+      customGenreBlacklist: [],
       isLoggedIn: false,
       isConnecting: false,
       connectionError: null,
@@ -109,6 +115,8 @@ export const useAuthStore = create<AuthState>()(
       setScrobblingEnabled: (v) => set({ scrobblingEnabled: v }),
       setMaxCacheMb: (v) => set({ maxCacheMb: v }),
       setDownloadFolder: (v) => set({ downloadFolder: v }),
+      setExcludeAudiobooks: (v) => set({ excludeAudiobooks: v }),
+      setCustomGenreBlacklist: (v) => set({ customGenreBlacklist: v }),
 
       logout: () => set({ isLoggedIn: false }),
 

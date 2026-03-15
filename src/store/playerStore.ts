@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Howl } from 'howler';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { buildStreamUrl, getPlayQueue, savePlayQueue, SubsonicSong, reportNowPlaying, scrobbleSong } from '../api/subsonic';
 import { useAuthStore } from './authStore';
 
@@ -26,10 +27,9 @@ interface PlayerState {
   queueIndex: number;
   isPlaying: boolean;
   progress: number; // 0–1
-  buffered: number; // 0–1
+  buffered: number; // 0–1 (unused in Rust backend, kept for UI compat)
   currentTime: number;
   volume: number;
-  howl: Howl | null;
   scrobbled: boolean;
 
   playTrack: (track: Track, queue?: Track[]) => void;
@@ -56,6 +56,7 @@ interface PlayerState {
 
   reorderQueue: (startIndex: number, endIndex: number) => void;
   removeTrack: (index: number) => void;
+  shuffleQueue: () => void;
 
   initializeFromServerQueue: () => Promise<void>;
 
@@ -72,39 +73,22 @@ interface PlayerState {
 }
 
 // ─── Module-level playback primitives ─────────────────────────────────────────
-//
-// Kept outside Zustand to avoid stale-closure / React re-render races.
-//
-// activeHowl  – the one and only live Howl; all event handlers reference this.
-// playGeneration – monotonically incremented on every playTrack() call.
-//   Every Howl event callback captures its own `gen` value at creation time
-//   and bails out immediately if playGeneration has moved on. This prevents
-//   stale onend / onplay callbacks from a superseded Howl from affecting state.
 
-let activeHowl: Howl | null = null;
+// isAudioPaused — true when the Rust audio engine has a loaded-but-paused track.
+// Used by resume() to decide between audio_resume (warm) vs audio_play (cold start).
+let isAudioPaused = false;
+
+// JS-side generation counter. Incremented on every playTrack() call.
+// The invoke().catch() error handler captures its own gen and bails if
+// playGeneration has moved on, preventing stale errors from skipping wrong tracks.
 let playGeneration = 0;
-let progressInterval: ReturnType<typeof setInterval> | null = null;
+
+// Debounce timer for seek slider drags.
 let seekDebounce: ReturnType<typeof setTimeout> | null = null;
-let resumeFromTime: number | null = null; // cold-start resume position (app relaunch)
-let lastSeekAt = 0; // timestamp (ms) of the most recent seek — used to ignore spurious 'ended' events
-let togglePlayLock = false; // prevents rapid double-click from sending pause→play before GStreamer settles
 
-function clearProgress() {
-  if (progressInterval) {
-    clearInterval(progressInterval);
-    progressInterval = null;
-  }
-}
-
-// Remove all Howler-level listeners BEFORE stopping/unloading.
-// This is the critical step that prevents stale `onend` callbacks from firing
-// on a superseded Howl and triggering an unwanted next() / skip.
-function destroyHowl(howl: Howl | null) {
-  if (!howl) return;
-  howl.off();     // remove all Howler event listeners
-  howl.stop();    // stop any playing sound
-  howl.unload();  // release the <audio> element and all resources
-}
+// Guard against rapid double-click play/pause sending two state transitions
+// to the Rust backend before it has finished the previous one.
+let togglePlayLock = false;
 
 // ─── Server queue sync ─────────────────────────────────────────────────────────
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -119,6 +103,76 @@ function syncQueueToServer(queue: Track[], currentTrack: Track | null, currentTi
   }, 1500);
 }
 
+// ─── Audio event handlers (called from initAudioListeners) ───────────────────
+
+function handleAudioPlaying(_duration: number) {
+  usePlayerStore.setState({ isPlaying: true });
+}
+
+function handleAudioProgress(current_time: number, duration: number) {
+  const store = usePlayerStore.getState();
+  const track = store.currentTrack;
+  if (!track) return;
+  const dur = duration > 0 ? duration : track.duration;
+  if (dur <= 0) return;
+  const progress = current_time / dur;
+  usePlayerStore.setState({ currentTime: current_time, progress, buffered: 0 });
+
+  // Scrobble at 50%
+  if (progress >= 0.5 && !store.scrobbled) {
+    usePlayerStore.setState({ scrobbled: true });
+    const { scrobblingEnabled } = useAuthStore.getState();
+    if (scrobblingEnabled) scrobbleSong(track.id, Date.now());
+  }
+}
+
+function handleAudioEnded() {
+  const { repeatMode, currentTrack, queue } = usePlayerStore.getState();
+  isAudioPaused = false;
+  usePlayerStore.setState({ isPlaying: false, progress: 0, currentTime: 0, buffered: 0 });
+  setTimeout(() => {
+    if (repeatMode === 'one' && currentTrack) {
+      usePlayerStore.getState().playTrack(currentTrack, queue);
+    } else {
+      usePlayerStore.getState().next();
+    }
+  }, 150);
+}
+
+function handleAudioError(message: string) {
+  console.error('[psysonic] Audio error from backend:', message);
+  isAudioPaused = false;
+  const gen = playGeneration;
+  usePlayerStore.setState({ isPlaying: false });
+  setTimeout(() => {
+    if (playGeneration !== gen) return;
+    usePlayerStore.getState().next();
+  }, 500);
+}
+
+/**
+ * Set up Tauri event listeners for the Rust audio engine.
+ * Returns a cleanup function — pass it to useEffect's return value so that
+ * React StrictMode (which double-invokes effects in dev) tears down the first
+ * set of listeners before creating the second, avoiding duplicate handlers.
+ */
+export function initAudioListeners(): () => void {
+  const pending = [
+    listen<number>('audio:playing', ({ payload }) => handleAudioPlaying(payload)),
+    listen<{ current_time: number; duration: number }>('audio:progress', ({ payload }) =>
+      handleAudioProgress(payload.current_time, payload.duration)
+    ),
+    listen<void>('audio:ended', () => handleAudioEnded()),
+    listen<string>('audio:error', ({ payload }) => handleAudioError(payload)),
+  ];
+
+  return () => {
+    pending.forEach(p => p.then(unlisten => unlisten()));
+  };
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
 export const usePlayerStore = create<PlayerState>()(
   persist(
     (set, get) => ({
@@ -130,7 +184,6 @@ export const usePlayerStore = create<PlayerState>()(
       buffered: 0,
       currentTime: 0,
       volume: 0.8,
-      howl: null,
       scrobbled: false,
       isQueueVisible: true,
       isFullscreenOpen: false,
@@ -154,155 +207,92 @@ export const usePlayerStore = create<PlayerState>()(
 
       // ── stop ────────────────────────────────────────────────────────────────
       stop: () => {
-        destroyHowl(activeHowl);
-        activeHowl = null;
-        clearProgress();
+        invoke('audio_stop').catch(console.error);
+        isAudioPaused = false;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; }
-        set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0, howl: null });
+        set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
       },
 
       // ── playTrack ────────────────────────────────────────────────────────────
       playTrack: (track, queue) => {
-        // Claim a new generation. Every callback created below captures `gen`.
-        // If playTrack() is called again before these callbacks fire, gen will
-        // no longer match playGeneration and the callbacks silently return.
         const gen = ++playGeneration;
-
-        // Fully destroy the previous Howl — listeners first, then audio resources.
-        destroyHowl(activeHowl);
-        activeHowl = null;
-        clearProgress();
+        isAudioPaused = false;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; }
 
         const state = get();
         const newQueue = queue ?? state.queue;
         const idx = newQueue.findIndex(t => t.id === track.id);
 
-        const howl = new Howl({
-          src: [buildStreamUrl(track.id)],
-          html5: true,
-          volume: state.volume,
-        });
-        activeHowl = howl;
-
-        // Commit state BEFORE howl.play() so queueIndex / currentTrack are
-        // already correct when the onplay / onend callbacks fire.
+        // Set state immediately so the UI updates before the download completes.
         set({
           currentTrack: track,
           queue: newQueue,
           queueIndex: idx >= 0 ? idx : 0,
-          howl,
           progress: 0,
           buffered: 0,
           currentTime: 0,
           scrobbled: false,
+          isPlaying: true, // optimistic — reverted on error
         });
 
-        howl.on('play', () => {
+        const url = buildStreamUrl(track.id);
+        invoke('audio_play', {
+          url,
+          volume: state.volume,
+          durationHint: track.duration,
+        }).catch((err: unknown) => {
           if (playGeneration !== gen) return;
-          set({ isPlaying: true });
-          reportNowPlaying(track.id);
-
-          // Cold-start resume: seek to the position that was saved before the
-          // app was closed. A short delay lets the audio pipeline stabilise.
-          if (resumeFromTime !== null) {
-            const t = resumeFromTime;
-            resumeFromTime = null;
-            setTimeout(() => {
-              if (playGeneration === gen) activeHowl?.seek(t);
-            }, 80);
-          }
-
-          clearProgress(); // guard against duplicate onplay
-          progressInterval = setInterval(() => {
-            // Bail out if this interval belongs to a superseded generation
-            if (playGeneration !== gen) { clearProgress(); return; }
-            const h = activeHowl;
-            if (!h) return;
-
-            const raw = h.seek();
-            const cur = typeof raw === 'number' ? raw : 0;
-            const dur = h.duration() || 1;
-
-            // Buffered indicator via underlying <audio> element
-            const audioNode = (h as any)._sounds?.[0]?._node as HTMLAudioElement | undefined;
-            if (audioNode?.buffered && audioNode.duration > 0) {
-              let totalBuf = 0;
-              for (let i = 0; i < audioNode.buffered.length; i++) {
-                totalBuf += audioNode.buffered.end(i) - audioNode.buffered.start(i);
-              }
-              set({ currentTime: cur, progress: cur / dur, buffered: Math.min(1, totalBuf / audioNode.duration) });
-            } else {
-              set({ currentTime: cur, progress: cur / dur });
-            }
-
-            // Scrobble at 50%
-            if (cur / dur >= 0.5 && !get().scrobbled) {
-              set({ scrobbled: true });
-              const { scrobblingEnabled } = useAuthStore.getState();
-              if (scrobblingEnabled) scrobbleSong(track.id, Date.now());
-            }
+          console.error('[psysonic] audio_play failed:', err);
+          set({ isPlaying: false });
+          setTimeout(() => {
+            if (playGeneration !== gen) return;
+            get().next();
           }, 500);
         });
 
-        howl.on('end', () => {
-          if (playGeneration !== gen) return;
-          // WebKit (and GStreamer on Linux) can fire spurious 'ended' events
-          // immediately after a direct audioNode.currentTime seek. Guard: if we
-          // are within 1 s of the last seek AND the playhead is not actually near
-          // the track end, treat this as a false alarm and ignore it.
-          if (Date.now() - lastSeekAt < 1000) {
-            const audioNode = (activeHowl as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
-            const pos = audioNode ? audioNode.currentTime : (typeof activeHowl?.seek() === 'number' ? activeHowl.seek() as number : 0);
-            const dur = activeHowl?.duration() ?? 0;
-            if (dur > 0 && pos < dur - 1) return;
-          }
-          clearProgress();
-          set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
-          const { repeatMode, currentTrack, queue: q } = get();
-          if (repeatMode === 'one' && currentTrack) {
-            get().playTrack(currentTrack, q);
-          } else {
-            get().next();
-          }
-        });
-
-        howl.on('playerror', (_, err) => {
-          if (playGeneration !== gen) return;
-          console.error('Howl play error:', err);
-          clearProgress();
-          set({ isPlaying: false });
-        });
-
-        howl.play();
+        reportNowPlaying(track.id);
         syncQueueToServer(newQueue, track, 0);
       },
 
       // ── pause / resume / togglePlay ──────────────────────────────────────────
       pause: () => {
-        activeHowl?.pause();
-        clearProgress();
+        invoke('audio_pause').catch(console.error);
+        isAudioPaused = true;
         set({ isPlaying: false });
       },
 
       resume: () => {
         const { currentTrack, queue, currentTime } = get();
         if (!currentTrack) return;
-        if (activeHowl) {
-          activeHowl.play();
+
+        if (isAudioPaused) {
+          // Rust engine has audio loaded but paused — just resume it.
+          invoke('audio_resume').catch(console.error);
+          isAudioPaused = false;
           set({ isPlaying: true });
-          return;
+        } else {
+          // Cold start (app relaunch) — audio is not loaded in Rust; re-download.
+          const gen = ++playGeneration;
+          const vol = get().volume;
+          set({ isPlaying: true });
+          invoke('audio_play', {
+            url: buildStreamUrl(currentTrack.id),
+            volume: vol,
+            durationHint: currentTrack.duration,
+          }).then(() => {
+            if (playGeneration === gen && currentTime > 1) {
+              invoke('audio_seek', { seconds: currentTime }).catch(console.error);
+            }
+          }).catch((err: unknown) => {
+            if (playGeneration !== gen) return;
+            console.error('[psysonic] audio_play (cold resume) failed:', err);
+            set({ isPlaying: false });
+          });
+          syncQueueToServer(queue, currentTrack, currentTime);
         }
-        // Cold start after app relaunch — Howl was not persisted.
-        resumeFromTime = currentTime > 0 ? currentTime : null;
-        get().playTrack(currentTrack, queue);
       },
 
       togglePlay: () => {
-        // Guard: rapid double-clicks send pause→play (or play→pause) before
-        // GStreamer/WebKit has finished the previous state transition, causing
-        // the audio pipeline to hang for several seconds. Ignore the second
-        // click if it arrives within 300 ms of the first.
         if (togglePlayLock) return;
         togglePlayLock = true;
         setTimeout(() => { togglePlayLock = false; }, 300);
@@ -319,18 +309,17 @@ export const usePlayerStore = create<PlayerState>()(
         } else if (repeatMode === 'all' && queue.length > 0) {
           get().playTrack(queue[0], queue);
         } else {
-          // End of queue — clean stop without destroying currentTrack metadata
-          destroyHowl(activeHowl);
-          activeHowl = null;
-          clearProgress();
-          set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0, howl: null });
+          invoke('audio_stop').catch(console.error);
+          isAudioPaused = false;
+          set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
         }
       },
 
       previous: () => {
         const { queue, queueIndex, currentTime } = get();
         if (currentTime > 3) {
-          activeHowl?.seek(0);
+          // Restart current track from the beginning.
+          invoke('audio_seek', { seconds: 0 }).catch(console.error);
           set({ progress: 0, currentTime: 0 });
           return;
         }
@@ -339,36 +328,25 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       // ── seek ─────────────────────────────────────────────────────────────────
-      // Debounced 100 ms to collapse rapid slider drags into one actual seek.
-      // We bypass Howler's seek() entirely and set currentTime directly on the
-      // underlying <audio> element. Howler's seek() internally calls pause() +
-      // play() which can fire spurious ended/stop events on some WebKit versions,
-      // especially on the second consecutive seek.
+      // 100 ms debounce collapses rapid slider drags into one actual seek.
       seek: (progress) => {
         const { currentTrack } = get();
-        if (!activeHowl || !currentTrack) return;
-        const dur = activeHowl.duration() || currentTrack.duration;
+        if (!currentTrack) return;
+        const dur = currentTrack.duration;
         if (!dur || !isFinite(dur)) return;
-        // Clamp slightly before end to prevent accidentally triggering 'ended'
         const time = Math.max(0, Math.min(progress * dur, dur - 0.25));
         set({ progress: time / dur, currentTime: time });
-        lastSeekAt = Date.now();
         if (seekDebounce) clearTimeout(seekDebounce);
         seekDebounce = setTimeout(() => {
           seekDebounce = null;
-          const audioNode = (activeHowl as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
-          if (audioNode && isFinite(time)) {
-            audioNode.currentTime = time;
-          } else {
-            activeHowl?.seek(time);
-          }
+          invoke('audio_seek', { seconds: time }).catch(console.error);
         }, 100);
       },
 
       // ── volume ───────────────────────────────────────────────────────────────
       setVolume: (v) => {
         const clamped = Math.max(0, Math.min(1, v));
-        activeHowl?.volume(clamped);
+        invoke('audio_set_volume', { volume: clamped }).catch(console.error);
         set({ volume: clamped });
       },
 
@@ -386,11 +364,10 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       clearQueue: () => {
-        destroyHowl(activeHowl);
-        activeHowl = null;
-        clearProgress();
+        invoke('audio_stop').catch(console.error);
+        isAudioPaused = false;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; }
-        set({ queue: [], queueIndex: 0, currentTrack: null, isPlaying: false, progress: 0, buffered: 0, currentTime: 0, howl: null });
+        set({ queue: [], queueIndex: 0, currentTrack: null, isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
         syncQueueToServer([], null, 0);
       },
 
@@ -401,6 +378,23 @@ export const usePlayerStore = create<PlayerState>()(
         result.splice(endIndex, 0, removed);
         let newIndex = queueIndex;
         if (currentTrack) newIndex = result.findIndex(t => t.id === currentTrack.id);
+        set({ queue: result, queueIndex: Math.max(0, newIndex) });
+        syncQueueToServer(result, currentTrack, get().currentTime);
+      },
+
+      shuffleQueue: () => {
+        const { queue, currentTrack } = get();
+        if (queue.length < 2) return;
+        const currentIdx = currentTrack ? queue.findIndex(t => t.id === currentTrack.id) : -1;
+        const others = queue.filter((_, i) => i !== currentIdx);
+        for (let i = others.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [others[i], others[j]] = [others[j], others[i]];
+        }
+        const result = currentIdx >= 0
+          ? [queue[currentIdx], ...others]
+          : others;
+        const newIndex = currentIdx >= 0 ? 0 : -1;
         set({ queue: result, queueIndex: Math.max(0, newIndex) });
         syncQueueToServer(result, currentTrack, get().currentTime);
       },
@@ -433,11 +427,16 @@ export const usePlayerStore = create<PlayerState>()(
               if (idx >= 0) { currentTrack = mappedTracks[idx]; queueIndex = idx; }
             }
 
+            // Prefer the server position if available; otherwise keep the
+            // localStorage-persisted currentTime (more reliable than server
+            // queue position, which may not flush before app close).
+            const serverTime = q.position ? q.position / 1000 : 0;
+            const localTime = get().currentTime;
             set({
               queue: mappedTracks,
               queueIndex,
               currentTrack,
-              currentTime: q.position ? q.position / 1000 : 0,
+              currentTime: serverTime > 0 ? serverTime : localTime,
             });
           }
         } catch (e) {
@@ -451,6 +450,10 @@ export const usePlayerStore = create<PlayerState>()(
       partialize: (state) => ({
         volume: state.volume,
         repeatMode: state.repeatMode,
+        currentTrack: state.currentTrack,
+        queue: state.queue,
+        queueIndex: state.queueIndex,
+        currentTime: state.currentTime,
       } as Partial<PlayerState>),
     }
   )

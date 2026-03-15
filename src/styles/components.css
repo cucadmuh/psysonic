@@ -438,7 +438,8 @@
   transition: background var(--transition-fast);
   border-radius: 0;
 }
-.search-result-item:hover { background: var(--bg-hover); }
+.search-result-item:hover,
+.search-result-item.active { background: var(--bg-hover); }
 .search-result-icon { width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg-hover); display: flex; align-items: center; justify-content: center; color: var(--text-muted); flex-shrink: 0; }
 .search-result-thumb { width: 32px; height: 32px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; }
 .search-result-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
@@ -1413,6 +1414,12 @@
 [data-tooltip]:hover::after {
   opacity: 1;
   visibility: visible;
+}
+
+[data-tooltip-wrap]::after {
+  white-space: pre-line;
+  max-width: 220px;
+  text-align: left;
 }
 
 /* Modifiers for position */

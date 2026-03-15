@@ -1,6 +1,6 @@
 [package]
 name = "psysonic"
-version = "1.0.12"
+version = "1.2.0"
 description = "Psysonic Desktop Music Player"
 authors = []
 license = ""
@@ -30,3 +30,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rodio = { version = "0.19", default-features = false, features = ["symphonia-all"] }
+reqwest = { version = "0.12", features = ["stream"] }
+tokio = { version = "1", features = ["rt", "time"] }

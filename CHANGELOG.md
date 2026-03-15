@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-15
+
+### Added
+
+#### Rust Audio Engine (replaces Howler.js)
+- **New native audio backend** built in Rust using [rodio](https://github.com/RustAudio/rodio). Audio is now decoded and played entirely in the Tauri backend — no more reliance on the WebView's `<audio>` element or GStreamer pipeline quirks.
+- Tauri commands: `audio_play`, `audio_pause`, `audio_resume`, `audio_stop`, `audio_seek`, `audio_set_volume`.
+- Frontend events: `audio:playing` (with duration), `audio:progress` (every 500 ms), `audio:ended`, `audio:error`.
+- Generation counter (`AtomicU64`) ensures stale downloads from skipped tracks are cancelled immediately and do not emit events.
+- Wall-clock position tracking (`seek_offset + elapsed`) instead of `sink.empty()` (unreliable in rodio 0.19 for VBR MP3). `audio:ended` fires after two consecutive ticks within 1 second of the track end — avoids false positives near the end without adding latency.
+- Seek via `sink.try_seek()` — no pause/play cycle, no spurious `ended` events.
+- Volume clamped to `[0.0, 1.0]` on every call.
+
+#### Playback Persistence & Cold-Start Resume
+- `currentTrack`, `queue`, `queueIndex`, and `currentTime` are now persisted to `localStorage` via Zustand `partialize`.
+- On app restart with a previously loaded track, clicking Play resumes from the saved position without losing the queue.
+- Position priority: server play queue position (if > 0) takes precedence over the locally saved value, so cross-device resume works correctly.
+
+#### Random Mix — Genre Filter & Blacklist
+- **Exclude audiobooks & radio plays** toggle: filters out songs whose genre, title, or album match a hardcoded list (`Hörbuch`, `Hörspiel`, `Audiobook`, `Spoken Word`, `Podcast`, `Krimi`, `Thriller`, `Speech`, `Fantasy`, `Comedy`, `Literature`, and more).
+- **Custom genre blacklist**: add any genre keyword via the collapsible chip panel on the Random Mix page or in Settings → Random Mix. Persisted across sessions.
+- **Clickable genre chips** in the tracklist: clicking an unblocked genre tag adds it to the blacklist instantly with 1.5 s visual feedback. Blocked genres are shown in red.
+- Blacklist filter checks `song.genre`, `song.title`, and `song.album` to catch mislabelled tracks.
+
+#### Random Mix — Super Genre Mix
+- Nine pre-defined **Super Genres** (Metal, Rock, Pop, Electronic, Jazz, Classical, Hip-Hop, Country, World) appear as buttons, auto-generated from the server's genre list — only genres with at least one matching keyword are shown.
+- Selecting a Super Genre fetches up to 50 songs distributed across all matched sub-genres in parallel, then shuffles the result.
+- **Progressive rendering**: the tracklist appears as soon as the first genre request returns — users with large Metal/Rock libraries no longer stare at a spinner for the entire fetch. A small inline spinner next to the title indicates that more genres are still loading.
+- **"Load 10 more"** button: fetches 10 additional songs from the same matched genres and appends them to the play queue.
+- Random playlist is automatically hidden while a Genre Mix is active.
+- Fetch timeout raised to **45 seconds** per genre request (was 15 s) and `Promise.allSettled` used so a single slow/failing genre does not abort the entire mix.
+
+#### Queue Panel
+- **Shuffle button** in the queue header: Fisher-Yates shuffles all queued tracks while keeping the currently playing track at position 0. Button is disabled when the queue has fewer than 2 entries.
+
+#### UI / UX
+- **LiveSearch keyboard navigation**: arrow keys navigate the dropdown, Enter selects the highlighted item or navigates to the full search results page, Escape closes the dropdown.
+- **Multi-line tooltip support**: add `data-tooltip-wrap` attribute to any element with `data-tooltip` to enable line-wrapping (uses `white-space: pre-line` + `\n` in the string). Respects a 220 px max-width.
+- **Genre column info icon** in Random Mix tracklist header: hover tooltip explains the clickable-genre-to-blacklist feature.
+- **Update link** in the sidebar now uses Tauri Shell plugin `open()` to launch the system browser correctly — `<a target="_blank">` has no effect inside a Tauri WebView.
+
+### Fixed
+- **Songs skipping immediately** (root cause: Tauri v2 IPC maps Rust `snake_case` parameters to **camelCase** on the JS side — `duration_hint` must be `durationHint`). All `invoke()` calls updated.
+- **Play button doing nothing after restart**: `currentTrack` was `null` after restart (not persisted). Fixed by adding it to `partialize`.
+- **Position not restored after restart**: `initializeFromServerQueue` overwrote the local saved position with the server value even when the server reported 0. Now falls back to the localStorage value when the server position is 0.
+- **Genre Mix blank on Metal/Rock**: a single timed-out genre request caused `Promise.all` to reject the entire mix. Replaced with `Promise.allSettled` + 45 s timeout; partial results are shown immediately.
+- **Tooltip z-index**: tooltips in the main content area were rendered behind the queue panel. Fixed by giving `.main-content` `z-index: 1`, establishing a stacking context above the queue (which sits later in DOM order).
+- **Sidebar title clipping**: "Psysonic" brand text was truncated at narrow viewport widths. Minimum sidebar width raised from 180 px to 200 px.
+
+### Changed
+- **Audio architecture**: Howler.js removed. All audio state (`isPlaying`, `isAudioPaused`, `currentTime`, `duration`) is now driven by Tauri events from the Rust engine rather than Howler callbacks.
+- **Random Mix layout**: Filter/blacklist panel and Genre Mix buttons are now combined in a two-column card at the top of the page instead of being scattered across the page.
+- **Hardcoded genre blacklist** extended with: `Fantasy`, `Comedy`, `Literature`.
+- **`getRandomSongs`** now accepts an optional `timeout` parameter (default 15 s) so callers can pass a longer value for large-library scenarios.
+
 ## [1.0.12] - 2026-03-14
 
 ### Fixed

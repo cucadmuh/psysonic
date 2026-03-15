@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { open } from '@tauri-apps/plugin-shell';
 import { version as appVersion } from '../../package.json';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -49,14 +50,12 @@ function UpdateToast({ isCollapsed, latestVersion }: { isCollapsed: boolean; lat
         <span className="update-toast-label">{t('sidebar.updateAvailable')}</span>
       </div>
       <div className="update-toast-version">{t('sidebar.updateReady', { version: latestVersion })}</div>
-      <a
+      <button
         className="update-toast-link"
-        href="https://github.com/Psychotoxical/psysonic/releases"
-        target="_blank"
-        rel="noopener noreferrer"
+        onClick={() => open('https://github.com/Psychotoxical/psysonic/releases')}
       >
         {t('sidebar.updateLink')}
-      </a>
+      </button>
     </div>
   );
 }

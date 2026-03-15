@@ -74,6 +74,8 @@ export interface SubsonicSong {
   samplingRate?: number;
   channelCount?: number;
   starred?: string;
+  genre?: string;
+  path?: string;
 }
 
 export interface SubsonicPlaylist {
@@ -160,8 +162,10 @@ export async function getAlbumList(
   return data.albumList2?.album ?? [];
 }
 
-export async function getRandomSongs(size = 50): Promise<SubsonicSong[]> {
-  const data = await api<{ randomSongs: { song: SubsonicSong[] } }>('getRandomSongs.view', { size });
+export async function getRandomSongs(size = 50, genre?: string, timeout = 15000): Promise<SubsonicSong[]> {
+  const params: Record<string, string | number> = { size };
+  if (genre) params.genre = genre;
+  const data = await api<{ randomSongs: { song: SubsonicSong[] } }>('getRandomSongs.view', params, timeout);
   return data.randomSongs?.song ?? [];
 }
 

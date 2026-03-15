@@ -27,7 +27,7 @@ import SearchResults from './pages/SearchResults';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
 import { useAuthStore } from './store/authStore';
-import { usePlayerStore } from './store/playerStore';
+import { usePlayerStore, initAudioListeners } from './store/playerStore';
 import { useThemeStore } from './store/themeStore';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -110,7 +110,7 @@ function AppShell() {
     <div 
       className="app-shell"
       style={{
-        '--sidebar-width': isSidebarCollapsed ? '72px' : 'clamp(180px, 15vw, 220px)',
+        '--sidebar-width': isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)',
         '--queue-width': isQueueVisible ? `${queueWidth}px` : '0px'
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
@@ -222,6 +222,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    return initAudioListeners();
+  }, []);
 
   return (
     <BrowserRouter>

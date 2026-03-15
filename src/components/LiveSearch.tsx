@@ -19,9 +19,11 @@ export default function LiveSearch() {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const navigate = useNavigate();
   const playTrack = usePlayerStore(state => state.playTrack);
   const ref = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const doSearch = useCallback(
     debounce(async (q: string) => {
@@ -38,7 +40,7 @@ export default function LiveSearch() {
     []
   );
 
-  useEffect(() => { doSearch(query); }, [query, doSearch]);
+  useEffect(() => { doSearch(query); setActiveIndex(-1); }, [query, doSearch]);
 
   // Close on click outside
   useEffect(() => {
@@ -50,6 +52,40 @@ export default function LiveSearch() {
   }, []);
 
   const hasResults = results && (results.artists.length || results.albums.length || results.songs.length);
+
+  // Flat list of all navigable items for keyboard nav
+  const flatItems = results ? [
+    ...(results.artists.map(a => ({ id: a.id, action: () => { navigate(`/artist/${a.id}`); setOpen(false); setQuery(''); } }))),
+    ...(results.albums.map(a => ({ id: a.id, action: () => { navigate(`/album/${a.id}`); setOpen(false); setQuery(''); } }))),
+    ...(results.songs.map(s => ({ id: s.id, action: () => {
+      playTrack({ id: s.id, title: s.title, artist: s.artist, album: s.album, albumId: s.albumId, artistId: s.artistId, duration: s.duration, coverArt: s.coverArt, year: s.year, bitRate: s.bitRate, suffix: s.suffix, userRating: s.userRating });
+      setOpen(false); setQuery('');
+    }}))),
+  ] : [];
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || !flatItems.length) {
+      if (e.key === 'Enter' && query.trim()) { setOpen(false); navigate(`/search?q=${encodeURIComponent(query.trim())}`); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = Math.min(activeIndex + 1, flatItems.length - 1);
+      setActiveIndex(next);
+      dropdownRef.current?.querySelectorAll<HTMLElement>('.search-result-item')[next]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = Math.max(activeIndex - 1, -1);
+      setActiveIndex(next);
+      if (next >= 0) dropdownRef.current?.querySelectorAll<HTMLElement>('.search-result-item')[next]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0) { flatItems[activeIndex].action(); setActiveIndex(-1); }
+      else if (query.trim()) { setOpen(false); navigate(`/search?q=${encodeURIComponent(query.trim())}`); }
+    } else if (e.key === 'Escape') {
+      setOpen(false); setActiveIndex(-1);
+    }
+  };
 
   return (
     <div className="live-search" ref={ref} role="search">
@@ -69,12 +105,7 @@ export default function LiveSearch() {
           value={query}
           onChange={e => setQuery(e.target.value)}
           onFocus={() => results && setOpen(true)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && query.trim()) {
-              setOpen(false);
-              navigate(`/search?q=${encodeURIComponent(query.trim())}`);
-            }
-          }}
+          onKeyDown={handleKeyDown}
           aria-autocomplete="list"
           aria-controls="search-results"
           aria-expanded={open}
@@ -88,78 +119,79 @@ export default function LiveSearch() {
       </div>
 
       {open && (
-        <div className="live-search-dropdown" id="search-results" role="listbox">
+        <div className="live-search-dropdown" id="search-results" role="listbox" ref={dropdownRef}>
           {!hasResults && !loading && (
             <div className="search-empty">{t('search.noResults', { query })}</div>
           )}
 
-          {results?.artists.length ? (
-            <div className="search-section">
-              <div className="search-section-label"><Users size={12} /> {t('search.artists')}</div>
-              {results.artists.map(a => (
-                <button
-                  key={a.id}
-                  className="search-result-item"
-                  onClick={() => { navigate(`/artist/${a.id}`); setOpen(false); setQuery(''); }}
-                  role="option"
-                >
-                  <div className="search-result-icon"><Users size={14} /></div>
-                  <span>{a.name}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {(() => {
+            let idx = 0;
+            return <>
+              {results?.artists.length ? (
+                <div className="search-section">
+                  <div className="search-section-label"><Users size={12} /> {t('search.artists')}</div>
+                  {results.artists.map(a => {
+                    const i = idx++;
+                    return (
+                      <button key={a.id} className={`search-result-item${activeIndex === i ? ' active' : ''}`}
+                        onClick={() => { navigate(`/artist/${a.id}`); setOpen(false); setQuery(''); }}
+                        role="option" aria-selected={activeIndex === i}>
+                        <div className="search-result-icon"><Users size={14} /></div>
+                        <span>{a.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
 
-          {results?.albums.length ? (
-            <div className="search-section">
-              <div className="search-section-label"><Disc3 size={12} /> {t('search.albums')}</div>
-              {results.albums.map(a => (
-                <button
-                  key={a.id}
-                  className="search-result-item"
-                  onClick={() => { navigate(`/album/${a.id}`); setOpen(false); setQuery(''); }}
-                  role="option"
-                >
-                  {a.coverArt ? (
-                    <img className="search-result-thumb" src={buildCoverArtUrl(a.coverArt, 40)} alt="" loading="lazy" />
-                  ) : (
-                    <div className="search-result-icon"><Disc3 size={14} /></div>
-                  )}
-                  <div>
-                    <div className="search-result-name">{a.name}</div>
-                    <div className="search-result-sub">{a.artist}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : null}
+              {results?.albums.length ? (
+                <div className="search-section">
+                  <div className="search-section-label"><Disc3 size={12} /> {t('search.albums')}</div>
+                  {results.albums.map(a => {
+                    const i = idx++;
+                    return (
+                      <button key={a.id} className={`search-result-item${activeIndex === i ? ' active' : ''}`}
+                        onClick={() => { navigate(`/album/${a.id}`); setOpen(false); setQuery(''); }}
+                        role="option" aria-selected={activeIndex === i}>
+                        {a.coverArt ? (
+                          <img className="search-result-thumb" src={buildCoverArtUrl(a.coverArt, 40)} alt="" loading="lazy" />
+                        ) : (
+                          <div className="search-result-icon"><Disc3 size={14} /></div>
+                        )}
+                        <div>
+                          <div className="search-result-name">{a.name}</div>
+                          <div className="search-result-sub">{a.artist}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
 
-          {results?.songs.length ? (
-            <div className="search-section">
-              <div className="search-section-label"><Music size={12} /> {t('search.songs')}</div>
-              {results.songs.map(s => (
-                <button
-                  key={s.id}
-                  className="search-result-item"
-                  onClick={() => {
-                    playTrack({
-                      id: s.id, title: s.title, artist: s.artist, album: s.album,
-                      albumId: s.albumId, artistId: s.artistId, duration: s.duration, coverArt: s.coverArt,
-                      year: s.year, bitRate: s.bitRate, suffix: s.suffix, userRating: s.userRating
-                    });
-                    setOpen(false); setQuery('');
-                  }}
-                  role="option"
-                >
-                  <div className="search-result-icon"><Music size={14} /></div>
-                  <div>
-                    <div className="search-result-name">{s.title}</div>
-                    <div className="search-result-sub">{s.artist} · {s.album}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : null}
+              {results?.songs.length ? (
+                <div className="search-section">
+                  <div className="search-section-label"><Music size={12} /> {t('search.songs')}</div>
+                  {results.songs.map(s => {
+                    const i = idx++;
+                    return (
+                      <button key={s.id} className={`search-result-item${activeIndex === i ? ' active' : ''}`}
+                        onClick={() => {
+                          playTrack({ id: s.id, title: s.title, artist: s.artist, album: s.album, albumId: s.albumId, artistId: s.artistId, duration: s.duration, coverArt: s.coverArt, year: s.year, bitRate: s.bitRate, suffix: s.suffix, userRating: s.userRating });
+                          setOpen(false); setQuery('');
+                        }}
+                        role="option" aria-selected={activeIndex === i}>
+                        <div className="search-result-icon"><Music size={14} /></div>
+                        <div>
+                          <div className="search-result-name">{s.title}</div>
+                          <div className="search-result-sub">{s.artist} · {s.album}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>;
+          })()}
         </div>
       )}
     </div>

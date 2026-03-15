@@ -1,6 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod audio;
+
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -18,7 +20,10 @@ fn exit_app(app_handle: tauri::AppHandle) {
 }
 
 pub fn run() {
+    let (audio_engine, _audio_thread) = audio::create_engine();
+
     tauri::Builder::default()
+        .manage(audio_engine)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -107,7 +112,16 @@ pub fn run() {
                 let _ = window.emit("window:close-requested", ());
             }
         })
-        .invoke_handler(tauri::generate_handler![greet, exit_app])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            exit_app,
+            audio::audio_play,
+            audio::audio_pause,
+            audio::audio_resume,
+            audio::audio_stop,
+            audio::audio_seek,
+            audio::audio_set_volume,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Psysonic");
 }

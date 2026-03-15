@@ -235,6 +235,7 @@
   overflow: hidden;
   min-width: 0;
   background: var(--bg-app);
+  z-index: 1;
 }
 
 .content-header {

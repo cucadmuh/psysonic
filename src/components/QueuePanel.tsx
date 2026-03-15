@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Track, usePlayerStore } from '../store/playerStore';
-import { Play, Music, Star, X, Trash2, Save, FolderOpen } from 'lucide-react';
+import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle } from 'lucide-react';
 import { buildCoverArtUrl, getAlbum, getPlaylists, getPlaylist, createPlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -122,6 +122,7 @@ export default function QueuePanel() {
   const clearQueue = usePlayerStore(s => s.clearQueue);
 
   const reorderQueue = usePlayerStore(s => s.reorderQueue);
+  const shuffleQueue = usePlayerStore(s => s.shuffleQueue);
   const enqueue = usePlayerStore(s => s.enqueue);
 
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
@@ -247,6 +248,9 @@ export default function QueuePanel() {
         <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>{t('queue.title')}</h2>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button onClick={() => shuffleQueue()} style={{ color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }} aria-label={t('queue.shuffle')} data-tooltip={t('queue.shuffle')} disabled={queue.length < 2}>
+            <Shuffle size={14} />
+          </button>
           <button onClick={handleSave} style={{ color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }} aria-label={t('queue.savePlaylist')} data-tooltip={t('queue.save')}>
             <Save size={14} />
           </button>

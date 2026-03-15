@@ -1,6 +1,6 @@
 {
   "name": "psysonic",
-  "version": "1.0.12",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,6 @@
     "@tauri-apps/plugin-shell": "^2",
     "@tauri-apps/plugin-store": "^2",
     "axios": "^1.7.7",
-    "howler": "^2.2.4",
     "i18next": "^25.8.16",
     "lucide-react": "^0.462.0",
     "md5": "^2.3.0",
@@ -31,7 +30,6 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "@types/howler": "^2.2.12",
     "@types/md5": "^2.3.5",
     "@types/node": "^25.3.5",
     "@types/react": "^18.3.11",

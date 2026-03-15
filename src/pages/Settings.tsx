@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen, Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink
+  Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen, Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle
 } from 'lucide-react';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { useAuthStore, ServerProfile } from '../store/authStore';
@@ -9,6 +9,8 @@ import { useThemeStore } from '../store/themeStore';
 import { pingWithCredentials } from '../api/subsonic';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
+
+const AUDIOBOOK_GENRES_DISPLAY = ['Hörbuch', 'Hoerbuch', 'Hörspiel', 'Hoerspiel', 'Audiobook', 'Audio Book', 'Spoken Word', 'Spokenword', 'Podcast', 'Kapitel', 'Thriller', 'Krimi', 'Speech', 'Fantasy', 'Comedy', 'Literature'];
 
 function AddServerForm({ onSave, onCancel }: { onSave: (data: Omit<ServerProfile, 'id'>) => void; onCancel: () => void }) {
   const { t } = useTranslation();
@@ -76,6 +78,7 @@ export default function Settings() {
 
   const [connStatus, setConnStatus] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'error'>>({});
   const [showAddForm, setShowAddForm] = useState(false);
+  const [newGenre, setNewGenre] = useState('');
 
   const testConnection = async (server: ServerProfile) => {
     setConnStatus(s => ({ ...s, [server.id]: 'testing' }));
@@ -349,6 +352,94 @@ export default function Settings() {
             <button className="btn btn-ghost" onClick={pickDownloadFolder} id="settings-download-folder-btn" style={{ flexShrink: 0 }}>
               <FolderOpen size={16} /> {t('settings.pickFolder')}
             </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Random Mix */}
+      <section className="settings-section">
+        <div className="settings-section-header">
+          <Shuffle size={18} />
+          <h2>{t('settings.randomMixTitle')}</h2>
+        </div>
+        <div className="settings-card">
+          {/* Description */}
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
+            {t('settings.randomMixBlacklistDesc')}
+          </p>
+
+          {/* Custom blacklist chips */}
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: '0.5rem' }}>{t('settings.randomMixBlacklistTitle')}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem', minHeight: 32 }}>
+            {auth.customGenreBlacklist.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>{t('settings.randomMixBlacklistEmpty')}</span>
+            ) : (
+              auth.customGenreBlacklist.map(genre => (
+                <span key={genre} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  background: 'color-mix(in srgb, var(--accent) 15%, transparent)',
+                  color: 'var(--accent)', borderRadius: 'var(--radius-sm)',
+                  padding: '2px 8px', fontSize: 12, fontWeight: 500,
+                }}>
+                  {genre}
+                  <button
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 14 }}
+                    onClick={() => auth.setCustomGenreBlacklist(auth.customGenreBlacklist.filter(g => g !== genre))}
+                    aria-label={`Remove ${genre}`}
+                  >×</button>
+                </span>
+              ))
+            )}
+          </div>
+
+          {/* Add input */}
+          <div style={{ display: 'flex', gap: '0.5rem', maxWidth: 400 }}>
+            <input
+              className="input"
+              type="text"
+              value={newGenre}
+              onChange={e => setNewGenre(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newGenre.trim()) {
+                  const trimmed = newGenre.trim();
+                  if (!auth.customGenreBlacklist.includes(trimmed)) {
+                    auth.setCustomGenreBlacklist([...auth.customGenreBlacklist, trimmed]);
+                  }
+                  setNewGenre('');
+                }
+              }}
+              placeholder={t('settings.randomMixBlacklistPlaceholder')}
+              style={{ fontSize: 13 }}
+            />
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                const trimmed = newGenre.trim();
+                if (trimmed && !auth.customGenreBlacklist.includes(trimmed)) {
+                  auth.setCustomGenreBlacklist([...auth.customGenreBlacklist, trimmed]);
+                }
+                setNewGenre('');
+              }}
+              disabled={!newGenre.trim()}
+            >
+              {t('settings.randomMixBlacklistAdd')}
+            </button>
+          </div>
+
+          <div className="divider" style={{ margin: '1rem 0' }} />
+
+          {/* Hardcoded list */}
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: '0.5rem', color: 'var(--text-muted)' }}>{t('settings.randomMixHardcodedTitle')}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {AUDIOBOOK_GENRES_DISPLAY.map(genre => (
+              <span key={genre} style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: 'var(--bg-hover)', color: 'var(--text-muted)',
+                borderRadius: 'var(--radius-sm)', padding: '2px 8px', fontSize: 12,
+              }}>
+                {genre}
+              </span>
+            ))}
           </div>
         </div>
       </section>
