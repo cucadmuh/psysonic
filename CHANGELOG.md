@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-03-17
+
+### Added
+
+#### AUR Package
+- Psysonic is now available on the **Arch User Repository** — Arch and CachyOS users can install via `yay -S psysonic` or `paru -S psysonic`. Builds from source using the system's own WebKitGTK, avoiding the EGL/Mesa compatibility issues that affected the AppImage on modern distros.
+
+### Changed
+
+#### App Icon
+- New app icon across all platforms (Windows, macOS, Linux, Android, iOS).
+
+#### Linux Distribution
+- **AppImage removed**: The AppImage was fundamentally incompatible with non-Ubuntu distros (Arch, Fedora) due to bundled WebKitGTK conflicting with the system's Mesa/EGL. Linux users should use the `.deb` (Ubuntu/Debian), `.rpm` (Fedora/RHEL), or the new AUR package (Arch/CachyOS).
+
 ## [1.4.3] - 2026-03-16
 
 ### Fixed

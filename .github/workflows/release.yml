@@ -22,19 +22,38 @@ jobs:
       - name: get version
         id: get-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+      - name: extract changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          # Extract the block between ## [VERSION] and the next ## heading
+          BODY=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+          # Store multiline output
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "body<<$EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
       - name: create release
         id: create-release
         uses: actions/github-script@v7
         env:
           PACKAGE_VERSION: ${{ steps.get-version.outputs.version }}
+          CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}
         with:
           script: |
             const tag = `app-v${process.env.PACKAGE_VERSION}`;
+            const body = process.env.CHANGELOG_BODY || 'See the assets to download this version and install.';
             try {
               const { data } = await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 tag,
+              });
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: data.id,
+                body,
               });
               return data.id;
             } catch (e) {
@@ -45,7 +64,7 @@ jobs:
               repo: context.repo.repo,
               tag_name: tag,
               name: `Psysonic v${process.env.PACKAGE_VERSION}`,
-              body: 'See the assets to download this version and install.',
+              body,
               draft: false,
               prerelease: false
             });
@@ -98,15 +117,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libasound2-dev \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad gstreamer1.0-libav
-
-      - name: install linuxdeploy gstreamer plugin
-        run: |
-          wget -q "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" \
-            -O /usr/local/bin/linuxdeploy-plugin-gstreamer.sh
-          chmod +x /usr/local/bin/linuxdeploy-plugin-gstreamer.sh
+            libasound2-dev
 
       - name: setup node
         uses: actions/setup-node@v5
@@ -120,21 +131,7 @@ jobs:
         run: npm install
 
       - name: build
-        run: npm run tauri:build
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-
-      - name: patch AppImage AppRun
-        run: |
-          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" -not -name "*.tar.gz" | head -1)
-          echo "Patching: $APPIMAGE"
-          APPIMAGE_EXTRACT_AND_RUN=1 ./"$APPIMAGE" --appimage-extract
-          sed -i '/^exec /i export WEBKIT_DISABLE_COMPOSITING_MODE=1\nexport WEBKIT_DISABLE_DMABUF_RENDERER=1\nexport GDK_BACKEND=x11\nexport EGL_PLATFORM=x11' squashfs-root/AppRun
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
-            -O appimagetool
-          chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool squashfs-root "$APPIMAGE"
-          rm -rf squashfs-root appimagetool
+        run: npm run tauri:build -- --bundles deb,rpm
 
       - name: upload Linux artifacts
         env:
@@ -142,5 +139,5 @@ jobs:
         run: |
           VERSION=${{ needs.create-release.outputs.package_version }}
           find src-tauri/target/release/bundle \
-            \( -name "*.AppImage" -not -name "*.tar.gz" -o -name "*.deb" -o -name "*.rpm" \) \
+            \( -name "*.deb" -o -name "*.rpm" \) \
             | xargs gh release upload "app-v${VERSION}" --clobber
