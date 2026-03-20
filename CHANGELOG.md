@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-03-20
+
+### Added
+
+#### Last.fm Integration *(Beta)*
+- **Direct Last.fm scrobbling**: Tracks are scrobbled directly via the Last.fm API at 50% playback — no longer routed through Navidrome. Configure in Settings → Server with your Last.fm username and password.
+- **Now Playing updates**: Last.fm receives the currently playing track in real time.
+- **Love / Unlove**: Heart button in the Now Playing page and player bar syncs the loved state with Last.fm instantly.
+- **Last.fm profile badge** in Settings → Server: shows your scrobble count and member since year once connected.
+- ⚠️ **This feature is in beta.** Session management and edge cases are still being refined.
+
+#### Similar Artists
+- Artist detail pages now show a **Similar Artists** section below Top Tracks, sourced from Last.fm and filtered to artists actually present in your library. Shown as chip buttons — click to navigate directly to that artist's page.
+- Requires Last.fm to be configured. Hidden when Last.fm is not connected or no library matches are found.
+
+#### Statistics — Last.fm Stats
+- New **Last.fm Stats** section on the Statistics page (requires Last.fm): top artists, albums, and tracks with proportional play-count bars.
+- **Period filter**: switch between Last 7 Days, 1 Month, 3 Months, 6 Months, 12 Months, and Overall.
+- **Recent Scrobbles**: last 20 scrobbled tracks with relative timestamps and a "Now Playing" badge for the currently active entry.
+- **Genre Distribution removed**: replaced by the Last.fm stats sections.
+
+#### Psychowave Theme *(Work in Progress)*
+- New **Psychowave** theme: a deep purple/violet dark theme inspired by synthwave and retrowave aesthetics.
+- ⚠️ **Still in active development** — colors and details will continue to be refined in upcoming releases.
+
+#### Tooltip System — TooltipPortal
+- All tooltips now use a **React portal** rendered into `document.body` at `z-index: 99999`. Replaces the previous CSS `::after` pseudo-element system.
+- Fixes tooltip clipping inside `overflow: hidden` containers (player bar, queue panel, EQ).
+- Fixes black OS-native tooltip boxes that appeared on native `title=` attributes — all converted to `data-tooltip`.
+- Smart edge detection: tooltip flips position automatically when it would overflow the viewport.
+
+#### Custom Select Dropdowns
+- **Theme**, **Language**, and **EQ preset** selectors are now rendered as styled portal dropdowns — no more unstyled native `<select>` boxes.
+- Supports option groups (EQ: Built-in Presets / Custom Presets), keyboard navigation, and click-outside-to-close.
+
+### Changed
+
+#### Fullscreen Player / Now Playing — Background
+- **Ken Burns animation improved**: background image now has significantly more movement (±8% translate, `inset: -30%`) with a 90-second cycle — more cinematic without being distracting.
+- **Color orbs removed** from both the Fullscreen Player and the Now Playing page. They caused noticeable GPU load especially on integrated graphics.
+
+### Fixed
+
+- **Live dropdown (Now Playing)**: Own playback was no longer reported to Navidrome after the Last.fm implementation removed the `reportNowPlaying` call. Both are now called independently on track start.
+- **Sidebar: Now Playing button position when collapsed**: The button was appearing in the middle of the nav instead of just above the System section. Caused by a leftover `margin-top: auto` on the Statistics link that split the remaining flex space.
+
+---
+
 ## [1.6.0] - 2026-03-19
 
 > ⚠️ **Wichtiger Hinweis / Important Notice**

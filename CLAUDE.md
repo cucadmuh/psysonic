@@ -182,4 +182,4 @@ The workflow is split into three jobs: `create-release` (creates the GitHub Rele
 - **RandomAlbums**: No auto-refresh timer — loads once on mount, manual refresh button only. `loadingRef` guards against concurrent fetches.
 - **Queue shuffle**: `shuffleQueue()` in playerStore keeps current track at index 0, Fisher-Yates shuffles the rest.
 - **Tooltip z-index**: `.main-content` has `z-index: 1` so tooltips in the content area render above the queue panel (which has no z-index but appears later in DOM order). Multi-line tooltips: add `data-tooltip-wrap` attribute + use `\n` in the string; CSS rule `[data-tooltip-wrap]::after { white-space: pre-line; max-width: 220px }`.
-- **Version**: 1.5.0
+- **Version**: 1.7.0

@@ -422,6 +422,61 @@
   --danger:        #bf616a;
 }
 
+/* ─── Psychowave — Synthwave / Retrowave ─── */
+[data-theme='psychowave'] {
+  color-scheme: dark;
+  --select-arrow: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23c9a8ff%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+
+  /* ── Palette ── */
+  --ctp-crust:     #120720;
+  --ctp-mantle:    #160a28;
+  --ctp-base:      #1c0b35;
+  --ctp-surface0:  #2a1050;
+  --ctp-surface1:  #381860;
+  --ctp-surface2:  #4a2878;
+  --ctp-overlay0:  #5e3d90;
+  --ctp-overlay1:  #7b50b8;
+  --ctp-overlay2:  #9868d8;
+  /* Soft lavender text */
+  --ctp-text:      #f0e6ff;
+  --ctp-subtext1:  #c9a8ff;
+  --ctp-subtext0:  #a882e0;
+  /* Neon accents */
+  --ctp-mauve:     #ff2d78;   /* hot pink — primary accent & button gradient start */
+  --ctp-lavender:  #bf5fff;   /* electric purple — button gradient end */
+  --ctp-pink:      #ff2d78;
+  --ctp-flamingo:  #ff6b9d;
+  --ctp-rosewater: #ff8fc0;
+  --ctp-blue:      #00d4ff;   /* electric cyan */
+  --ctp-sapphire:  #007aff;
+  --ctp-sky:       #00bfff;
+  --ctp-teal:      #00e5cc;
+  --ctp-green:     #39ff14;   /* neon green */
+  --ctp-yellow:    #ffd700;   /* neon gold */
+  --ctp-peach:     #ff8c42;
+  --ctp-maroon:    #ff4d6d;
+  --ctp-red:       #ff2d55;
+
+  /* ── Semantic tokens ── */
+  --bg-app:        #1c0b35;
+  --bg-sidebar:    #160a28;
+  --bg-card:       #2a1050;
+  --bg-hover:      #381860;
+  --bg-player:     #120720;
+  --bg-glass:      rgba(28, 11, 53, 0.82);
+  --accent:        #ff2d78;
+  --accent-dim:    rgba(255, 45, 120, 0.15);
+  --accent-glow:   rgba(255, 45, 120, 0.45);
+  --text-primary:  #f0e6ff;
+  --text-secondary:#c9a8ff;
+  --text-muted:    #9b72d0;
+  --border:        #4a2878;
+  --border-subtle: #2a1050;
+  --positive:      #39ff14;
+  --warning:       #ffd700;
+  --danger:        #ff2d55;
+}
+
 /* ─── Global Base Settings ─── */
 :root {
   /* Typography */

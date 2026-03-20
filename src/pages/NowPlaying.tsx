@@ -71,9 +71,6 @@ const NpBg = memo(function NpBg({ url }: { url: string }) {
           style={{ backgroundImage: `url(${l.url})`, opacity: l.visible ? 1 : 0 }}
         />
       ))}
-      <div className="np-orb np-orb-1" />
-      <div className="np-orb np-orb-2" />
-      <div className="np-orb np-orb-3" />
       <div className="np-bg-overlay" />
     </div>
   );
@@ -319,7 +316,7 @@ export default function NowPlaying() {
                   <button
                     onClick={toggleStar}
                     className="np-star-btn"
-                    title={starred ? t('contextMenu.unfavorite') : t('contextMenu.favorite')}
+                    data-tooltip={starred ? t('contextMenu.unfavorite') : t('contextMenu.favorite')}
                   >
                     <Star size={18} fill={starred ? 'var(--ctp-yellow)' : 'none'} color={starred ? 'var(--ctp-yellow)' : 'white'} />
                   </button>
@@ -347,16 +344,16 @@ export default function NowPlaying() {
             )}
           </div>
           <div className="np-queue-actions">
-            <button onClick={() => shuffleQueue()} className="np-action-btn" title={t('queue.shuffle')} disabled={queue.length < 2}>
+            <button onClick={() => shuffleQueue()} className="np-action-btn" data-tooltip={t('queue.shuffle')} disabled={queue.length < 2}>
               <Shuffle size={15} />
             </button>
-            <button onClick={() => setSaveModalOpen(true)} className="np-action-btn" title={t('queue.save')} disabled={queue.length === 0}>
+            <button onClick={() => setSaveModalOpen(true)} className="np-action-btn" data-tooltip={t('queue.save')} disabled={queue.length === 0}>
               <Save size={15} />
             </button>
-            <button onClick={() => setLoadModalOpen(true)} className="np-action-btn" title={t('queue.load')}>
+            <button onClick={() => setLoadModalOpen(true)} className="np-action-btn" data-tooltip={t('queue.load')}>
               <FolderOpen size={15} />
             </button>
-            <button onClick={clearQueue} className="np-action-btn" title={t('queue.clear')} disabled={queue.length === 0}>
+            <button onClick={clearQueue} className="np-action-btn" data-tooltip={t('queue.clear')} disabled={queue.length === 0}>
               <Trash2 size={15} />
             </button>
           </div>
@@ -412,7 +409,7 @@ export default function NowPlaying() {
                   <button
                     className="np-queue-remove"
                     onClick={e => { e.stopPropagation(); removeTrack(idx); }}
-                    title={t('queue.remove')}
+                    data-tooltip={t('queue.remove')}
                   ><X size={13} /></button>
                 </div>
               );

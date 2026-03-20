@@ -19,7 +19,7 @@ export default function ConnectionIndicator({ status, isLan, serverName }: Props
       : t('connection.checking');
 
   return (
-    <div className="connection-indicator" title={title}>
+    <div className="connection-indicator" data-tooltip={title} data-tooltip-pos="bottom">
       <div className={`connection-led connection-led--${status}`} />
       <div className="connection-meta">
         <span className="connection-type">{label}</span>

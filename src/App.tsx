@@ -30,6 +30,7 @@ import NowPlayingPage from './pages/NowPlaying';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
 import DownloadFolderModal from './components/DownloadFolderModal';
+import TooltipPortal from './components/TooltipPortal';
 import ConnectionIndicator from './components/ConnectionIndicator';
 import OfflineOverlay from './components/OfflineOverlay';
 import { useConnectionStatus } from './hooks/useConnectionStatus';
@@ -143,7 +144,8 @@ function AppShell() {
           <button
             className="collapse-btn"
             onClick={toggleQueue}
-            title={t('player.toggleQueue')}
+            data-tooltip={t('player.toggleQueue')}
+            data-tooltip-pos="bottom"
           >
             {isQueueVisible ? <PanelRightClose size={24} /> : <PanelRight size={24} />}
           </button>
@@ -191,6 +193,7 @@ function AppShell() {
       )}
       <ContextMenu />
       <DownloadFolderModal />
+      <TooltipPortal />
     </div>
   );
 }

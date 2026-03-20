@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { buildStreamUrl, getPlayQueue, savePlayQueue, SubsonicSong, reportNowPlaying, scrobbleSong } from '../api/subsonic';
+import { buildStreamUrl, getPlayQueue, savePlayQueue, reportNowPlaying, SubsonicSong } from '../api/subsonic';
+import { lastfmScrobble, lastfmUpdateNowPlaying, lastfmLoveTrack, lastfmUnloveTrack, lastfmGetTrackLoved, lastfmGetAllLovedTracks } from '../api/lastfm';
 import { useAuthStore } from './authStore';
 
 export interface Track {
@@ -55,6 +56,8 @@ interface PlayerState {
   currentTime: number;
   volume: number;
   scrobbled: boolean;
+  lastfmLoved: boolean;
+  lastfmLovedCache: Record<string, boolean>;
 
   playTrack: (track: Track, queue?: Track[]) => void;
   pause: () => void;
@@ -82,6 +85,11 @@ interface PlayerState {
   reorderQueue: (startIndex: number, endIndex: number) => void;
   removeTrack: (index: number) => void;
   shuffleQueue: () => void;
+
+  toggleLastfmLove: () => void;
+  setLastfmLoved: (v: boolean) => void;
+  setLastfmLovedForSong: (title: string, artist: string, v: boolean) => void;
+  syncLastfmLovedTracks: () => Promise<void>;
 
   initializeFromServerQueue: () => Promise<void>;
 
@@ -143,11 +151,13 @@ function handleAudioProgress(current_time: number, duration: number) {
   const progress = current_time / dur;
   usePlayerStore.setState({ currentTime: current_time, progress, buffered: 0 });
 
-  // Scrobble at 50%
+  // Scrobble at 50% directly via Last.fm
   if (progress >= 0.5 && !store.scrobbled) {
     usePlayerStore.setState({ scrobbled: true });
-    const { scrobblingEnabled } = useAuthStore.getState();
-    if (scrobblingEnabled) scrobbleSong(track.id, Date.now());
+    const { scrobblingEnabled, lastfmSessionKey } = useAuthStore.getState();
+    if (scrobblingEnabled && lastfmSessionKey) {
+      lastfmScrobble(track, Date.now(), lastfmSessionKey);
+    }
   }
 
   // Gapless preload: buffer next track when 30s remain
@@ -205,6 +215,9 @@ export function initAudioListeners(): () => void {
     listen<string>('audio:error', ({ payload }) => handleAudioError(payload)),
   ];
 
+  // Sync Last.fm loved tracks cache on startup.
+  usePlayerStore.getState().syncLastfmLovedTracks();
+
   // Initial sync of crossfade settings to Rust audio engine on startup.
   const { crossfadeEnabled, crossfadeSecs } = useAuthStore.getState();
   invoke('audio_set_crossfade', { enabled: crossfadeEnabled, secs: crossfadeSecs }).catch(() => {});
@@ -237,6 +250,8 @@ export const usePlayerStore = create<PlayerState>()(
       currentTime: 0,
       volume: 0.8,
       scrobbled: false,
+      lastfmLoved: false,
+      lastfmLovedCache: {},
       isQueueVisible: true,
       isFullscreenOpen: false,
       repeatMode: 'off',
@@ -252,6 +267,55 @@ export const usePlayerStore = create<PlayerState>()(
       toggleQueue: () => set(state => ({ isQueueVisible: !state.isQueueVisible })),
       setQueueVisible: (v: boolean) => set({ isQueueVisible: v }),
       toggleFullscreen: () => set(state => ({ isFullscreenOpen: !state.isFullscreenOpen })),
+
+      toggleLastfmLove: () => {
+        const { currentTrack, lastfmLoved } = get();
+        const { lastfmSessionKey } = useAuthStore.getState();
+        if (!currentTrack || !lastfmSessionKey) return;
+        const newLoved = !lastfmLoved;
+        const cacheKey = `${currentTrack.title}::${currentTrack.artist}`;
+        set(s => ({ lastfmLoved: newLoved, lastfmLovedCache: { ...s.lastfmLovedCache, [cacheKey]: newLoved } }));
+        if (newLoved) {
+          lastfmLoveTrack(currentTrack, lastfmSessionKey);
+        } else {
+          lastfmUnloveTrack(currentTrack, lastfmSessionKey);
+        }
+      },
+
+      setLastfmLoved: (v) => {
+        const { currentTrack } = get();
+        if (currentTrack) {
+          const cacheKey = `${currentTrack.title}::${currentTrack.artist}`;
+          set(s => ({ lastfmLoved: v, lastfmLovedCache: { ...s.lastfmLovedCache, [cacheKey]: v } }));
+        } else {
+          set({ lastfmLoved: v });
+        }
+      },
+
+      syncLastfmLovedTracks: async () => {
+        const { lastfmSessionKey, lastfmUsername } = useAuthStore.getState();
+        if (!lastfmSessionKey || !lastfmUsername) return;
+        const tracks = await lastfmGetAllLovedTracks(lastfmUsername, lastfmSessionKey);
+        const newCache: Record<string, boolean> = {};
+        for (const t of tracks) newCache[`${t.title}::${t.artist}`] = true;
+        // Merge with existing cache (local likes take precedence)
+        set(s => ({ lastfmLovedCache: { ...newCache, ...s.lastfmLovedCache } }));
+        // Update current track's loved state if it's in the new cache
+        const { currentTrack } = get();
+        if (currentTrack) {
+          const loved = newCache[`${currentTrack.title}::${currentTrack.artist}`] ?? false;
+          set({ lastfmLoved: loved });
+        }
+      },
+
+      setLastfmLovedForSong: (title, artist, v) => {
+        const cacheKey = `${title}::${artist}`;
+        const isCurrentTrack = get().currentTrack?.title === title && get().currentTrack?.artist === artist;
+        set(s => ({
+          lastfmLovedCache: { ...s.lastfmLovedCache, [cacheKey]: v },
+          ...(isCurrentTrack ? { lastfmLoved: v } : {}),
+        }));
+      },
 
       toggleRepeat: () => set(state => {
         const modes = ['off', 'all', 'one'] as const;
@@ -285,6 +349,7 @@ export const usePlayerStore = create<PlayerState>()(
           buffered: 0,
           currentTime: 0,
           scrobbled: false,
+          lastfmLoved: false,
           isPlaying: true, // optimistic — reverted on error
         });
 
@@ -310,7 +375,19 @@ export const usePlayerStore = create<PlayerState>()(
           }, 500);
         });
 
+        // Report Now Playing to Navidrome (for Live/getNowPlaying) + Last.fm
         reportNowPlaying(track.id);
+        const { scrobblingEnabled: lfmEnabled, lastfmSessionKey: lfmKey } = useAuthStore.getState();
+        if (lfmKey) {
+          if (lfmEnabled) lastfmUpdateNowPlaying(track, lfmKey);
+          lastfmGetTrackLoved(track.title, track.artist, lfmKey).then(loved => {
+            const cacheKey = `${track.title}::${track.artist}`;
+            usePlayerStore.setState(s => ({
+              lastfmLoved: loved,
+              lastfmLovedCache: { ...s.lastfmLovedCache, [cacheKey]: loved },
+            }));
+          });
+        }
         syncQueueToServer(newQueue, track, 0);
       },
 
@@ -521,6 +598,7 @@ export const usePlayerStore = create<PlayerState>()(
         queue: state.queue,
         queueIndex: state.queueIndex,
         currentTime: state.currentTime,
+        lastfmLovedCache: state.lastfmLovedCache,
       } as Partial<PlayerState>),
     }
   )

@@ -100,6 +100,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_LASTFM_API_KEY: ${{ secrets.VITE_LASTFM_API_KEY }}
+          VITE_LASTFM_API_SECRET: ${{ secrets.VITE_LASTFM_API_SECRET }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.settings.args }}
@@ -131,6 +133,9 @@ jobs:
         run: npm install
 
       - name: build
+        env:
+          VITE_LASTFM_API_KEY: ${{ secrets.VITE_LASTFM_API_KEY }}
+          VITE_LASTFM_API_SECRET: ${{ secrets.VITE_LASTFM_API_SECRET }}
         run: npm run tauri:build -- --bundles deb,rpm
 
       - name: upload Linux artifacts

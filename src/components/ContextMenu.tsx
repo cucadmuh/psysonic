@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, ListPlus, Radio, Star, Download, ChevronRight, User, Disc3 } from 'lucide-react';
+import { Play, ListPlus, Radio, Star, Download, ChevronRight, User, Disc3, Heart } from 'lucide-react';
+import { lastfmLoveTrack, lastfmUnloveTrack } from '../api/lastfm';
 import { usePlayerStore, Track } from '../store/playerStore';
 import { SubsonicAlbum, SubsonicArtist, star, unstar, getSimilarSongs2, getTopSongs, buildDownloadUrl, getAlbum } from '../api/subsonic';
 import { useNavigate } from 'react-router-dom';
@@ -20,7 +21,7 @@ function sanitizeFilename(name: string): string {
 
 export default function ContextMenu() {
   const { t } = useTranslation();
-  const { contextMenu, closeContextMenu, playTrack, enqueue, queue, currentTrack, removeTrack } = usePlayerStore();
+  const { contextMenu, closeContextMenu, playTrack, enqueue, queue, currentTrack, removeTrack, lastfmLovedCache, setLastfmLovedForSong } = usePlayerStore();
   const auth = useAuthStore();
   const requestDownloadFolder = useDownloadModalStore(s => s.requestFolder);
   const navigate = useNavigate();
@@ -150,6 +151,21 @@ export default function ContextMenu() {
               <div className="context-menu-item" onClick={() => handleAction(() => star(song.id, 'song'))}>
                 <Star size={14} /> {t('contextMenu.favorite')}
               </div>
+              {auth.lastfmSessionKey && (() => {
+                const loveKey = `${song.title}::${song.artist}`;
+                const loved = lastfmLovedCache[loveKey] ?? false;
+                return (
+                  <div className="context-menu-item" onClick={() => handleAction(() => {
+                    const newLoved = !loved;
+                    setLastfmLovedForSong(song.title, song.artist, newLoved);
+                    if (newLoved) lastfmLoveTrack(song, auth.lastfmSessionKey);
+                    else lastfmUnloveTrack(song, auth.lastfmSessionKey);
+                  })}>
+                    <Heart size={14} fill={loved ? 'currentColor' : 'none'} style={{ color: loved ? '#e31c23' : undefined }} />
+                    {loved ? t('contextMenu.lfmUnlove') : t('contextMenu.lfmLove')}
+                  </div>
+                );
+              })()}
             </>
           );
         })()}
@@ -211,6 +227,21 @@ export default function ContextMenu() {
               <div className="context-menu-item" onClick={() => handleAction(() => star(song.id, 'song'))}>
                 <Star size={14} /> {t('contextMenu.favorite')}
               </div>
+              {auth.lastfmSessionKey && (() => {
+                const loveKey = `${song.title}::${song.artist}`;
+                const loved = lastfmLovedCache[loveKey] ?? false;
+                return (
+                  <div className="context-menu-item" onClick={() => handleAction(() => {
+                    const newLoved = !loved;
+                    setLastfmLovedForSong(song.title, song.artist, newLoved);
+                    if (newLoved) lastfmLoveTrack(song, auth.lastfmSessionKey);
+                    else lastfmUnloveTrack(song, auth.lastfmSessionKey);
+                  })}>
+                    <Heart size={14} fill={loved ? 'currentColor' : 'none'} style={{ color: loved ? '#e31c23' : undefined }} />
+                    {loved ? t('contextMenu.lfmUnlove') : t('contextMenu.lfmLove')}
+                  </div>
+                );
+              })()}
               <div className="context-menu-item" onClick={() => handleAction(() => startRadio(song.artist, song.artist))}>
                 <Radio size={14} /> {t('contextMenu.startRadio')}
               </div>

@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Music,
-  Square, Repeat, Repeat1, Maximize2, SlidersHorizontal, X
+  Square, Repeat, Repeat1, Maximize2, SlidersHorizontal, X, Heart
 } from 'lucide-react';
 import { usePlayerStore } from '../store/playerStore';
+import { useAuthStore } from '../store/authStore';
 import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonic';
 import CachedImage from './CachedImage';
 import WaveformSeek from './WaveformSeek';
@@ -26,7 +27,9 @@ export default function PlayerBar() {
     currentTrack, isPlaying, currentTime, volume,
     togglePlay, next, previous, setVolume,
     stop, toggleRepeat, repeatMode, toggleFullscreen,
+    lastfmLoved, toggleLastfmLove,
   } = usePlayerStore();
+  const { lastfmSessionKey } = useAuthStore();
 
   const duration = currentTrack?.duration ?? 0;
   const coverSrc = useMemo(() => currentTrack?.coverArt ? buildCoverArtUrl(currentTrack.coverArt, 128) : '', [currentTrack?.coverArt]);
@@ -86,6 +89,17 @@ export default function PlayerBar() {
             {currentTrack?.artist ?? '—'}
           </div>
         </div>
+        {currentTrack && lastfmSessionKey && (
+          <button
+            className="player-btn player-btn-sm player-love-btn"
+            onClick={toggleLastfmLove}
+            aria-label={lastfmLoved ? t('contextMenu.lfmUnlove') : t('contextMenu.lfmLove')}
+            data-tooltip={lastfmLoved ? t('contextMenu.lfmUnlove') : t('contextMenu.lfmLove')}
+            style={{ color: lastfmLoved ? '#e31c23' : 'var(--text-muted)', flexShrink: 0 }}
+          >
+            <Heart size={15} fill={lastfmLoved ? '#e31c23' : 'none'} />
+          </button>
+        )}
       </div>
 
       {/* Transport Controls */}

@@ -193,9 +193,6 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
         <>
           <FsBg url={bgUrl} />
           <div className="fs-bg-overlay" aria-hidden="true" />
-          <div className="fs-orb fs-orb-1" aria-hidden="true" />
-          <div className="fs-orb fs-orb-2" aria-hidden="true" />
-          <div className="fs-orb fs-orb-3" aria-hidden="true" />
         </>
       )}
 

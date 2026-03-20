@@ -38,7 +38,7 @@ function UpdateToast({ isCollapsed, latestVersion }: { isCollapsed: boolean; lat
 
   if (isCollapsed) {
     return (
-      <div className="update-toast-icon" style={{ marginTop: 'auto' }} title={`${t('sidebar.updateAvailable')}: ${latestVersion}`}>
+      <div className="update-toast-icon" style={{ marginTop: 'auto' }} data-tooltip={`${t('sidebar.updateAvailable')}: ${latestVersion}`} data-tooltip-pos="bottom">
         <ArrowUpCircle size={20} />
       </div>
     );
@@ -100,9 +100,10 @@ export default function Sidebar({
     <aside className={`sidebar animate-slide-in ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-brand">
         <button 
-          className="collapse-btn" 
-          onClick={toggleCollapse} 
-          title={isCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          className="collapse-btn"
+          onClick={toggleCollapse}
+          data-tooltip={isCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          data-tooltip-pos="bottom"
           style={{ padding: 0 }}
         >
           {isCollapsed ? <PanelLeft size={24} /> : <PanelLeftClose size={24} />}
@@ -119,7 +120,8 @@ export default function Sidebar({
             to={item.to}
             end={item.to === '/'}
             className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            title={isCollapsed ? t(item.labelKey) : undefined}
+            data-tooltip={isCollapsed ? t(item.labelKey) : undefined}
+            data-tooltip-pos="bottom"
           >
             <item.icon size={isCollapsed ? 22 : 18} />
             {!isCollapsed && <span>{t(item.labelKey)}</span>}
@@ -130,7 +132,8 @@ export default function Sidebar({
         <NavLink
           to="/now-playing"
           className={({ isActive }) => `nav-link nav-link-nowplaying ${isActive ? 'active' : ''}`}
-          title={isCollapsed ? t('sidebar.nowPlaying') : undefined}
+          data-tooltip={isCollapsed ? t('sidebar.nowPlaying') : undefined}
+          data-tooltip-pos="bottom"
           style={{ marginTop: 'auto' }}
         >
           <span className="nav-np-icon-wrap">
@@ -145,8 +148,8 @@ export default function Sidebar({
         <NavLink
           to="/statistics"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          style={isCollapsed && !latestVersion ? { marginTop: 'auto' } : undefined}
-          title={isCollapsed ? t('sidebar.statistics') : undefined}
+          data-tooltip={isCollapsed ? t('sidebar.statistics') : undefined}
+          data-tooltip-pos="bottom"
         >
           <BarChart3 size={isCollapsed ? 22 : 18} />
           {!isCollapsed && <span>{t('sidebar.statistics')}</span>}
@@ -154,7 +157,8 @@ export default function Sidebar({
         <NavLink
           to="/help"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          title={isCollapsed ? t('sidebar.help') : undefined}
+          data-tooltip={isCollapsed ? t('sidebar.help') : undefined}
+          data-tooltip-pos="bottom"
         >
           <HelpCircle size={isCollapsed ? 22 : 18} />
           {!isCollapsed && <span>{t('sidebar.help')}</span>}
@@ -162,7 +166,8 @@ export default function Sidebar({
         <NavLink
           to="/settings"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          title={isCollapsed ? t('sidebar.settings') : undefined}
+          data-tooltip={isCollapsed ? t('sidebar.settings') : undefined}
+          data-tooltip-pos="bottom"
         >
           <Settings size={isCollapsed ? 22 : 18} />
           {!isCollapsed && <span>{t('sidebar.settings')}</span>}

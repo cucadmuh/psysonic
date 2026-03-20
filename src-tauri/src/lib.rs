@@ -19,6 +19,62 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+/// Proxy Last.fm API calls through Rust/reqwest to avoid WebView networking restrictions.
+/// `params` is a list of [key, value] pairs (method must be included).
+/// If `sign` is true an api_sig is computed. If `get` is true, a GET request is made.
+#[tauri::command]
+async fn lastfm_request(
+    params: Vec<[String; 2]>,
+    sign: bool,
+    get: bool,
+    api_key: String,
+    api_secret: String,
+) -> Result<serde_json::Value, String> {
+    use std::collections::HashMap;
+
+    let mut map: HashMap<String, String> = params.into_iter().map(|[k, v]| (k, v)).collect();
+    map.insert("api_key".into(), api_key.clone());
+
+    if sign {
+        let mut keys: Vec<String> = map.keys().cloned().collect();
+        keys.sort();
+        let sig_str: String = keys.iter()
+            .filter(|k| k.as_str() != "format" && k.as_str() != "callback")
+            .map(|k| format!("{}{}", k, map[k]))
+            .collect::<String>();
+        let sig_input = format!("{}{}", sig_str, api_secret);
+        let digest = md5::compute(sig_input.as_bytes());
+        map.insert("api_sig".into(), format!("{:x}", digest));
+    }
+
+    map.insert("format".into(), "json".into());
+
+    let client = reqwest::Client::new();
+    let resp = if get {
+        client
+            .get("https://ws.audioscrobbler.com/2.0/")
+            .query(&map)
+            .header("User-Agent", "psysonic/1.6.0")
+            .send()
+            .await
+    } else {
+        client
+            .post("https://ws.audioscrobbler.com/2.0/")
+            .form(&map)
+            .header("User-Agent", "psysonic/1.6.0")
+            .send()
+            .await
+    }.map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    if let Some(err) = json.get("error") {
+        return Err(format!("Last.fm {} {}", err, json.get("message").and_then(|m| m.as_str()).unwrap_or("")));
+    }
+
+    Ok(json)
+}
+
 
 pub fn run() {
     let (audio_engine, _audio_thread) = audio::create_engine();
@@ -128,6 +184,7 @@ pub fn run() {
             audio::audio_set_eq,
             audio::audio_preload,
             audio::audio_set_crossfade,
+            lastfm_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Psysonic");

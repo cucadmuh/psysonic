@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save, Trash2, RotateCcw } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 import { useEqStore, EQ_BANDS, BUILTIN_PRESETS } from '../store/eqStore';
 import { useThemeStore } from '../store/themeStore';
 
@@ -240,31 +241,26 @@ export default function Equalizer() {
         </label>
 
         <div className="eq-preset-row">
-          <select
-            className="input eq-preset-select"
+          <CustomSelect
+            className="eq-preset-select"
             value={selectValue}
-            onChange={e => applyPreset(e.target.value)}
-          >
-            {activePreset === null && <option value="__custom__">{t('settings.eqPresetCustom')}</option>}
-            <optgroup label={t('settings.eqPresetBuiltin')}>
-              {BUILTIN_PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-            </optgroup>
-            {customPresets.length > 0 && (
-              <optgroup label={t('settings.eqPresetCustomGroup')}>
-                {customPresets.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-              </optgroup>
-            )}
-          </select>
+            onChange={v => applyPreset(v)}
+            options={[
+              ...(activePreset === null ? [{ value: '__custom__', label: t('settings.eqPresetCustom'), disabled: true }] : []),
+              ...BUILTIN_PRESETS.map(p => ({ value: p.name, label: p.name, group: t('settings.eqPresetBuiltin') })),
+              ...customPresets.map(p => ({ value: p.name, label: p.name, group: t('settings.eqPresetCustomGroup') })),
+            ]}
+          />
 
           {isCustomSaved && (
-            <button className="eq-ctrl-btn" onClick={() => deleteCustomPreset(activePreset!)} title={t('settings.eqDeletePreset')}>
+            <button className="eq-ctrl-btn" onClick={() => deleteCustomPreset(activePreset!)} data-tooltip={t('settings.eqDeletePreset')}>
               <Trash2 size={13} />
             </button>
           )}
-          <button className="eq-ctrl-btn" onClick={() => applyPreset('Flat')} title={t('settings.eqResetBands')}>
+          <button className="eq-ctrl-btn" onClick={() => applyPreset('Flat')} data-tooltip={t('settings.eqResetBands')}>
             <RotateCcw size={13} />
           </button>
-          <button className="eq-ctrl-btn" onClick={() => setShowSave(v => !v)} title={t('settings.eqSavePreset')}>
+          <button className="eq-ctrl-btn" onClick={() => setShowSave(v => !v)} data-tooltip={t('settings.eqSavePreset')}>
             <Save size={13} />
           </button>
         </div>

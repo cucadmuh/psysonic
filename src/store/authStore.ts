@@ -47,6 +47,8 @@ interface AuthState {
   setConnecting: (v: boolean) => void;
   setConnectionError: (e: string | null) => void;
   setLastfm: (apiKey: string, apiSecret: string, sessionKey: string, username: string) => void;
+  connectLastfm: (sessionKey: string, username: string) => void;
+  disconnectLastfm: () => void;
   setMinimizeToTray: (v: boolean) => void;
   setScrobblingEnabled: (v: boolean) => void;
   setMaxCacheMb: (v: number) => void;
@@ -125,6 +127,12 @@ export const useAuthStore = create<AuthState>()(
 
       setLastfm: (apiKey, apiSecret, sessionKey, username) =>
         set({ lastfmApiKey: apiKey, lastfmApiSecret: apiSecret, lastfmSessionKey: sessionKey, lastfmUsername: username }),
+
+      connectLastfm: (sessionKey, username) =>
+        set({ lastfmSessionKey: sessionKey, lastfmUsername: username }),
+
+      disconnectLastfm: () =>
+        set({ lastfmSessionKey: '', lastfmUsername: '' }),
 
       setMinimizeToTray: (v) => set({ minimizeToTray: v }),
       setScrobblingEnabled: (v) => set({ scrobblingEnabled: v }),
