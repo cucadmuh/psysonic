@@ -131,6 +131,11 @@ let togglePlayLock = false;
 // Used to suppress ghost-commands from stale IPC arriving after the switch.
 let lastGaplessSwitchTime = 0;
 
+// Track ID that has already been sent to audio_chain_preload / audio_preload.
+// Prevents the 100ms progress ticker from firing 300 identical IPC calls over
+// the last 30 seconds of a track, each spawning its own HTTP download.
+let gaplessPreloadingId: string | null = null;
+
 // ─── Server queue sync ─────────────────────────────────────────────────────────
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
 function syncQueueToServer(queue: Track[], currentTrack: Track | null, currentTime: number) {
@@ -177,7 +182,8 @@ function handleAudioProgress(current_time: number, duration: number) {
     const nextTrack = repeatMode === 'one'
       ? track
       : (nextIdx < queue.length ? queue[nextIdx] : (repeatMode === 'all' ? queue[0] : null));
-    if (nextTrack && nextTrack.id !== track.id) {
+    if (nextTrack && nextTrack.id !== track.id && nextTrack.id !== gaplessPreloadingId) {
+      gaplessPreloadingId = nextTrack.id;
       const nextUrl = buildStreamUrl(nextTrack.id);
       if (gaplessEnabled) {
         // Gapless ON: decode + chain directly into the Sink now, 30 s in
@@ -233,6 +239,7 @@ function handleAudioEnded() {
  */
 function handleAudioTrackSwitched(duration: number) {
   lastGaplessSwitchTime = Date.now();
+  gaplessPreloadingId = null; // allow preloading for the track after this one
   isAudioPaused = false;
 
   const store = usePlayerStore.getState();
@@ -438,6 +445,7 @@ export const usePlayerStore = create<PlayerState>()(
 
         const gen = ++playGeneration;
         isAudioPaused = false;
+        gaplessPreloadingId = null; // new track — allow fresh preload for next
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; }
 
         const state = get();

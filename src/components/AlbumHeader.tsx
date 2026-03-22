@@ -103,6 +103,7 @@ export default function AlbumHeader({
 
   const totalDuration = songs.reduce((acc, s) => acc + s.duration, 0);
   const totalSize = songs.reduce((acc, s) => acc + (s.size ?? 0), 0);
+  const formatLabel = [...new Set(songs.map(s => s.suffix).filter((f): f is string => !!f))].map(f => f.toUpperCase()).join(' / ');
 
   return (
     <>
@@ -159,6 +160,7 @@ export default function AlbumHeader({
                 {info.genre && <span>· {info.genre}</span>}
                 <span>· {songs.length} Tracks</span>
                 <span>· {formatDuration(totalDuration)}</span>
+                {formatLabel && <span>· {formatLabel}</span>}
                 {info.recordLabel && (
                   <>
                     <span className="album-info-dot">·</span>

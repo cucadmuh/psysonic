@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-03-22
+
+### Critical Fixes
+
+- **Prebuffer Flood — 300 simultaneous downloads eliminated**: The audio engine was spawning up to 300 concurrent HTTP download requests during prebuffering, causing network saturation of ~200 Mbit/s and significant CPU load. The root cause was unbounded parallel preload logic in the Rust engine. Fixed: the engine now buffers intelligently with a single controlled preload per track. Network usage dropped to under 100 kbit/s during normal playback.
+- **Gapless Playback — fully stable**: Gapless transitions now work correctly end-to-end. Previously, edge cases in the sample-accurate handoff between tracks caused audio glitches or silence between songs.
+- **Crossfade — fully stable**: The equal-power crossfade (sin/cos envelope) is now reliable across all track transitions. Previous instability was caused by race conditions in the fade-out trigger and Sink lifecycle management.
+- **Now Playing Page — performance**: The Now Playing page no longer causes sustained CPU spikes. Heavy re-renders triggered by frequent `audio:progress` events (previously every 500 ms with wall-clock drift) are resolved — progress is now driven by an atomic sample counter at 100 ms intervals with no layout thrashing.
+
+### Fixed
+
+- **Volume — Clipping at 100%**: Audible distortion at maximum volume eliminated. A `MASTER_HEADROOM` constant of −1 dB (`0.891`) is now applied to all volume calculations, preventing inter-sample peaks from 0 dBFS masters and EQ biquad ripple from clipping.
+- **Seek — Display Desync**: Seeking while paused could cause the time display to jump to the new position while audio continued from the old one. `CountingSource::try_seek` now only resets the sample counter after confirming the seek succeeded.
+- **Gapless + Crossfade — Mutual Exclusion**: Both modes can no longer be active simultaneously. Enabling one auto-disables the other (Queue toolbar + Settings). Running both simultaneously caused a glitch where Song 2, gapless-chained inside the Sink, would play at full volume after Song 1's crossfade completed.
+- **Now Playing — About the Artist**: The "About the Artist" card is now hidden when no biography is available. Artist images that fail to load are silently hidden instead of showing a broken image placeholder.
+
+### Added
+
+- **Waveform — Hover Tooltip**: Hovering over the waveform seekbar shows a floating time label above the cursor. Hidden when no track is loaded or the cursor leaves.
+- **Hero & Album Detail — Format Badge**: Audio format (FLAC, MP3, OGG, …) now shown alongside Year, Genre, and Track Count in the hero meta row on the Home page and in the Album Detail header.
+- **Help — FLAC Seeking**: New FAQ entry explaining that FLAC files without an embedded SEEKTABLE cannot be seeked, with instructions for adding one via `flac` or `metaflac`.
+
+### Changed
+
+- **Queue — Tech Info**: Codec/bitrate badge moved from the frosted-glass cover overlay into the top-right corner of the meta box. Album artwork is no longer obscured.
+
+---
+
 ## [1.13.0] - 2026-03-22
 
 ### Added

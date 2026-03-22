@@ -80,6 +80,18 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
 
   const album = albums[activeIdx] ?? null;
 
+  // Lazily fetch format label for the currently-visible album (cached by id)
+  const [albumFormats, setAlbumFormats] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!album || albumFormats[album.id] !== undefined) return;
+    getAlbum(album.id).then(data => {
+      const fmts = [...new Set(data.songs.map(s => s.suffix).filter((f): f is string => !!f))];
+      setAlbumFormats(prev => ({ ...prev, [album.id]: fmts.map(f => f.toUpperCase()).join(' / ') }));
+    }).catch(() => {
+      setAlbumFormats(prev => ({ ...prev, [album.id]: '' }));
+    });
+  }, [album?.id]);
+
   // Resolve background URL via cache
   const bgRawUrl = album?.coverArt ? buildCoverArtUrl(album.coverArt, 800) : '';
   const bgCacheKey = album?.coverArt ? coverArtCacheKey(album.coverArt, 800) : '';
@@ -120,6 +132,7 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
             {album.year && <span className="badge">{album.year}</span>}
             {album.genre && <span className="badge">{album.genre}</span>}
             {album.songCount && <span className="badge">{album.songCount} Tracks</span>}
+            {albumFormats[album.id] && <span className="badge">{albumFormats[album.id]}</span>}
           </div>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             <button

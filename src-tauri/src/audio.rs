@@ -380,11 +380,17 @@ impl<S: Source<Item = f32>> Source for CountingSource<S> {
     fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
     fn total_duration(&self) -> Option<Duration> { self.inner.total_duration() }
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
-        // Reset counter to the sought position in samples.
-        let samples = (pos.as_secs_f64() * self.inner.sample_rate() as f64
-            * self.inner.channels() as f64) as u64;
-        self.counter.store(samples, Ordering::Relaxed);
-        self.inner.try_seek(pos)
+        // Reset counter only after confirming the inner seek succeeded.
+        // If we reset first and the seek fails, the counter ends up at the
+        // new position while the decoder is still at the old one — causing
+        // a permanent desync between displayed time and actual audio.
+        let result = self.inner.try_seek(pos);
+        if result.is_ok() {
+            let samples = (pos.as_secs_f64() * self.inner.sample_rate() as f64
+                * self.inner.channels() as f64) as u64;
+            self.counter.store(samples, Ordering::Relaxed);
+        }
+        result
     }
 }
 
@@ -746,6 +752,12 @@ async fn fetch_data(
     Ok(Some(data))
 }
 
+/// -1 dB headroom applied at full scale to prevent inter-sample clipping.
+/// Modern masters are often at 0 dBFS; the EQ biquad chain and resampler
+/// can produce inter-sample peaks slightly above ±1.0 → audible distortion.
+/// 10^(-1/20) ≈ 0.891 — inaudible volume difference, eliminates clipping.
+const MASTER_HEADROOM: f32 = 0.891_254;
+
 fn compute_gain(
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
@@ -756,7 +768,7 @@ fn compute_gain(
         .unwrap_or(1.0);
     let peak = replay_gain_peak.unwrap_or(1.0).max(0.001);
     let gain_linear = gain_linear.min(1.0 / peak);
-    let effective = (volume.clamp(0.0, 1.0) * gain_linear).clamp(0.0, 1.0);
+    let effective = (volume.clamp(0.0, 1.0) * gain_linear * MASTER_HEADROOM).clamp(0.0, 1.0);
     (gain_linear, effective)
 }
 
@@ -1280,7 +1292,7 @@ pub fn audio_seek(seconds: f64, state: State<'_, AudioEngine>) -> Result<(), Str
         }
     }
 
-    // Seeking far back invalidates any pending gapless chain.
+    // Seeking back invalidates any pending gapless chain.
     let cur_pos = {
         let cur = state.current.lock().unwrap();
         cur.position()
@@ -1290,15 +1302,17 @@ pub fn audio_seek(seconds: f64, state: State<'_, AudioEngine>) -> Result<(), Str
     }
 
     let mut cur = state.current.lock().unwrap();
-    if let Some(sink) = &cur.sink {
-        sink.try_seek(Duration::from_secs_f64(seconds.max(0.0)))
-            .map_err(|e: rodio::source::SeekError| e.to_string())?;
-        if cur.paused_at.is_some() {
-            cur.paused_at = Some(seconds);
-        } else {
-            cur.seek_offset = seconds;
-            cur.play_started = Some(Instant::now());
-        }
+    if cur.sink.is_none() { return Ok(()); }
+
+    cur.sink.as_ref().unwrap()
+        .try_seek(Duration::from_secs_f64(seconds.max(0.0)))
+        .map_err(|e| e.to_string())?;
+
+    if cur.paused_at.is_some() {
+        cur.paused_at = Some(seconds);
+    } else {
+        cur.seek_offset = seconds;
+        cur.play_started = Some(Instant::now());
     }
     Ok(())
 }
@@ -1308,7 +1322,7 @@ pub fn audio_set_volume(volume: f32, state: State<'_, AudioEngine>) {
     let mut cur = state.current.lock().unwrap();
     cur.base_volume = volume.clamp(0.0, 1.0);
     if let Some(sink) = &cur.sink {
-        sink.set_volume((cur.base_volume * cur.replay_gain_linear).clamp(0.0, 1.0));
+        sink.set_volume((cur.base_volume * cur.replay_gain_linear * MASTER_HEADROOM).clamp(0.0, 1.0));
     }
 }
 

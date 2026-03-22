@@ -296,19 +296,22 @@ export default function Settings() {
               <div className="divider" />
 
               {/* Crossfade */}
-              <div className="settings-toggle-row">
+              <div className="settings-toggle-row" style={auth.gaplessEnabled ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
                 <div>
                   <div style={{ fontWeight: 500 }}>
                     {t('settings.crossfade')}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.crossfadeDesc')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {auth.gaplessEnabled ? t('settings.notWithGapless') : t('settings.crossfadeDesc')}
+                  </div>
                 </div>
                 <label className="toggle-switch" aria-label={t('settings.crossfade')}>
-                  <input type="checkbox" checked={auth.crossfadeEnabled} onChange={e => auth.setCrossfadeEnabled(e.target.checked)} id="crossfade-toggle" />
+                  <input type="checkbox" checked={auth.crossfadeEnabled} disabled={auth.gaplessEnabled}
+                    onChange={e => { auth.setGaplessEnabled(false); auth.setCrossfadeEnabled(e.target.checked); }} id="crossfade-toggle" />
                   <span className="toggle-track" />
                 </label>
               </div>
-              {auth.crossfadeEnabled && (
+              {auth.crossfadeEnabled && !auth.gaplessEnabled && (
                 <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="range"
@@ -329,15 +332,18 @@ export default function Settings() {
               <div className="divider" />
 
               {/* Gapless */}
-              <div className="settings-toggle-row">
+              <div className="settings-toggle-row" style={auth.crossfadeEnabled ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
                 <div>
                   <div style={{ fontWeight: 500 }}>
                     {t('settings.gapless')}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.gaplessDesc')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {auth.crossfadeEnabled ? t('settings.notWithCrossfade') : t('settings.gaplessDesc')}
+                  </div>
                 </div>
                 <label className="toggle-switch" aria-label={t('settings.gapless')}>
-                  <input type="checkbox" checked={auth.gaplessEnabled} onChange={e => auth.setGaplessEnabled(e.target.checked)} id="gapless-toggle" />
+                  <input type="checkbox" checked={auth.gaplessEnabled} disabled={auth.crossfadeEnabled}
+                    onChange={e => { auth.setCrossfadeEnabled(false); auth.setGaplessEnabled(e.target.checked); }} id="gapless-toggle" />
                   <span className="toggle-track" />
                 </label>
               </div>

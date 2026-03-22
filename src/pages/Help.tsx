@@ -46,6 +46,7 @@ export default function Help() {
         { q: t('help.q24'), a: t('help.a24') },
         { q: t('help.q29'), a: t('help.a29') },
         { q: t('help.q30'), a: t('help.a30') },
+        { q: t('help.q33'), a: t('help.a33') },
       ],
     },
     {

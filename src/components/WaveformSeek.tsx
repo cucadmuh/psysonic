@@ -1,5 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePlayerStore } from '../store/playerStore';
+
+function fmt(s: number): string {
+  if (!s || isNaN(s)) return '0:00';
+  return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+}
 
 const BAR_COUNT = 500;
 
@@ -125,9 +130,12 @@ export default function WaveformSeek({ trackId }: Props) {
   const bufferedRef = useRef(0);
   const isDragging  = useRef(false);
 
+  const [hoverPct, setHoverPct] = useState<number | null>(null);
+
   const progress = usePlayerStore(s => s.progress);
   const buffered = usePlayerStore(s => s.buffered);
   const seek     = usePlayerStore(s => s.seek);
+  const duration = usePlayerStore(s => s.currentTrack?.duration ?? 0);
 
   progressRef.current = progress;
   bufferedRef.current = buffered;
@@ -175,14 +183,30 @@ export default function WaveformSeek({ trackId }: Props) {
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '24px', cursor: trackId ? 'pointer' : 'default', display: 'block' }}
-      onMouseDown={e => {
-        isDragging.current = true;
-        const rect = e.currentTarget.getBoundingClientRect();
-        seekRef.current(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%' }}>
+      {hoverPct !== null && duration > 0 && (
+        <span
+          className="player-volume-pct"
+          style={{ left: `${hoverPct * 100}%` }}
+        >
+          {fmt(hoverPct * duration)}
+        </span>
+      )}
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '24px', cursor: trackId ? 'pointer' : 'default', display: 'block' }}
+        onMouseDown={e => {
+          isDragging.current = true;
+          const rect = e.currentTarget.getBoundingClientRect();
+          seekRef.current(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+        }}
+        onMouseMove={e => {
+          if (!trackId) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          setHoverPct(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+        }}
+        onMouseLeave={() => setHoverPct(null)}
+      />
+    </div>
   );
 }

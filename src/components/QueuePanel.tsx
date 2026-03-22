@@ -318,19 +318,18 @@ export default function QueuePanel() {
       </div>
 
       {currentTrack && (
-        <div className="queue-current-track">
+        <div className="queue-current-track" style={{ position: 'relative' }}>
+          {(currentTrack.bitRate || currentTrack.suffix) && (
+            <div className="queue-current-tech">
+              {currentTrack.suffix?.toUpperCase() ?? ''}
+              {currentTrack.bitRate ? ` · ${currentTrack.bitRate}` : ''}
+            </div>
+          )}
           <div className="queue-current-cover">
             {currentTrack.coverArt ? (
               <img src={buildCoverArtUrl(currentTrack.coverArt, 128)} alt="" loading="eager" />
             ) : (
               <div className="fallback"><Music size={32} /></div>
-            )}
-            {(currentTrack.bitRate || currentTrack.suffix) && (
-              <div className="queue-current-tech">
-                {currentTrack.bitRate && currentTrack.suffix
-                  ? `${currentTrack.bitRate} · ${currentTrack.suffix.toUpperCase()}`
-                  : currentTrack.suffix?.toUpperCase() ?? ''}
-              </div>
             )}
           </div>
           <div className="queue-current-info">
@@ -370,7 +369,7 @@ export default function QueuePanel() {
         <div className="queue-toolbar-sep" />
         <button
           className={`queue-round-btn${gaplessEnabled ? ' active' : ''}`}
-          onClick={() => setGaplessEnabled(!gaplessEnabled)}
+          onClick={() => { setCrossfadeEnabled(false); setShowCrossfadePopover(false); setGaplessEnabled(!gaplessEnabled); }}
           data-tooltip={t('queue.gapless')}
           aria-label={t('queue.gapless')}
         >
@@ -385,6 +384,7 @@ export default function QueuePanel() {
                 setCrossfadeEnabled(false);
                 setShowCrossfadePopover(false);
               } else {
+                setGaplessEnabled(false);
                 setCrossfadeEnabled(true);
                 setShowCrossfadePopover(true);
               }

@@ -156,34 +156,6 @@ function TagCloud({ similarArtists, onArtistClick }: TagCloudProps) {
   );
 }
 
-// ─── Blurred background ───────────────────────────────────────────────────────
-
-const NpBg = memo(function NpBg({ url }: { url: string }) {
-  const [layers, setLayers] = useState<Array<{ url: string; id: number; visible: boolean }>>(() =>
-    url ? [{ url, id: 0, visible: true }] : []
-  );
-  const nextId = useRef(1);
-
-  useEffect(() => {
-    if (!url) return;
-    const id = nextId.current++;
-    setLayers(prev => [...prev, { url, id, visible: false }]);
-    const t1 = setTimeout(() => setLayers(prev => prev.map(l => ({ ...l, visible: l.id === id }))), 30);
-    const t2 = setTimeout(() => setLayers(prev => prev.filter(l => l.id === id)), 700);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [url]);
-
-  return (
-    <div className="np-bg-wrap">
-      {layers.map(l => (
-        <div key={l.id} className="np-bg-layer"
-          style={{ backgroundImage: `url(${l.url})`, opacity: l.visible ? 1 : 0 }}
-        />
-      ))}
-      <div className="np-bg-overlay" />
-    </div>
-  );
-});
 
 // ─── Album Tracklist ──────────────────────────────────────────────────────────
 
@@ -286,47 +258,12 @@ export default function NowPlaying() {
   const coverKey      = currentTrack?.coverArt ? coverArtCacheKey(currentTrack.coverArt, 800) : '';
   const resolvedCover = useCachedUrl(coverFetchUrl, coverKey);
 
-  // Ambilight — sample 8 zones (4 corners + 4 edge midpoints)
-  const [ambilightColors, setAmbilightColors] = useState({
-    tl: '0,0,0', tc: '0,0,0', tr: '0,0,0',
-    ml: '0,0,0',                             mr: '0,0,0',
-    bl: '0,0,0', bc: '0,0,0', br: '0,0,0',
-  });
-  useEffect(() => {
-    if (!resolvedCover) return;
-    const img = new Image();
-    img.onload = () => {
-      const S = 30;
-      const canvas = document.createElement('canvas');
-      canvas.width = S; canvas.height = S;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0, S, S);
-      const data = ctx.getImageData(0, 0, S, S).data;
-      const t = Math.floor(S * 0.25), m = Math.floor(S * 0.5), b2 = Math.floor(S * 0.75);
-      const avg = (x0: number, y0: number, x1: number, y1: number) => {
-        let r = 0, g = 0, b = 0, n = 0;
-        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-          const i = (y * S + x) * 4;
-          r += data[i]; g += data[i+1]; b += data[i+2]; n++;
-        }
-        return `${Math.round(r/n)},${Math.round(g/n)},${Math.round(b/n)}`;
-      };
-      setAmbilightColors({
-        tl: avg(0, 0, t, t),         tc: avg(t, 0, b2, t),        tr: avg(b2, 0, S, t),
-        ml: avg(0, t, t, b2),                                       mr: avg(b2, t, S, b2),
-        bl: avg(0, b2, t, S),        bc: avg(t, b2, b2, S),        br: avg(b2, b2, S, S),
-      });
-    };
-    img.src = resolvedCover;
-  }, [resolvedCover]);
 
 
   const similarArtists = artistInfo?.similarArtist ?? [];
 
   return (
     <div className="np-page">
-      <NpBg url={resolvedCover ?? ''} />
 
       <div className="np-main">
         {currentTrack ? (
@@ -375,23 +312,9 @@ export default function NowPlaying() {
 
               {/* Center: cover */}
               <div className="np-hero-cover-wrap">
-                <div style={{
-                  position: 'absolute', inset: '-20px', zIndex: 0,
-                  background: `
-                    radial-gradient(circle at 0%   0%,   rgba(${ambilightColors.tl},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 50%  0%,   rgba(${ambilightColors.tc},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 100% 0%,   rgba(${ambilightColors.tr},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 0%   50%,  rgba(${ambilightColors.ml},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 100% 50%,  rgba(${ambilightColors.mr},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 0%   100%, rgba(${ambilightColors.bl},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 50%  100%, rgba(${ambilightColors.bc},0.85) 0%, transparent 55%),
-                    radial-gradient(circle at 100% 100%, rgba(${ambilightColors.br},0.85) 0%, transparent 55%)
-                  `,
-                  filter: 'blur(28px)',
-                }} />
                 {resolvedCover
-                  ? <img src={resolvedCover} alt="" className="np-cover" style={{ position: 'relative', zIndex: 1 }} />
-                  : <div className="np-cover np-cover-fallback" style={{ position: 'relative', zIndex: 1 }}><Music size={52} /></div>
+                  ? <img src={resolvedCover} alt="" className="np-cover" />
+                  : <div className="np-cover np-cover-fallback"><Music size={52} /></div>
                 }
               </div>
 
@@ -404,7 +327,7 @@ export default function NowPlaying() {
             </div>
 
             {/* ── About the Artist ── */}
-            {(artistInfo?.biography || artistInfo?.largeImageUrl) && (
+            {artistInfo?.biography && (
               <div className="np-info-card">
                 <div className="np-card-header">
                   <h3 className="np-card-title">{t('nowPlaying.aboutArtist')}</h3>
@@ -416,19 +339,22 @@ export default function NowPlaying() {
                 </div>
                 <div className="np-artist-bio-row">
                   {artistInfo.largeImageUrl && (
-                    <img src={artistInfo.largeImageUrl} alt={currentTrack.artist} className="np-artist-thumb" />
+                    <img
+                      src={artistInfo.largeImageUrl}
+                      alt={currentTrack.artist}
+                      className="np-artist-thumb"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
                   )}
-                  {artistInfo.biography && (
-                    <div className="np-bio-wrap">
-                      <div
-                        className={`np-bio-text${bioExpanded ? ' expanded' : ''}`}
-                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(artistInfo.biography) }}
-                      />
-                      <button className="np-bio-toggle" onClick={() => setBioExpanded(v => !v)}>
-                        {bioExpanded ? t('nowPlaying.showLess') : t('nowPlaying.readMore')}
-                      </button>
-                    </div>
-                  )}
+                  <div className="np-bio-wrap">
+                    <div
+                      className={`np-bio-text${bioExpanded ? ' expanded' : ''}`}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(artistInfo.biography) }}
+                    />
+                    <button className="np-bio-toggle" onClick={() => setBioExpanded(v => !v)}>
+                      {bioExpanded ? t('nowPlaying.showLess') : t('nowPlaying.readMore')}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

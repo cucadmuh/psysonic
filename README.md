@@ -62,7 +62,6 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - [x] Font picker (10 UI fonts)
 
 ### 📋 Planned
-- [ ] FLAC seeking fix
 - [ ] General UI polish & visual refinement
 - [ ] More languages
 
@@ -71,7 +70,7 @@ Designed specifically for users hosting their own music via Navidrome or other S
 ## ● Known Limitations
 
 - **Linux (drag & drop cursor feedback)**: Due to a WebKitGTK limitation, the drag cursor does not reflect the drop operation type — it may appear as a "forbidden" symbol or show no indicator at all, depending on the desktop environment. Drag and drop itself works correctly.
-- **FLAC seeking**: Jumping to a position in a FLAC file via the waveform seekbar currently does not work. Seeking in MP3, OGG, and other formats is unaffected. This is a known issue and will be investigated.
+- **FLAC seeking**: Seeking in FLAC files requires an embedded SEEKTABLE metadata block. Files encoded without one cannot be seeked — clicking the waveform has no effect. Most modern encoders include a SEEKTABLE by default. You can add one retroactively with `metaflac --add-seekpoint=10s *.flac`.
 
 ## 📥 Installation
 
