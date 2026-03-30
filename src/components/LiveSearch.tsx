@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Disc3, Users, Music } from 'lucide-react';
+import { Search, Disc3, Users, Music, SlidersHorizontal } from 'lucide-react';
 import { search, SearchResults, buildCoverArtUrl } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useTranslation } from 'react-i18next';
@@ -116,6 +116,16 @@ export default function LiveSearch() {
             ×
           </button>
         )}
+        <button
+          className="live-search-adv-btn"
+          type="button"
+          onClick={() => navigate(query.trim() ? `/search/advanced?q=${encodeURIComponent(query.trim())}` : '/search/advanced')}
+          data-tooltip={t('search.advanced')}
+          data-tooltip-pos="bottom"
+          aria-label={t('search.advanced')}
+        >
+          <SlidersHorizontal size={14} />
+        </button>
       </div>
 
       {open && (

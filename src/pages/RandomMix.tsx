@@ -13,23 +13,6 @@ const AUDIOBOOK_GENRES = [
   'fantasy', 'comedy', 'literature',
 ];
 
-interface SuperGenre {
-  id: string;
-  label: string;
-  keywords: string[];
-}
-
-const SUPER_GENRES: SuperGenre[] = [
-  { id: 'metal', label: 'Metal', keywords: ['metal', 'thrash', 'doom', 'sludge', 'hardcore', 'grindcore', 'deathcore', 'metalcore', 'stoner', 'crust', 'black', 'death'] },
-  { id: 'rock', label: 'Rock', keywords: ['rock', 'punk', 'grunge', 'alternative', 'indie', 'post-rock', 'prog', 'garage', 'psychedelic', 'shoegaze'] },
-  { id: 'pop', label: 'Pop', keywords: ['pop', 'synth-pop', 'dream pop', 'electropop', 'indie pop', 'dance pop'] },
-  { id: 'electronic', label: 'Electronic', keywords: ['electronic', 'techno', 'trance', 'ambient', 'edm', 'house', 'dubstep', 'drum and bass', 'dnb', 'electro', 'idm', 'synthwave', 'darkwave', 'industrial'] },
-  { id: 'jazz', label: 'Jazz', keywords: ['jazz', 'blues', 'soul', 'funk', 'swing', 'bebop', 'fusion'] },
-  { id: 'classical', label: 'Classical', keywords: ['classical', 'orchestra', 'symphony', 'baroque', 'opera', 'chamber', 'romantic'] },
-  { id: 'hiphop', label: 'Hip-Hop', keywords: ['hip-hop', 'hip hop', 'rap', 'r&b', 'rnb', 'trap', 'grime'] },
-  { id: 'country', label: 'Country', keywords: ['country', 'folk', 'bluegrass', 'americana', 'western'] },
-  { id: 'world', label: 'World', keywords: ['world', 'latin', 'reggae', 'ska', 'afro', 'celtic', 'flamenco', 'bossa nova'] },
-];
 
 function formatDuration(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -58,7 +41,9 @@ export default function RandomMix() {
 
   // Genre Mix state
   const [serverGenres, setServerGenres] = useState<SubsonicGenre[]>([]);
-  const [selectedSuperGenre, setSelectedSuperGenre] = useState<string | null>(null);
+  const [allAvailableGenres, setAllAvailableGenres] = useState<string[]>([]);
+  const [displayedGenres, setDisplayedGenres] = useState<string[]>([]);
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [genreMixSongs, setGenreMixSongs] = useState<SubsonicSong[]>([]);
   const [genreMixLoading, setGenreMixLoading] = useState(false);
   const [genreMixComplete, setGenreMixComplete] = useState(false);
@@ -83,7 +68,16 @@ export default function RandomMix() {
 
   useEffect(() => {
     fetchSongs();
-    getGenres().then(setServerGenres).catch(() => {});
+    getGenres().then(data => {
+      setServerGenres(data);
+      const audiobookLower = AUDIOBOOK_GENRES.map(g => g.toLowerCase());
+      const available = data
+        .filter(g => g.songCount > 0 && !audiobookLower.some(ab => g.value.toLowerCase().includes(ab)))
+        .sort((a, b) => b.songCount - a.songCount)
+        .map(g => g.value);
+      setAllAvailableGenres(available);
+      setDisplayedGenres(available.slice(0, 20));
+    }).catch(() => {});
   }, []);
 
   const filteredSongs = songs.filter(song => {
@@ -101,13 +95,13 @@ export default function RandomMix() {
     return true;
   });
 
-const handlePlayAll = () => {
-     if (selectedSuperGenre && genreMixSongs.length > 0) {
-       playTrack(songToTrack(genreMixSongs[0]), genreMixSongs.map(songToTrack));
-     } else if (filteredSongs.length > 0) {
-       playTrack(songToTrack(filteredSongs[0]), filteredSongs.map(songToTrack));
-     }
-   };
+  const handlePlayAll = () => {
+    if (selectedGenre && genreMixSongs.length > 0) {
+      playTrack(songToTrack(genreMixSongs[0]), genreMixSongs.map(songToTrack));
+    } else if (filteredSongs.length > 0) {
+      playTrack(songToTrack(filteredSongs[0]), filteredSongs.map(songToTrack));
+    }
+  };
 
   const toggleSongStar = async (song: SubsonicSong, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -126,50 +120,24 @@ const handlePlayAll = () => {
     }
   };
 
-  // Compute which super-genres have matching server genres
-  const availableSuperGenres = SUPER_GENRES.filter(sg =>
-    serverGenres.some(sg2 =>
-      sg.keywords.some(kw => sg2.value.toLowerCase().includes(kw))
-    )
-  );
-
-  const loadGenreMix = async (superGenreId: string) => {
-    const sg = SUPER_GENRES.find(s => s.id === superGenreId);
-    if (!sg) return;
-    const allMatched = serverGenres
-      .filter(sg2 => sg.keywords.some(kw => sg2.value.toLowerCase().includes(kw)))
-      .map(sg2 => sg2.value)
-      .sort(() => Math.random() - 0.5);
-    const matched = allMatched.slice(0, 50);
+  const loadGenreMix = async (genre: string) => {
     setGenreMixLoading(true);
     setGenreMixComplete(false);
     setGenreMixSongs([]);
-
-    const perGenre = Math.max(1, Math.ceil(50 / matched.length));
-    const accumulated: SubsonicSong[] = [];
-    let resolved = 0;
-
-    await Promise.allSettled(matched.map(g =>
-      getRandomSongs(perGenre, g, 45000).then(songs => {
-        accumulated.push(...songs);
-        resolved++;
-        // Show first batch immediately; update on every subsequent resolve
-        setGenreMixSongs([...accumulated]);
-        if (resolved === 1) setGenreMixLoading(false);
-      }).catch(() => { resolved++; })
-    ));
-
-    // Final shuffle once all requests are done
-    setGenreMixSongs(prev => {
-      const s = [...prev];
-      for (let i = s.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [s[i], s[j]] = [s[j], s[i]];
-      }
-      return s.slice(0, 50);
-    });
+    try {
+      const fetched = await getRandomSongs(50, genre, 45000);
+      setGenreMixSongs(fetched);
+    } catch {}
     setGenreMixLoading(false);
     setGenreMixComplete(true);
+  };
+
+  const shuffleDisplayedGenres = () => {
+    const shuffled = [...allAvailableGenres].sort(() => Math.random() - 0.5);
+    setDisplayedGenres(shuffled.slice(0, 20));
+    setSelectedGenre(null);
+    setGenreMixSongs([]);
+    setGenreMixComplete(false);
   };
 
 
@@ -183,8 +151,8 @@ const handlePlayAll = () => {
             <RefreshCw size={18} className={loading ? 'spin' : ''} /> {t('randomMix.remix')}
           </button>
           {(() => {
-            const isGenreLoading = selectedSuperGenre && !genreMixComplete;
-            const isDisabled = loading || (selectedSuperGenre ? !genreMixComplete || genreMixSongs.length === 0 : filteredSongs.length === 0);
+            const isGenreLoading = selectedGenre && !genreMixComplete;
+            const isDisabled = loading || (selectedGenre ? !genreMixComplete || genreMixSongs.length === 0 : filteredSongs.length === 0);
             return (
               <button
                 className={`btn ${isGenreLoading ? 'btn-surface' : 'btn-primary'}`}
@@ -215,9 +183,12 @@ const handlePlayAll = () => {
       }}>
         {/* Left: Blacklist */}
         <div style={{ background: 'var(--bg-card)', padding: '1rem 1.25rem' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
             {t('randomMix.filterPanelTitle')}
           </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+            {t('randomMix.filterPanelDesc')}
+          </p>
 
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', fontSize: 13, marginBottom: '0.75rem' }}>
             <input
@@ -300,34 +271,47 @@ const handlePlayAll = () => {
             {t('randomMix.genreMixTitle')}
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{t('randomMix.genreMixDesc')}</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
             {serverGenres.length === 0 ? (
               <div className="spinner" style={{ width: 14, height: 14 }} />
-            ) : availableSuperGenres.length === 0 ? (
+            ) : displayedGenres.length === 0 ? (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('randomMix.genreMixNoGenres')}</span>
             ) : (
-              availableSuperGenres.map(sg => (
-                <button
-                  key={sg.id}
-                  className={`btn ${selectedSuperGenre === sg.id ? 'btn-primary' : 'btn-surface'}`}
-                  style={{ fontSize: 12, padding: '4px 12px' }}
-                  onClick={() => { setSelectedSuperGenre(sg.id); loadGenreMix(sg.id); }}
-                  disabled={genreMixLoading}
-                >
-                  {sg.label}
-                </button>
-              ))
+              <>
+                {displayedGenres.map(genre => (
+                  <button
+                    key={genre}
+                    className={`btn ${selectedGenre === genre ? 'btn-primary' : 'btn-surface'}`}
+                    style={{ fontSize: 12, padding: '4px 12px' }}
+                    onClick={() => { setSelectedGenre(genre); loadGenreMix(genre); }}
+                    disabled={genreMixLoading}
+                  >
+                    {genre}
+                  </button>
+                ))}
+                {allAvailableGenres.length > 20 && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ fontSize: 12, padding: '4px 10px', flexShrink: 0 }}
+                    onClick={shuffleDisplayedGenres}
+                    disabled={genreMixLoading}
+                    data-tooltip={t('randomMix.shuffleGenres')}
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* Genre Mix tracklist (shown when a super-genre is selected) */}
+      {/* Genre Mix tracklist (shown when a genre is selected) */}
       {(genreMixLoading || genreMixSongs.length > 0) && (
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {SUPER_GENRES.find(s => s.id === selectedSuperGenre)?.label} Mix
+              {selectedGenre} Mix
               {genreMixLoading && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />}
             </span>
           </div>
@@ -381,7 +365,7 @@ const handlePlayAll = () => {
          </div>
        )}
 
-      {!selectedSuperGenre && (loading && songs.length === 0 ? (
+      {!selectedGenre && (loading && songs.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
           <div className="spinner" />
         </div>

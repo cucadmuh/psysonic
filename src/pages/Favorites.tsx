@@ -3,7 +3,7 @@ import AlbumRow from '../components/AlbumRow';
 import ArtistRow from '../components/ArtistRow';
 import { getStarred, SubsonicAlbum, SubsonicArtist, SubsonicSong } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
-import { ListPlus, X } from 'lucide-react';
+import { ListPlus, Play, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { unstar } from '../api/subsonic';
@@ -70,11 +70,21 @@ export default function Favorites() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
                 <h2 className="section-title" style={{ margin: 0 }}>{t('favorites.songs')}</h2>
                 <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    const tracks = songs.map(songToTrack);
+                    playTrack(tracks[0], tracks);
+                  }}
+                >
+                  <Play size={15} />
+                  {t('favorites.playAll')}
+                </button>
+                <button
                   className="btn btn-surface"
-                onClick={() => {
-                     const tracks = songs.map(songToTrack);
-                     enqueue(tracks);
-                   }}
+                  onClick={() => {
+                    const tracks = songs.map(songToTrack);
+                    enqueue(tracks);
+                  }}
                 >
                   <ListPlus size={15} />
                   {t('favorites.enqueueAll')}

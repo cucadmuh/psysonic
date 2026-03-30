@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Track, usePlayerStore, songToTrack } from '../store/playerStore';
-import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check } from 'lucide-react';
+import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus } from 'lucide-react';
 import { buildCoverArtUrl, getAlbum, getPlaylists, getPlaylist, createPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -60,7 +60,7 @@ function SavePlaylistModal({ onClose, onSave }: { onClose: () => void, onSave: (
   );
 }
 
-function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (id: string, name: string) => void }) {
+function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (id: string, name: string, mode: 'replace' | 'append') => void }) {
   const { t } = useTranslation();
   const [playlists, setPlaylists] = useState<SubsonicPlaylist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +96,7 @@ function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (
   return (
     <>
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px', width: '90vw' }}>
         <button className="modal-close" onClick={onClose}><X size={18} /></button>
         <h3 style={{ marginBottom: '1rem', fontFamily: 'var(--font-display)' }}>{t('queue.loadPlaylist')}</h3>
         {!loading && playlists.length > 0 && (
@@ -120,7 +120,8 @@ function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--ctp-surface1)', borderRadius: 'var(--radius-md)' }}>
                 <span style={{ fontWeight: 500 }} className="truncate" data-tooltip={p.name}>{p.name}</span>
                 <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                  <button className="nav-btn" onClick={() => onLoad(p.id, p.name)} data-tooltip={t('queue.load')} style={{ width: '28px', height: '28px', background: 'transparent' }}><Play size={14} /></button>
+                  <button className="nav-btn" onClick={() => onLoad(p.id, p.name, 'replace')} data-tooltip={t('queue.load')} style={{ width: '28px', height: '28px', background: 'transparent' }}><Play size={14} /></button>
+                  <button className="nav-btn" onClick={() => onLoad(p.id, p.name, 'append')} data-tooltip={t('queue.appendToQueue')} style={{ width: '28px', height: '28px', background: 'transparent' }}><ListPlus size={14} /></button>
                   <button className="nav-btn" onClick={() => handleDelete(p.id, p.name)} data-tooltip={t('queue.delete')} style={{ width: '28px', height: '28px', background: 'transparent', color: 'var(--ctp-red)' }}><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -583,13 +584,17 @@ export default function QueuePanel() {
       {loadModalOpen && (
         <LoadPlaylistModal
           onClose={() => setLoadModalOpen(false)}
-          onLoad={async (id, name) => {
+          onLoad={async (id, name, mode) => {
             try {
               const data = await getPlaylist(id);
               const tracks: Track[] = data.songs.map(songToTrack);
               if (tracks.length > 0) {
-                clearQueue();
-                playTrack(tracks[0], tracks);
+                if (mode === 'append') {
+                  enqueue(tracks);
+                } else {
+                  clearQueue();
+                  playTrack(tracks[0], tracks);
+                }
               }
               setActivePlaylist({ id, name });
               setLoadModalOpen(false);

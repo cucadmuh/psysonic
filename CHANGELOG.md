@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-03-30
+
+### Added
+
+- **Advanced Search**: New dedicated page (`/search/advanced`) reachable via the filter icon in the search bar. Supports free-text search combined with genre filter (dropdown from server), year range (from/to), and result-type toggle (All / Artists / Albums / Songs). Search logic: text query uses `search3` with client-side genre/year filtering; genre-only uses `getAlbumsByGenre` + random songs from that genre; year-only uses `getAlbumList(byYear)`. Results show in the standard ArtistRow / AlbumRow / tracklist layout with drag-to-queue and context menu support.
+- **Genre Mix — Server-native genres**: The Genre Mix panel in Random Mix now shows the top 20 genres from the server sorted by song count, instead of hardcoded keyword-based "Super Genre" groups. Only genres with at least one song and no audiobook keywords are shown. Clicking a badge fetches up to 50 random songs from exactly that genre.
+- **Genre Mix — Shuffle button**: A ↺ button appears when the server has more than 20 genres. Clicking it picks a fresh random selection of 20 from all available genres, replacing the current badges without triggering a search.
+- **Favorites — Play All**: "Play All" button (primary style) added next to "Add all to queue" in the Favorites → Songs section. Starts playback immediately from the first favorited song.
+- **Playlist Load — Append mode**: The playlist load modal now has two action buttons per playlist: ▶ replaces the queue and starts playback (previous behavior), ≡+ appends all tracks to the existing queue without interrupting playback.
+
+### Fixed
+
+- **Replay Gain** *(contributed by [@trbn1](https://github.com/trbn1))*: Replay Gain metadata (track gain, album gain, peaks) is now correctly propagated to the audio engine across all track-construction sites via the new `songToTrack()` helper. Previously tracks built inline missed the `replayGain` field, causing the engine to apply 0 dB gain regardless of tags.
+
+### Changed
+
+- **Genre Mix description**: Panel subtitle updated to explain that badges represent the top 20 genres by song count and that clicking loads a random mix from that genre.
+- **Random Mix — Filter panel**: Added a short descriptive hint below the "Filters" heading explaining that genre tags and artist names in the tracklist are clickable to add them to the blacklist.
+- **Playlist Load modal**: Width increased from 400 px to 560 px (90 vw cap) so long playlist names are readable without truncation.
+- **Settings — Contributors**: Contributors section is now a collapsible table. Each entry shows the contributor's GitHub avatar, `@username` (linked to their profile), a version badge, and a bullet list of their specific contributions. [@trbn1](https://github.com/trbn1) added for Replay Gain fix (PR #9).
+
+### Theme Fixes
+
+- **Powerslave**: Album card play button no longer flickers between gradient and flat accent color on hover — explicit `:hover` gradient override added. Sidebar stripe pattern replaced with soft radial-gradient cloud wisps.
+
+---
+
 ## [1.22.0] - 2026-03-30
 
 ### Added

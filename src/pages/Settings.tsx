@@ -4,7 +4,7 @@ import changelogRaw from '../../CHANGELOG.md?raw';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen,
-  Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard
+  Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard, ChevronDown
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -25,6 +25,32 @@ import { useTranslation } from 'react-i18next';
 import Equalizer from '../components/Equalizer';
 
 const AUDIOBOOK_GENRES_DISPLAY = ['Hörbuch', 'Hoerbuch', 'Hörspiel', 'Hoerspiel', 'Audiobook', 'Audio Book', 'Spoken Word', 'Spokenword', 'Podcast', 'Kapitel', 'Thriller', 'Krimi', 'Speech', 'Fantasy', 'Comedy', 'Literature'];
+
+const CONTRIBUTORS = [
+  {
+    github: 'jiezhuo',
+    since: '1.21',
+    contributions: [
+      'Chinese (Simplified) translation',
+    ],
+  },
+  {
+    github: 'nullobject',
+    since: '1.22.0',
+    contributions: [
+      'Seek debounce & race condition fix (PR #7)',
+      'Waveform seekbar stability on position update (PR #8)',
+    ],
+  },
+  {
+    github: 'trbn1',
+    since: '1.22.0',
+    contributions: [
+      'Replay Gain metadata propagation (PR #9)',
+      'songToTrack() — unified track construction across all sources',
+    ],
+  },
+] as const;
 
 type Tab = 'playback' | 'library' | 'appearance' | 'shortcuts' | 'server' | 'about';
 
@@ -118,6 +144,7 @@ export default function Settings() {
   const [offlineCacheBytes, setOfflineCacheBytes] = useState<number | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [contributorsOpen, setContributorsOpen] = useState(false);
 
   useEffect(() => {
     if (!auth.lastfmSessionKey || !auth.lastfmUsername) { setLfmUserInfo(null); return; }
@@ -1017,9 +1044,51 @@ export default function Settings() {
                   <span style={{ color: 'var(--text-muted)', minWidth: 56 }}>AI</span>
                   <span style={{ color: 'var(--text-secondary)' }}>{t('settings.aboutAiCredit')}</span>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <span style={{ color: 'var(--text-muted)', minWidth: 56 }}>{t('settings.aboutContributorsLabel')}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{t('settings.aboutContributors')}</span>
+                <div>
+                  <button
+                    style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
+                    onClick={() => setContributorsOpen(o => !o)}
+                  >
+                    <span style={{ color: 'var(--text-muted)', minWidth: 56, flexShrink: 0 }}>{t('settings.aboutContributorsLabel')}</span>
+                    <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{CONTRIBUTORS.length}</span>
+                    <ChevronDown size={13} style={{ color: 'var(--text-muted)', transform: contributorsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+
+                  {contributorsOpen && (
+                    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {CONTRIBUTORS.map(c => (
+                        <div key={c.github} style={{
+                          display: 'flex', gap: '0.75rem', alignItems: 'flex-start',
+                          background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
+                          padding: '0.65rem 0.75rem',
+                          boxShadow: 'inset 0 0 0 1px var(--border-subtle)',
+                        }}>
+                          <img
+                            src={`https://github.com/${c.github}.png?size=48`}
+                            width={36} height={36}
+                            style={{ borderRadius: '50%', flexShrink: 0, marginTop: 2 }}
+                            alt={c.github}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                              <button
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--accent)', fontWeight: 600, fontSize: 13 }}
+                                onClick={() => openUrl(`https://github.com/${c.github}`)}
+                              >
+                                @{c.github}
+                              </button>
+                              <span style={{ fontSize: 10, background: 'var(--accent-dim)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 99, fontWeight: 600 }}>
+                                v{c.since}
+                              </span>
+                            </div>
+                            <ul style={{ margin: 0, padding: '0 0 0 1rem', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+                              {c.contributions.map(item => <li key={item}>{item}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

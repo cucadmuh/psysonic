@@ -119,7 +119,7 @@ export default function GenreFilterBar({ selected, onSelectionChange }: GenreFil
         />
 
         {dropdownOpen && filteredOptions.length > 0 && (
-          <div className="genre-filter-dropdown">
+          <div className="genre-filter-dropdown" onWheel={e => e.stopPropagation()}>
             {filteredOptions.slice(0, 60).map(g => (
               <div key={g} className="genre-filter-option" onMouseDown={() => add(g)}>
                 {g}
@@ -129,7 +129,7 @@ export default function GenreFilterBar({ selected, onSelectionChange }: GenreFil
         )}
 
         {dropdownOpen && filteredOptions.length === 0 && search.length > 0 && (
-          <div className="genre-filter-dropdown">
+          <div className="genre-filter-dropdown" onWheel={e => e.stopPropagation()}>
             <div className="genre-filter-empty">{t('common.filterNoGenres')}</div>
           </div>
         )}

@@ -3306,13 +3306,13 @@ select.input.input:focus {
 .card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
   transition: transform var(--transition-base), box-shadow var(--transition-base);
 }
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: inset 0 0 0 1px var(--border), var(--shadow-md);
 }
 
 /* ─── Album Grid ─── */
@@ -11516,21 +11516,17 @@ input[type="range"]:hover::-webkit-slider-thumb {
   --logo-color-end:   #C8960C;
 }
 
-/* Sidebar — Nile-sky deep blue, subtle hieroglyph grid */
+/* Sidebar — Nile-sky deep blue, drifting cloud wisps */
 [data-theme='powerslave'] .sidebar {
   background: #0A2035;
   border-right: none;
   background-image:
-    repeating-linear-gradient(
-      0deg,
-      rgba(46, 123, 184, 0.08) 0px, transparent 1px, transparent 48px,
-      rgba(46, 123, 184, 0.08) 49px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      rgba(46, 123, 184, 0.05) 0px, transparent 1px, transparent 96px,
-      rgba(46, 123, 184, 0.05) 97px
-    );
+    radial-gradient(ellipse 130% 30% at 50%  6%, rgba(140, 190, 235, 0.07) 0%, transparent 65%),
+    radial-gradient(ellipse  90% 25% at 18% 22%, rgba(100, 155, 205, 0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 115% 28% at 78% 38%, rgba(120, 170, 225, 0.05) 0%, transparent 65%),
+    radial-gradient(ellipse 100% 26% at 38% 58%, rgba( 90, 145, 195, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 120% 30% at 68% 75%, rgba(110, 165, 218, 0.05) 0%, transparent 65%),
+    radial-gradient(ellipse  85% 24% at 22% 92%, rgba(130, 180, 232, 0.04) 0%, transparent 60%);
 }
 
 [data-theme='powerslave'] .nav-link { color: rgba(200, 224, 248, 0.65); }
@@ -11631,6 +11627,10 @@ input[type="range"]:hover::-webkit-slider-thumb {
   background: linear-gradient(180deg, #D49020 0%, #C8800A 50%, #A06008 100%);
   color: #180E04;
   border: 1px solid #806006;
+}
+
+[data-theme='powerslave'] .album-card-details-btn:hover {
+  background: linear-gradient(180deg, #E0A028 0%, #D48818 50%, #B07010 100%);
 }
 
 /* Badge — gold pill */

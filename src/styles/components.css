@@ -169,15 +169,14 @@
   cursor: pointer;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
   overflow: hidden;
-  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
 }
 
 .album-card:hover {
   transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--border);
+  box-shadow: inset 0 0 0 1px var(--border), var(--shadow-md);
 }
 
 .album-card-cover {
@@ -363,6 +362,11 @@
   gap: var(--space-4);
 }
 
+.album-grid-wrap .album-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 220px;
+}
+
 
 @media (min-width: 1024px) {
   .album-grid-wrap {
@@ -498,13 +502,13 @@
 
 .live-search-field {
   padding-left: 36px !important;
-  padding-right: 32px !important;
+  padding-right: 58px !important;
   border-radius: var(--radius-full) !important;
 }
 
 .live-search-clear {
   position: absolute;
-  right: 12px;
+  right: 8px;
   font-size: 18px;
   color: var(--text-muted);
   line-height: 1;
@@ -513,6 +517,29 @@
 
 .live-search-clear:hover {
   color: var(--text-primary);
+}
+
+.live-search-adv-btn {
+  position: absolute;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.55;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+  border-radius: var(--radius-sm);
+  padding: 0;
+}
+
+.live-search-adv-btn:hover {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .live-search-dropdown {
@@ -4127,6 +4154,7 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   max-height: 220px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 500;
 }
 

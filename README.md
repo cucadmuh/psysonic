@@ -55,7 +55,8 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - [x] Synchronized lyrics via LRCLIB (in-sidebar, auto-scroll)
 - [x] Multi-server support
 - [x] IndexedDB image caching
-- [x] Random Mix with keyword filter & Super Genre mix
+- [x] Random Mix with server-native Genre Mix (top genres by song count, shuffleable)
+- [x] Advanced Search (text + genre + year + result-type filters)
 - [x] Large theme library across 8 groups: Open Source Classics, Operating Systems, Games, Movies, Series, Social Media, Psysonic originals, Mediaplayer
 - [x] Internationalization (English, German, French, Dutch, Chinese)
 - [x] AUR package (Arch / CachyOS)
@@ -63,7 +64,7 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - [x] Font picker (10 UI fonts)
 
 ### 📋 Planned
-- [ ] General UI polish & visual refinement
+- [ ] Theme contrast & legibility audit — systematic review of text/background contrast ratios across all 60+ themes
 - [ ] Accessibility (a11y) — keyboard navigation, screen reader support, ARIA labels
 - [ ] More languages
 
@@ -71,7 +72,8 @@ Designed specifically for users hosting their own music via Navidrome or other S
 
 ## ● Known Limitations
 
-- **Linux (drag & drop cursor feedback)**: Due to a WebKitGTK limitation, the drag cursor does not reflect the drop operation type — it may appear as a "forbidden" symbol or show no indicator at all, depending on the desktop environment. Drag and drop itself works correctly.
+- **Linux (Wayland — drag & drop cursor)**: On some Wayland compositors the drag cursor may show no visual indicator during DnD. This is a WebKitGTK limitation unrelated to the drop operation itself, which always works correctly.
+- **FLAC without SEEKTABLE**: FLAC files that were encoded without a SEEKTABLE index cannot be seeked. The seek silently fails; playback continues from the current position.
 
 ## 📥 Installation
 

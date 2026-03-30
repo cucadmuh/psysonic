@@ -25,6 +25,7 @@ import Statistics from './pages/Statistics';
 import Help from './pages/Help';
 import RandomAlbums from './pages/RandomAlbums';
 import SearchResults from './pages/SearchResults';
+import AdvancedSearch from './pages/AdvancedSearch';
 import NowPlayingPage from './pages/NowPlaying';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
@@ -242,6 +243,7 @@ function AppShell() {
             <Route path="/random-mix" element={<RandomMix />} />
             <Route path="/label/:name" element={<LabelAlbums />} />
             <Route path="/search" element={<SearchResults />} />
+            <Route path="/search/advanced" element={<AdvancedSearch />} />
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/now-playing" element={<NowPlayingPage />} />
             <Route path="/settings" element={<Settings />} />
