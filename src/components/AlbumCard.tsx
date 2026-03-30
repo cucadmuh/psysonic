@@ -7,6 +7,7 @@ import { useOfflineStore } from '../store/offlineStore';
 import { useAuthStore } from '../store/authStore';
 import CachedImage from './CachedImage';
 import { playAlbum } from '../utils/playAlbum';
+import { useDragDrop } from '../contexts/DragDropContext';
 
 interface AlbumCardProps {
   album: SubsonicAlbum;
@@ -22,6 +23,7 @@ function AlbumCard({ album }: AlbumCardProps) {
     return meta.trackIds.every(tid => !!s.tracks[`${serverId}:${tid}`]);
   });
   const coverUrl = album.coverArt ? buildCoverArtUrl(album.coverArt, 300) : '';
+  const psyDrag = useDragDrop();
 
   return (
     <div
@@ -35,14 +37,20 @@ function AlbumCard({ album }: AlbumCardProps) {
         e.preventDefault();
         openContextMenu(e.clientX, e.clientY, album, 'album');
       }}
-      draggable
-      onDragStart={e => {
-        e.dataTransfer.effectAllowed = 'copy';
-        e.dataTransfer.setData('text/plain', JSON.stringify({
-          type: 'album',
-          id: album.id,
-          name: album.name,
-        }));
+      onMouseDown={e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY;
+        const onMove = (me: MouseEvent) => {
+          if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            psyDrag.startDrag({ data: JSON.stringify({ type: 'album', id: album.id, name: album.name }), label: album.name, coverUrl: coverUrl || undefined }, me.clientX, me.clientY);
+          }
+        };
+        const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
       }}
     >
       <div className="album-card-cover">

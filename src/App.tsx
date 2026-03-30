@@ -29,6 +29,7 @@ import NowPlayingPage from './pages/NowPlaying';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
 import DownloadFolderModal from './components/DownloadFolderModal';
+import { DragDropProvider } from './contexts/DragDropContext';
 import TooltipPortal from './components/TooltipPortal';
 import ConnectionIndicator from './components/ConnectionIndicator';
 import LastfmIndicator from './components/LastfmIndicator';
@@ -161,6 +162,33 @@ function AppShell() {
       document.body.classList.remove('is-dragging');
     };
   }, [isDraggingQueue, handleMouseMove, handleMouseUp]);
+
+  // ── Global DnD fix for Linux/WebKitGTK ──────────────────────────
+  // WebKitGTK (used by Tauri on Linux) requires the document itself to
+  // accept drags via preventDefault() on dragover/dragenter.  Without
+  // this, the webview shows a "forbidden" cursor for all in-app HTML5
+  // drag-and-drop because it never sees a valid drop target at the
+  // document level.  This is harmless on Windows/macOS where DnD already
+  // works correctly.
+  useEffect(() => {
+    const allow = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    // Prevent the webview from navigating when something (e.g. a file
+    // from the OS file manager) is dropped on the document body.
+    const blockDrop = (e: DragEvent) => { e.preventDefault(); };
+
+    document.addEventListener('dragover', allow);
+    document.addEventListener('dragenter', allow);
+    document.addEventListener('drop', blockDrop);
+
+    return () => {
+      document.removeEventListener('dragover', allow);
+      document.removeEventListener('dragenter', allow);
+      document.removeEventListener('drop', blockDrop);
+    };
+  }, []);
 
   return (
     <div 
@@ -445,7 +473,9 @@ export default function App() {
           path="/*"
           element={
             <RequireAuth>
-              <AppShell />
+              <DragDropProvider>
+                <AppShell />
+              </DragDropProvider>
             </RequireAuth>
           }
         />

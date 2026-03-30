@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { Track, usePlayerStore } from '../store/playerStore';
-import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic } from 'lucide-react';
-import { buildCoverArtUrl, getAlbum, getPlaylists, getPlaylist, createPlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
+import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check } from 'lucide-react';
+import { buildCoverArtUrl, getAlbum, getPlaylists, getPlaylist, createPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useLyricsStore } from '../store/lyricsStore';
+import { useDragDrop } from '../contexts/DragDropContext';
 import LyricsPane from './LyricsPane';
 
 function formatTime(seconds: number): string {
@@ -59,10 +60,12 @@ function SavePlaylistModal({ onClose, onSave }: { onClose: () => void, onSave: (
   );
 }
 
-function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (id: string) => void }) {
+function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (id: string, name: string) => void }) {
   const { t } = useTranslation();
   const [playlists, setPlaylists] = useState<SubsonicPlaylist[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
 
   const fetchPlaylists = () => {
     setLoading(true);
@@ -80,28 +83,44 @@ function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (
   }, []);
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(t('queue.deleteConfirm', { name }))) {
-      await deletePlaylist(id);
-      fetchPlaylists();
-    }
+    setConfirmDelete({ id, name });
+  };
+
+  const confirmDeletePlaylist = async () => {
+    if (!confirmDelete) return;
+    await deletePlaylist(confirmDelete.id);
+    setConfirmDelete(null);
+    fetchPlaylists();
   };
 
   return (
+    <>
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
       <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
         <button className="modal-close" onClick={onClose}><X size={18} /></button>
         <h3 style={{ marginBottom: '1rem', fontFamily: 'var(--font-display)' }}>{t('queue.loadPlaylist')}</h3>
+        {!loading && playlists.length > 0 && (
+          <input
+            type="text"
+            className="live-search-field"
+            placeholder={t('queue.filterPlaylists')}
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            autoFocus
+            style={{ width: '100%', marginBottom: '0.75rem', padding: '8px 14px' }}
+          />
+        )}
         {loading ? (
           <p style={{ color: 'var(--text-muted)' }}>{t('queue.loading')}</p>
         ) : playlists.length === 0 ? (
           <p style={{ color: 'var(--text-muted)' }}>{t('queue.noPlaylists')}</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-            {playlists.map(p => (
+            {playlists.filter(p => p.name.toLowerCase().includes(filter.toLowerCase())).map(p => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--ctp-surface1)', borderRadius: 'var(--radius-md)' }}>
                 <span style={{ fontWeight: 500 }} className="truncate" data-tooltip={p.name}>{p.name}</span>
                 <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                  <button className="nav-btn" onClick={() => onLoad(p.id)} data-tooltip={t('queue.load')} style={{ width: '28px', height: '28px', background: 'transparent' }}><Play size={14} /></button>
+                  <button className="nav-btn" onClick={() => onLoad(p.id, p.name)} data-tooltip={t('queue.load')} style={{ width: '28px', height: '28px', background: 'transparent' }}><Play size={14} /></button>
                   <button className="nav-btn" onClick={() => handleDelete(p.id, p.name)} data-tooltip={t('queue.delete')} style={{ width: '28px', height: '28px', background: 'transparent', color: 'var(--ctp-red)' }}><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -110,6 +129,25 @@ function LoadPlaylistModal({ onClose, onLoad }: { onClose: () => void, onLoad: (
         )}
       </div>
     </div>
+
+    {confirmDelete && (
+      <div className="modal-overlay" onClick={() => setConfirmDelete(null)} role="dialog" aria-modal="true">
+        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '360px' }}>
+          <button className="modal-close" onClick={() => setConfirmDelete(null)}><X size={18} /></button>
+          <h3 style={{ marginBottom: '0.5rem', fontFamily: 'var(--font-display)' }}>{t('queue.delete')}</h3>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+            {t('queue.deleteConfirm', { name: confirmDelete.name })}
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>{t('queue.cancel')}</button>
+            <button className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={confirmDeletePlaylist}>
+              {t('queue.delete')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -132,6 +170,7 @@ export default function QueuePanel() {
   const reorderQueue = usePlayerStore(s => s.reorderQueue);
   const shuffleQueue = usePlayerStore(s => s.shuffleQueue);
   const enqueue = usePlayerStore(s => s.enqueue);
+  const enqueueAt = usePlayerStore(s => s.enqueueAt);
   const contextMenu = usePlayerStore(s => s.contextMenu);
 
   const crossfadeEnabled = useAuthStore(s => s.crossfadeEnabled);
@@ -171,13 +210,78 @@ export default function QueuePanel() {
   const dragOverIdxRef = useRef<number | null>(null);
 
   const queueListRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
 
+  const { isDragging: isPsyDragging } = useDragDrop();
+
+  useEffect(() => {
+    if (!isPsyDragging) {
+      externalDropTargetRef.current = null;
+      setExternalDropTarget(null);
+    }
+  }, [isPsyDragging]);
+
+  const [externalDragOver, setExternalDragOver] = useState(false);
+  const externalDragCounterRef = useRef(0);
+  const [externalDropTarget, setExternalDropTarget] = useState<{ idx: number; before: boolean } | null>(null);
+  const externalDropTargetRef = useRef<{ idx: number; before: boolean } | null>(null);
+
+  // ── Mouse-event DnD: listen for psy-drop custom events ─────────
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return;
+
+    const onPsyDrop = async (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.data) return;
+
+      let parsedData: any = null;
+      try { parsedData = JSON.parse(detail.data); } catch { return; }
+
+      const dropTarget = externalDropTargetRef.current;
+      const insertIdx = dropTarget
+        ? (dropTarget.before ? dropTarget.idx : dropTarget.idx + 1)
+        : usePlayerStore.getState().queue.length;
+      externalDropTargetRef.current = null;
+      setExternalDropTarget(null);
+
+      if (parsedData.type === 'song') {
+        enqueueAt([parsedData.track], insertIdx);
+      } else if (parsedData.type === 'album') {
+        const albumData = await getAlbum(parsedData.id);
+        const tracks: Track[] = albumData.songs.map((s: any) => ({
+          id: s.id, title: s.title, artist: s.artist, album: s.album,
+          albumId: s.albumId, artistId: s.artistId, duration: s.duration, coverArt: s.coverArt, track: s.track,
+          year: s.year, bitRate: s.bitRate, suffix: s.suffix, userRating: s.userRating, genre: s.genre,
+        }));
+        enqueueAt(tracks, insertIdx);
+      }
+    };
+
+    aside.addEventListener('psy-drop', onPsyDrop);
+    return () => aside.removeEventListener('psy-drop', onPsyDrop);
+  }, [enqueueAt]);
+
+  const [activePlaylist, setActivePlaylist] = useState<{ id: string; name: string } | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loadModalOpen, setLoadModalOpen] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (queue.length === 0) return;
-    setSaveModalOpen(true);
+    if (activePlaylist) {
+      setSaveState('saving');
+      try {
+        await updatePlaylist(activePlaylist.id, queue.map(t => t.id));
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 1500);
+      } catch (e) {
+        console.error('Failed to update playlist', e);
+        setSaveState('idle');
+      }
+    } else {
+      setSaveModalOpen(true);
+    }
   };
 
   const handleLoad = () => {
@@ -186,6 +290,7 @@ export default function QueuePanel() {
 
   const handleClear = () => {
     clearQueue();
+    setActivePlaylist(null);
   };
 
   const onDragStart = (e: React.DragEvent, index: number) => {
@@ -207,11 +312,20 @@ export default function QueuePanel() {
     e.dataTransfer.dropEffect = isDraggingInternalRef.current ? 'move' : 'copy';
     dragOverIdxRef.current = index;
     setDragOverIdx(index);
+    if (!isDraggingInternalRef.current) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      const target = { idx: index, before };
+      externalDropTargetRef.current = target;
+      setExternalDropTarget(target);
+    }
   };
 
   const onDragEnd = () => {
     setDraggedIdx(null);
     setDragOverIdx(null);
+    setExternalDropTarget(null);
+    externalDropTargetRef.current = null;
     isDraggingInternalRef.current = false;
     draggedIdxRef.current = null;
     dragOverIdxRef.current = null;
@@ -223,12 +337,19 @@ export default function QueuePanel() {
   const onDropQueue = async (e: React.DragEvent) => {
     e.preventDefault();
 
+    // Snapshot drop target before clearing visual state
+    const droppedTarget = externalDropTargetRef.current;
+
     // Clear visual state immediately
     isDraggingInternalRef.current = false;
     draggedIdxRef.current = null;
     dragOverIdxRef.current = null;
     setDraggedIdx(null);
     setDragOverIdx(null);
+    externalDragCounterRef.current = 0;
+    setExternalDragOver(false);
+    externalDropTargetRef.current = null;
+    setExternalDropTarget(null);
 
     let parsedData: any = null;
     try {
@@ -263,8 +384,13 @@ export default function QueuePanel() {
     // External drop (song / album dragged from elsewhere in the app)
     _dragFromIdx = null;
     if (!parsedData) return;
+
+    const insertIdx = droppedTarget
+      ? (droppedTarget.before ? droppedTarget.idx : droppedTarget.idx + 1)
+      : usePlayerStore.getState().queue.length;
+
     if (parsedData.type === 'song') {
-      enqueue([parsedData.track]);
+      enqueueAt([parsedData.track], insertIdx);
     } else if (parsedData.type === 'album') {
       const albumData = await getAlbum(parsedData.id);
       const tracks: Track[] = albumData.songs.map(s => ({
@@ -272,21 +398,61 @@ export default function QueuePanel() {
         albumId: s.albumId, artistId: s.artistId, duration: s.duration, coverArt: s.coverArt, track: s.track,
         year: s.year, bitRate: s.bitRate, suffix: s.suffix, userRating: s.userRating, genre: s.genre,
       }));
-      enqueue(tracks);
+      enqueueAt(tracks, insertIdx);
     }
   };
 
   return (
     <aside
-      className="queue-panel"
-      onDragEnter={e => { e.preventDefault(); e.dataTransfer.dropEffect = isDraggingInternalRef.current ? 'move' : 'copy'; }}
+      ref={asideRef}
+      className={`queue-panel${(externalDragOver || isPsyDragging) ? ' queue-drop-active' : ''}`}
+      onDragEnter={e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = isDraggingInternalRef.current ? 'move' : 'copy';
+        if (!isDraggingInternalRef.current) {
+          externalDragCounterRef.current++;
+          setExternalDragOver(true);
+        }
+      }}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = isDraggingInternalRef.current ? 'move' : 'copy'; }}
+      onMouseMove={e => {
+        if (!isPsyDragging || !queueListRef.current) return;
+        const items = queueListRef.current.querySelectorAll<HTMLElement>('[data-queue-idx]');
+        let found = false;
+        for (let i = 0; i < items.length; i++) {
+          const rect = items[i].getBoundingClientRect();
+          if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+            const before = e.clientY < rect.top + rect.height / 2;
+            const idx = parseInt(items[i].dataset.queueIdx!);
+            const target = { idx, before };
+            externalDropTargetRef.current = target;
+            setExternalDropTarget(target);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          externalDropTargetRef.current = null;
+          setExternalDropTarget(null);
+        }
+      }}
+      onDragLeave={e => {
+        if (!isDraggingInternalRef.current) {
+          externalDragCounterRef.current--;
+          if (externalDragCounterRef.current === 0) {
+            setExternalDragOver(false);
+            externalDropTargetRef.current = null;
+            setExternalDropTarget(null);
+          }
+        }
+      }}
       onDrop={onDropQueue}
       style={{ 
         borderLeftWidth: isQueueVisible ? 1 : 0
       }}
     >
       <div className="queue-header">
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 }}>
           <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, flexShrink: 0 }}>{t('queue.title')}</h2>
           {queue.length > 0 && (() => {
@@ -314,6 +480,13 @@ export default function QueuePanel() {
               </span>
             );
           })()}
+        </div>
+        {activePlaylist && (
+          <div className="truncate" style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <ListMusic size={10} style={{ flexShrink: 0 }} />
+            <span className="truncate">{activePlaylist.name}</span>
+          </div>
+        )}
         </div>
       </div>
 
@@ -362,8 +535,14 @@ export default function QueuePanel() {
         <button className="queue-round-btn" onClick={() => shuffleQueue()} disabled={queue.length < 2} data-tooltip={t('queue.shuffle')} aria-label={t('queue.shuffle')}>
           <Shuffle size={13} />
         </button>
-        <button className="queue-round-btn" onClick={handleSave} data-tooltip={t('queue.savePlaylist')} aria-label={t('queue.savePlaylist')}>
-          <Save size={13} />
+        <button
+          className={`queue-round-btn${saveState === 'saved' ? ' active' : ''}`}
+          onClick={handleSave}
+          disabled={saveState === 'saving'}
+          data-tooltip={activePlaylist ? `${t('queue.updatePlaylist')}: ${activePlaylist.name}` : t('queue.savePlaylist')}
+          aria-label={t('queue.savePlaylist')}
+        >
+          {saveState === 'saved' ? <Check size={13} /> : <Save size={13} />}
         </button>
         <button className="queue-round-btn" onClick={handleLoad} data-tooltip={t('queue.loadPlaylist')} aria-label={t('queue.loadPlaylist')}>
           <FolderOpen size={13} />
@@ -444,7 +623,15 @@ export default function QueuePanel() {
             if (isDragging) {
               dragStyle = { opacity: 0.4, background: 'var(--bg-hover)' };
             } else if (isDragOver && draggedIdx !== null) {
+              // Internal reorder indicator
               if (draggedIdx > idx) {
+                dragStyle = { borderTop: '2px solid var(--accent)', paddingTop: '6px', marginTop: '-2px' };
+              } else {
+                dragStyle = { borderBottom: '2px solid var(--accent)', paddingBottom: '6px', marginBottom: '-2px' };
+              }
+            } else if (externalDropTarget?.idx === idx && draggedIdx === null) {
+              // External drop insertion indicator
+              if (externalDropTarget.before) {
                 dragStyle = { borderTop: '2px solid var(--accent)', paddingTop: '6px', marginTop: '-2px' };
               } else {
                 dragStyle = { borderBottom: '2px solid var(--accent)', paddingBottom: '6px', marginBottom: '-2px' };
@@ -507,23 +694,26 @@ export default function QueuePanel() {
       </div>
 
       {saveModalOpen && (
-        <SavePlaylistModal 
-          onClose={() => setSaveModalOpen(false)} 
-          onSave={async (name) => { 
+        <SavePlaylistModal
+          onClose={() => setSaveModalOpen(false)}
+          onSave={async (name) => {
             try {
               await createPlaylist(name, queue.map(t => t.id));
-              setSaveModalOpen(false); 
+              const playlists = await getPlaylists();
+              const created = playlists.find(p => p.name === name);
+              if (created) setActivePlaylist({ id: created.id, name: created.name });
+              setSaveModalOpen(false);
             } catch (e) {
               console.error('Failed to save playlist', e);
             }
-          }} 
+          }}
         />
       )}
 
       {loadModalOpen && (
-        <LoadPlaylistModal 
-          onClose={() => setLoadModalOpen(false)} 
-          onLoad={async (id) => { 
+        <LoadPlaylistModal
+          onClose={() => setLoadModalOpen(false)}
+          onLoad={async (id, name) => {
             try {
               const data = await getPlaylist(id);
               const tracks: Track[] = data.songs.map(s => ({
@@ -535,11 +725,12 @@ export default function QueuePanel() {
                 clearQueue();
                 playTrack(tracks[0], tracks);
               }
-              setLoadModalOpen(false); 
+              setActivePlaylist({ id, name });
+              setLoadModalOpen(false);
             } catch (e) {
               console.error('Failed to load playlist', e);
             }
-          }} 
+          }}
         />
       )}
     </aside>

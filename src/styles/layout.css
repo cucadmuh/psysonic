@@ -759,6 +759,11 @@
   min-height: 0; /* allow 1fr row to shrink freely */
 }
 
+.queue-panel.queue-drop-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: linear-gradient(var(--accent-dim), var(--accent-dim)), var(--bg-sidebar);
+}
+
 .queue-header {
   height: 64px;
   box-sizing: border-box;

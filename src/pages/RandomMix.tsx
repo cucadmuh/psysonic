@@ -4,6 +4,7 @@ import { usePlayerStore } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
 import { Play, Star, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useDragDrop } from '../contexts/DragDropContext';
 
 const AUDIOBOOK_GENRES = [
   'hörbuch', 'hoerbuch', 'hörspiel', 'hoerspiel',
@@ -45,6 +46,7 @@ export default function RandomMix() {
   const openContextMenu = usePlayerStore(s => s.openContextMenu);
   const contextMenuOpen = usePlayerStore(s => s.contextMenu.isOpen);
   const [contextMenuSongId, setContextMenuSongId] = useState<string | null>(null);
+  const psyDrag = useDragDrop();
   const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const { excludeAudiobooks, setExcludeAudiobooks, customGenreBlacklist, setCustomGenreBlacklist } = useAuthStore();
   const [addedGenre, setAddedGenre] = useState<string | null>(null);
@@ -343,11 +345,22 @@ export default function RandomMix() {
               </div>
               {genreMixSongs.map(song => (
                 <div key={song.id} className={`track-row${contextMenuSongId === song.id ? ' context-active' : ''}`} style={{ gridTemplateColumns: '36px 1fr 1fr 1fr 120px 80px' }}
-                  onDoubleClick={() => playTrack(song, genreMixSongs)} role="row" draggable
+                  onDoubleClick={() => playTrack(song, genreMixSongs)} role="row"
                   onContextMenu={e => { e.preventDefault(); setContextMenuSongId(song.id); openContextMenu(e.clientX, e.clientY, { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, starred: song.starred, genre: song.genre }, 'song'); }}
-                  onDragStart={e => {
-                    e.dataTransfer.effectAllowed = 'copy';
-                    e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'song', track: { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, genre: song.genre } }));
+                  onMouseDown={e => {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    const sx = e.clientX, sy = e.clientY;
+                    const onMove = (me: MouseEvent) => {
+                      if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                        psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track: { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, genre: song.genre } }), label: song.title }, me.clientX, me.clientY);
+                      }
+                    };
+                    const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
                   }}
                 >
                   <button className="btn btn-ghost" style={{ padding: 4 }} onClick={e => { e.stopPropagation(); playTrack(song, genreMixSongs); }}>
@@ -390,21 +403,27 @@ export default function RandomMix() {
               style={{ gridTemplateColumns: '36px 1fr 1fr 1fr 120px 60px 80px' }}
               onDoubleClick={() => playTrack(song, filteredSongs)}
               role="row"
-              draggable
               onContextMenu={e => {
                 e.preventDefault();
                 const track = { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, starred: song.starred, genre: song.genre };
                 setContextMenuSongId(song.id);
                 openContextMenu(e.clientX, e.clientY, track, 'song');
               }}
-              onDragStart={e => {
-                e.dataTransfer.effectAllowed = 'copy';
-                const track = {
-                  id: song.id, title: song.title, artist: song.artist, album: song.album,
-                  albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track,
-                  year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, genre: song.genre,
+              onMouseDown={e => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                const sx = e.clientX, sy = e.clientY;
+                const onMove = (me: MouseEvent) => {
+                  if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    const track = { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, track: song.track, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, genre: song.genre };
+                    psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track }), label: song.title }, me.clientX, me.clientY);
+                  }
                 };
-                e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'song', track }));
+                const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
               }}
             >
               <button

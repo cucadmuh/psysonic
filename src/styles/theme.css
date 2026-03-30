@@ -3196,6 +3196,16 @@ body.is-dragging * {
   cursor: col-resize !important;
 }
 
+/* ─── Mouse-event DnD cursor (psy-dragging) ──────────────────────
+   Applied by DragDropProvider while a mouse-based drag is active.
+   Overrides cursor globally to "grabbing" and prevents text-
+   selection / stray pointer events on child elements. ─────────── */
+body.psy-dragging,
+body.psy-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 /* ─── Utility Classes ─── */
 .glass {
   background: var(--bg-glass, rgba(30, 30, 46, 0.75));
@@ -11200,7 +11210,9 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='north-park'] .queue-action-btn         { color: rgba(255, 255, 255, 0.60); }
 [data-theme='north-park'] .queue-action-btn:hover:not(:disabled) { color: rgba(255, 255, 255, 0.92); }
 
-/* Hero album meta (year, genre etc.) — needs high contrast on dark overlay */
+/* Back button + hero text — needs high contrast on dark overlay at top of album header */
+[data-theme='north-park'] .album-detail-back { color: rgba(255, 255, 255, 0.85); }
+[data-theme='north-park'] .album-detail-back:hover { background: rgba(255, 255, 255, 0.12); color: #ffffff; }
 [data-theme='north-park'] .album-detail-info { color: rgba(255, 255, 255, 0.80); }
 
 /* Artist name in hero — soften the orange to a warm amber, less glaring */
@@ -11419,6 +11431,9 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='dark-side-of-the-moon'] .playlist-row:hover { background: rgba(155, 48, 255, 0.05); box-shadow: inset 3px 0 0 #9B30FF; }
 [data-theme='dark-side-of-the-moon'] .artist-ext-link:hover { background: rgba(155, 48, 255, 0.07); border-color: #9B30FF; }
 
+/* Album detail header — year/genre/info too dark on near-black bg, brighten */
+[data-theme='dark-side-of-the-moon'] .album-detail-info { color: #888888; }
+
 /* np-album-track */
 [data-theme='dark-side-of-the-moon'] .np-album-track.active .np-album-track-title,
 [data-theme='dark-side-of-the-moon'] .np-album-track.active .np-album-track-num { color: #9B30FF; }
@@ -11430,8 +11445,8 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='dark-side-of-the-moon'] ::-webkit-scrollbar-thumb:hover { background: #9B30FF; }
 
 /* Connection indicators */
-[data-theme='dark-side-of-the-moon'] .connection-type,
-[data-theme='dark-side-of-the-moon'] .connection-server { color: #555555; }
+[data-theme='dark-side-of-the-moon'] .connection-type  { color: #999999; }
+[data-theme='dark-side-of-the-moon'] .connection-server { color: #777777; }
 
 /* ─── Powerslave (inspired) — Iron Maiden ─── */
 /* Blazing Egyptian sun — warm sandstone main, Nile-sky deep-blue sidebar,
@@ -11654,14 +11669,24 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='powerslave'] .artist-ext-link:hover { background: rgba(200, 128, 10, 0.08); border-color: #C8800A; }
 
 /* Connection indicators */
-[data-theme='powerslave'] .connection-type,
-[data-theme='powerslave'] .connection-server { color: rgba(140, 190, 230, 0.70); }
+[data-theme='powerslave'] .connection-type  { color: #050E19; }
+[data-theme='powerslave'] .connection-server { color: #050E19; }
+
+/* Back button needs light color — sits on dark overlay above sandstone content */
+[data-theme='powerslave'] .album-detail-back { color: rgba(255, 255, 255, 0.85); }
+[data-theme='powerslave'] .album-detail-back:hover { background: rgba(255, 255, 255, 0.12); color: #ffffff; }
+
+/* Tech strip — default ctp-surface1 (#DEC880) is too bright on dark blue queue panel */
+[data-theme='powerslave'] .queue-current-tech {
+  background: rgba(6, 16, 28, 0.88);
+  color: rgba(140, 190, 230, 0.72);
+}
 
 /* Album detail hero meta */
 [data-theme='powerslave'] .album-detail-info { color: rgba(255, 255, 255, 0.80); }
 [data-theme='powerslave'] .album-detail-artist,
-[data-theme='powerslave'] .album-detail-artist-link { color: #D49828; }
-[data-theme='powerslave'] .album-detail-artist-link:hover { color: #E8B040; }
+[data-theme='powerslave'] .album-detail-artist-link { color: #050E19; }
+[data-theme='powerslave'] .album-detail-artist-link:hover { color: #0A2035; }
 
 /* np-album-track */
 [data-theme='powerslave'] .np-album-track.active .np-album-track-title,

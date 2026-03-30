@@ -3,6 +3,7 @@ import { Play, Star } from 'lucide-react';
 import { SubsonicSong } from '../api/subsonic';
 import { Track, usePlayerStore } from '../store/playerStore';
 import { useTranslation } from 'react-i18next';
+import { useDragDrop } from '../contexts/DragDropContext';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -69,6 +70,7 @@ export default function AlbumTrackList({
   const [hoveredSongId, setHoveredSongId] = useState<string | null>(null);
   const [contextMenuSongId, setContextMenuSongId] = useState<string | null>(null);
   const contextMenuOpen = usePlayerStore(s => s.contextMenu.isOpen);
+  const psyDrag = useDragDrop();
   useEffect(() => {
     if (!contextMenuOpen) setContextMenuSongId(null);
   }, [contextMenuOpen]);
@@ -124,10 +126,20 @@ export default function AlbumTrackList({
                 onContextMenu(e.clientX, e.clientY, makeTrack(song), 'album-song');
               }}
               role="row"
-              draggable
-              onDragStart={e => {
-                e.dataTransfer.effectAllowed = 'copy';
-                e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'song', track: makeTrack(song) }));
+              onMouseDown={e => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                const sx = e.clientX, sy = e.clientY;
+                const onMove = (me: MouseEvent) => {
+                  if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track: makeTrack(song) }), label: song.title }, me.clientX, me.clientY);
+                  }
+                };
+                const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
               }}
             >
               <div

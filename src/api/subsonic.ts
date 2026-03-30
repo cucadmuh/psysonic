@@ -392,6 +392,11 @@ export async function createPlaylist(name: string, songIds?: string[]): Promise<
   await api('createPlaylist.view', params);
 }
 
+export async function updatePlaylist(id: string, songIds: string[]): Promise<void> {
+  // createPlaylist with playlistId replaces the existing playlist's songs (Subsonic API 1.14+)
+  await api('createPlaylist.view', { playlistId: id, songId: songIds });
+}
+
 export async function deletePlaylist(id: string): Promise<void> {
   await api('deletePlaylist.view', { id });
 }

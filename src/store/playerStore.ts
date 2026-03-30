@@ -77,6 +77,7 @@ interface PlayerState {
   setVolume: (v: number) => void;
   setProgress: (t: number, duration: number) => void;
   enqueue: (tracks: Track[]) => void;
+  enqueueAt: (tracks: Track[], insertIndex: number) => void;
   clearQueue: () => void;
 
   isQueueVisible: boolean;
@@ -687,6 +688,22 @@ export const usePlayerStore = create<PlayerState>()(
           const newQueue = [...state.queue, ...tracks];
           syncQueueToServer(newQueue, state.currentTrack, state.currentTime);
           return { queue: newQueue };
+        });
+      },
+
+      enqueueAt: (tracks, insertIndex) => {
+        set(state => {
+          const idx = Math.max(0, Math.min(insertIndex, state.queue.length));
+          const newQueue = [
+            ...state.queue.slice(0, idx),
+            ...tracks,
+            ...state.queue.slice(idx),
+          ];
+          const newQueueIndex = idx <= state.queueIndex
+            ? state.queueIndex + tracks.length
+            : state.queueIndex;
+          syncQueueToServer(newQueue, state.currentTrack, state.currentTime);
+          return { queue: newQueue, queueIndex: newQueueIndex };
         });
       },
 

@@ -6,6 +6,7 @@ import { usePlayerStore } from '../store/playerStore';
 import AlbumRow from '../components/AlbumRow';
 import ArtistRow from '../components/ArtistRow';
 import { useTranslation } from 'react-i18next';
+import { useDragDrop } from '../contexts/DragDropContext';
 
 function formatDuration(s: number) {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
@@ -19,6 +20,7 @@ export default function SearchResults() {
   const [loading, setLoading] = useState(false);
   const playTrack = usePlayerStore(s => s.playTrack);
   const currentTrack = usePlayerStore(s => s.currentTrack);
+  const psyDrag = useDragDrop();
 
   useEffect(() => {
     if (!query.trim()) { setResults(null); return; }
@@ -92,16 +94,22 @@ export default function SearchResults() {
                     style={{ gridTemplateColumns: '36px minmax(100px, 2fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) 100px 60px' }}
                     onDoubleClick={() => playSong(song, results.songs)}
                     role="row"
-                    draggable
-                    onDragStart={e => {
-                      e.dataTransfer.effectAllowed = 'copy';
-                      const track = {
-                        id: song.id, title: song.title, artist: song.artist, album: song.album,
-                        albumId: song.albumId, artistId: song.artistId, duration: song.duration,
-                        coverArt: song.coverArt, year: song.year, bitRate: song.bitRate,
-                        suffix: song.suffix, userRating: song.userRating, genre: song.genre,
+                    draggable={false}
+                    onMouseDown={e => {
+                      if (e.button !== 0) return;
+                      e.preventDefault();
+                      const sx = e.clientX, sy = e.clientY;
+                      const onMove = (me: MouseEvent) => {
+                        if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+                          document.removeEventListener('mousemove', onMove);
+                          document.removeEventListener('mouseup', onUp);
+                          const track = { id: song.id, title: song.title, artist: song.artist, album: song.album, albumId: song.albumId, artistId: song.artistId, duration: song.duration, coverArt: song.coverArt, year: song.year, bitRate: song.bitRate, suffix: song.suffix, userRating: song.userRating, genre: song.genre };
+                          psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track }), label: song.title }, me.clientX, me.clientY);
+                        }
                       };
-                      e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'song', track }));
+                      const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                      document.addEventListener('mousemove', onMove);
+                      document.addEventListener('mouseup', onUp);
                     }}
                   >
                     <button

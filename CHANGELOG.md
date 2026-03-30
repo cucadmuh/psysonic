@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-03-30
+
+### Added
+
+- **Queue — Active Playlist Tracking** *(Beta)* ⚠️: The queue now remembers which playlist was last loaded or saved. The playlist name appears as a subtitle below the queue title. The save button smart-saves: if an active playlist is set, it updates that playlist directly without opening a modal. If no playlist is active, the save modal opens as before.
+- **Queue — Themed Delete Confirmation** *(Beta)* ⚠️: Deleting a playlist now shows a styled in-app confirmation dialog matching the current theme, replacing the unstyled native browser `confirm()` dialog.
+- **Queue — Load Modal Live Filter** *(Beta)* ⚠️: The playlist load modal now has a live filter input at the top — typing narrows the playlist list in real time.
+- **Drag & Drop — Precise Insertion** *(Beta)* ⚠️: Songs and albums dragged into the queue can now be dropped at any position between existing items. A blue insertion line shows exactly where the track will land. Previously all drops appended to the end of the queue.
+- **Drag & Drop — Slim Ghost** *(Beta)* ⚠️: The drag ghost is now a compact single-line chip (cover thumbnail + title) instead of the full album card or track row. Consistent for both song and album drags.
+
+### Fixed
+
+- **Seek flash after debounce** *(contributed by [@nullobject](https://github.com/nullobject))*: After a seek the waveform briefly flashed back to the pre-seek position when the Rust `audio:progress` event arrived before the seek completed. A `seekTarget` guard now blocks stale progress ticks until the engine catches up.
+- **Waveform seekbar jitter** *(contributed by [@nullobject](https://github.com/nullobject))*: The seekbar width changed on every progress tick because player time updates caused the waveform canvas container to reflow. The canvas now has an explicit stable width so time label changes no longer affect its layout.
+- **Drag & Drop — text selection and grid auto-scroll during drag**: Dragging album cards or track rows caused the browser to begin a text selection and auto-scroll grid rows horizontally. All drag `onMouseDown` handlers now call `preventDefault()` and the DragDropContext uses `{ passive: false }` to suppress selection during mouse moves.
+- **Drag & Drop — forbidden cursor on KDE Plasma**: Replaced the HTML5 `dragstart`/`dragend` system with a pure mouse-event DnD pipeline (`DragDropContext`). The WebKitGTK forbidden-cursor artefact on KDE Plasma no longer appears during drags.
+
+### Changed
+
+- **Settings — Contributors**: [@nullobject](https://github.com/nullobject) added for seek & waveform fixes.
+
+### Theme Fixes
+
+- **Powerslave**: Connection indicators (Last.fm / Server name) dimmed to match sidebar tone. Back button in album details now white on dark overlay. Tech strip (codec/bitrate) in queue uses dark Nile-blue background instead of sandstone. Artist name in album hero changed to Nile-blue `#050E19`.
+- **North Park**: Back button in album details now visible (was dark brown on dark overlay).
+- **Dark Side of the Moon**: Album detail year/genre/info brightened from `#555555` to `#888888`. Connection indicators brightened for legibility on near-black sidebar.
+
+---
+
 ## [1.21.0] - 2026-03-29
 
 ### Added

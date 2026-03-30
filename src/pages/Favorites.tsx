@@ -7,6 +7,7 @@ import { ListPlus, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { unstar } from '../api/subsonic';
+import { useDragDrop } from '../contexts/DragDropContext';
 
 export default function Favorites() {
   const { t } = useTranslation();
@@ -16,6 +17,7 @@ export default function Favorites() {
   const [loading, setLoading] = useState(true);
 
   const { playTrack, enqueue } = usePlayerStore();
+  const psyDrag = useDragDrop();
 
   function removeSong(id: string) {
     unstar(id, 'song').catch(() => {});
@@ -104,10 +106,21 @@ export default function Favorites() {
                       onDoubleClick={() => playTrack(song, songs)}
                       onContextMenu={e => { e.preventDefault(); openContextMenu(e.clientX, e.clientY, track, 'song'); }}
                       role="row"
-                      draggable
-                      onDragStart={e => {
-                        e.dataTransfer.effectAllowed = 'copy';
-                        e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'song', track }));
+                      draggable={false}
+                      onMouseDown={e => {
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        const sx = e.clientX, sy = e.clientY;
+                        const onMove = (me: MouseEvent) => {
+                          if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track }), label: song.title }, me.clientX, me.clientY);
+                          }
+                        };
+                        const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
                       }}
                     >
                       <div className="track-num col-center" onClick={() => playTrack(song, songs)} style={{ cursor: 'pointer' }}>
