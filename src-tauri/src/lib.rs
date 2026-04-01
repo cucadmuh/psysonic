@@ -302,6 +302,12 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let window = app.get_webview_window("main").expect("no main window");
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }))
 
         .setup(|app| {
             // ── System tray ───────────────────────────────────────────────

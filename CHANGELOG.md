@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.1] - 2026-04-01
+
+### Fixed
+
+- **Opus playback** *(reported by [@powerfool](https://github.com/powerfool))*: `.opus` files were silently skipped because Symphonia has no Opus decoder. Opus tracks are now transcoded server-side to FLAC via the Subsonic `format=flac` parameter, avoiding any additional lossy encoding step.
+- **Single-instance enforcement** *(reported by [@netherguy4](https://github.com/netherguy4))*: Re-launching the app while it was already running (including minimized to tray) would spawn a new independent process, leading to playback conflicts and state divergence. Integrated `tauri-plugin-single-instance` — subsequent launches are intercepted, the existing window is shown, unminimized, and focused instead.
+
+---
+
 ## [1.25.0] - 2026-04-01
 
 ### Added
