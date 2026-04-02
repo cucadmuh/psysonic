@@ -217,20 +217,60 @@ export default function ContextMenu() {
       } else {
         playTrack(seedTrack, [seedTrack]);
       }
-      // Load radio queue in background
+      // Load radio queue in background — enqueueRadio replaces any pending radio
+      // tracks so clicking "Start Radio" again never stacks duplicate batches.
       try {
         const [similar, top] = await Promise.all([getSimilarSongs2(artistId), getTopSongs(artistName)]);
-        const radioTracks = [...top, ...similar].map(songToTrack).filter(t => t.id !== seedTrack.id);
-        if (radioTracks.length > 0) enqueue(radioTracks);
+        const radioTracks = [...top, ...similar]
+          .map(songToTrack)
+          .filter(t => t.id !== seedTrack.id)
+          .map(t => ({ ...t, radioAdded: true as const }));
+        if (radioTracks.length > 0) usePlayerStore.getState().enqueueRadio(radioTracks, artistId);
       } catch (e) {
         console.error('Failed to load radio queue', e);
       }
     } else {
-      // Artist radio: no seed track, fetch in parallel and play when ready
+      // Artist radio: fire both calls immediately but don't wait for the slow one.
+      // getTopSongs is fast (local library) — start playback as soon as it resolves.
+      // getSimilarSongs2 is slow (Last.fm) — enrich the queue in the background.
+      const similarPromise = getSimilarSongs2(artistId).catch(() => [] as Awaited<ReturnType<typeof getSimilarSongs2>>);
       try {
-        const [similar, top] = await Promise.all([getSimilarSongs2(artistId), getTopSongs(artistName)]);
-        const radioTracks = [...top, ...similar].map(songToTrack);
-        if (radioTracks.length > 0) playTrack(radioTracks[0], radioTracks);
+        const top = await getTopSongs(artistName);
+        const topTracks = top.map(t => ({ ...songToTrack(t), radioAdded: true as const }));
+        if (topTracks.length === 0) {
+          // No local top songs — fall back to waiting for similar tracks
+          const similar = await similarPromise;
+          const fallback = similar.map(t => ({ ...songToTrack(t), radioAdded: true as const }));
+          if (fallback.length === 0) return;
+          const state = usePlayerStore.getState();
+          if (state.currentTrack) {
+            state.enqueueRadio(fallback, artistId);
+          } else {
+            state.setRadioArtistId(artistId);
+            playTrack(fallback[0], fallback);
+          }
+          return;
+        }
+        // Start playback immediately from top songs
+        const state = usePlayerStore.getState();
+        if (state.currentTrack) {
+          state.enqueueRadio(topTracks, artistId);
+        } else {
+          state.setRadioArtistId(artistId);
+          playTrack(topTracks[0], topTracks);
+        }
+        // Enrich with similar tracks in the background
+        similarPromise.then(similar => {
+          const similarTracks = similar
+            .map(t => ({ ...songToTrack(t), radioAdded: true as const }))
+            .filter(t => !topTracks.some(top => top.id === t.id));
+          if (similarTracks.length === 0) return;
+          // Collect pending (upcoming) radio tracks so enqueueRadio re-inserts them
+          // together with the new similar tracks rather than losing them.
+          const { queue, queueIndex } = usePlayerStore.getState();
+          const pendingRadio = queue.slice(queueIndex + 1).filter(t => t.radioAdded);
+          usePlayerStore.getState().enqueueRadio([...pendingRadio, ...similarTracks], artistId);
+        });
       } catch (e) {
         console.error('Failed to start radio', e);
       }

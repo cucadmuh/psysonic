@@ -1953,7 +1953,7 @@
 .lyrics-line {
   font-size: 14px;
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-align: center;
   padding: 5px 8px;
   border-radius: 6px;
@@ -1962,8 +1962,16 @@
   cursor: default;
 }
 
+.lyrics-line.completed {
+  color: var(--text-muted);
+}
+
 .lyrics-line.active {
   color: var(--accent);
+}
+
+.lyrics-line:hover:not(.active) {
+  color: var(--text-secondary);
 }
 
 .lyrics-plain {

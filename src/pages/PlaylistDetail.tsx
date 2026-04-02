@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle } from 'lucide-react';
+import { ChevronLeft, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle, Heart } from 'lucide-react';
 import { AddToPlaylistSubmenu } from '../components/ContextMenu';
 import {
   getPlaylist, updatePlaylist, search, setRating, star, unstar,
@@ -601,7 +601,7 @@ export default function PlaylistDetail() {
                   onClick={e => handleToggleStar(song, e)}
                   style={{ color: starredSongs.has(song.id) ? 'var(--color-star-active, var(--accent))' : 'var(--color-star-inactive, var(--text-muted))' }}
                 >
-                  <Star size={14} fill={starredSongs.has(song.id) ? 'currentColor' : 'none'} />
+                  <Heart size={14} fill={starredSongs.has(song.id) ? 'currentColor' : 'none'} />
                 </button>
               </div>
 

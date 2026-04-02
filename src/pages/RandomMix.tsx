@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getRandomSongs, getGenres, SubsonicSong, SubsonicGenre, star, unstar } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
-import { Play, Star, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Star, RefreshCw, ChevronDown, ChevronUp, Heart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDragDrop } from '../contexts/DragDropContext';
 
@@ -519,7 +519,7 @@ export default function RandomMix() {
                   data-tooltip={starredSongs.has(song.id) ? t('randomMix.favoriteRemove') : t('randomMix.favoriteAdd')}
                   style={{ padding: '4px', height: 'auto', minHeight: 'unset', color: starredSongs.has(song.id) ? 'var(--accent)' : 'var(--text-muted)' }}
                 >
-                  <Star size={14} fill={starredSongs.has(song.id) ? "currentColor" : "none"} />
+                  <Heart size={14} fill={starredSongs.has(song.id) ? "currentColor" : "none"} />
                 </button>
               </div>
 

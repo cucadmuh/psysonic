@@ -30,6 +30,8 @@ export default function LyricsPane({ currentTrack }: Props) {
 
   const hasSynced  = syncedLines !== null && syncedLines.length > 0;
   const currentTime = usePlayerStore(s => hasSynced ? s.currentTime : 0);
+  const seek = usePlayerStore(s => s.seek);
+  const duration = usePlayerStore(s => s.currentTrack?.duration ?? 0);
 
   const lineRefs   = useRef<(HTMLDivElement | null)[]>([]);
   const prevActive = useRef(-1);
@@ -103,6 +105,13 @@ export default function LyricsPane({ currentTrack }: Props) {
     );
   }
 
+  const getLyricLineClass = (i: number, active: number) => {
+    const base = 'lyrics-line';
+    if (i > active) return base;
+    if (i < active) return `${base} completed`;
+    return `${base} active`;
+  };
+
   return (
     <div className="lyrics-pane">
       {loading && <p className="lyrics-status">{t('player.lyricsLoading')}</p>}
@@ -113,7 +122,9 @@ export default function LyricsPane({ currentTrack }: Props) {
             <div
               key={i}
               ref={el => { lineRefs.current[i] = el; }}
-              className={`lyrics-line${i === activeIdx ? ' active' : ''}`}
+              className={getLyricLineClass(i, activeIdx)}
+              onClick={() => { if (duration > 0) seek(line.time / duration); }}
+              style={{ cursor: 'pointer' }}
             >
               {line.text || '\u00A0'}
             </div>

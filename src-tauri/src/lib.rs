@@ -30,6 +30,50 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+/// Restart after an in-app update.
+///
+/// `relaunch()` from tauri-plugin-process spawns the new process while the old one
+/// is still alive, so the single-instance plugin in the new process sees the old
+/// socket and kills itself immediately (endless loop).
+///
+/// This command instead:
+///   1. Spawns a shell snippet that waits ~1.5 s and then opens the app again —
+///      by then the old process and its single-instance socket are fully gone.
+///   2. Calls `app.exit(0)` directly, which bypasses `on_window_event`
+///      prevent_close() and releases the single-instance lock immediately.
+#[tauri::command]
+fn relaunch_after_update(app: tauri::AppHandle) {
+    let exe = std::env::current_exe().unwrap_or_default();
+
+    #[cfg(target_os = "windows")]
+    {
+        let exe_str = exe.to_string_lossy().to_string().replace('\'', "''");
+        let script = format!(
+            "Start-Sleep -Milliseconds 1500; Start-Process '{exe_str}'"
+        );
+        let _ = std::process::Command::new("powershell")
+            .args(["-WindowStyle", "Hidden", "-NonInteractive", "-Command", &script])
+            .spawn();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // exe lives at Psysonic.app/Contents/MacOS/psysonic — walk up to the bundle.
+        let bundle = exe
+            .parent()                  // MacOS/
+            .and_then(|p| p.parent())  // Contents/
+            .and_then(|p| p.parent()); // Psysonic.app
+        if let Some(bundle_path) = bundle {
+            let escaped = bundle_path.to_string_lossy().replace('"', "\\\"");
+            let _ = std::process::Command::new("sh")
+                .args(["-c", &format!("sleep 1.5 && open \"{escaped}\"")])
+                .spawn();
+        }
+    }
+
+    app.exit(0);
+}
+
 /// Proxy Last.fm API calls through Rust/reqwest to avoid WebView networking restrictions.
 /// `params` is a list of [key, value] pairs (method must be included).
 /// If `sign` is true an api_sig is computed. If `get` is true, a GET request is made.
@@ -498,6 +542,7 @@ pub fn run() {
             download_track_offline,
             delete_offline_track,
             get_offline_cache_size,
+            relaunch_after_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Psysonic");

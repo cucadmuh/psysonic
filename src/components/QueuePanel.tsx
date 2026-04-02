@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Track, usePlayerStore, songToTrack } from '../store/playerStore';
-import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus, Radio } from 'lucide-react';
+import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus, ArrowUpToLine, Radio } from 'lucide-react';
 import { buildCoverArtUrl, coverArtCacheKey, getAlbum, getPlaylists, getPlaylist, createPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
 import { useCachedUrl } from './CachedImage';
 import { useEffect } from 'react';
@@ -496,7 +496,7 @@ export default function QueuePanel() {
           data-tooltip={t('queue.infiniteQueue')}
           aria-label={t('queue.infiniteQueue')}
         >
-          <Radio size={13} />
+          <ArrowUpToLine size={13} />
         </button>
       </div>
 
@@ -511,6 +511,7 @@ export default function QueuePanel() {
           queue.map((track, idx) => {
             const isPlaying = idx === queueIndex;
             const isFirstAutoAdded = track.autoAdded && (idx === 0 || !queue[idx - 1].autoAdded);
+            const isFirstRadioAdded = track.radioAdded && (idx === 0 || !queue[idx - 1].radioAdded);
 
             let dragStyle: React.CSSProperties = {};
             if (isPsyDragging && psyDragFromIdxRef.current === idx) {
@@ -525,6 +526,11 @@ export default function QueuePanel() {
 
             return (
               <React.Fragment key={`${track.id}-${idx}`}>
+              {isFirstRadioAdded && (
+                <div className="queue-divider" style={{ margin: '2px 0' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>{t('queue.radioAdded')}</span>
+                </div>
+              )}
               {isFirstAutoAdded && (
                 <div className="queue-divider" style={{ margin: '2px 0' }}>
                   <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>{t('queue.autoAdded')}</span>

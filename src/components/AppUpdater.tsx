@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { check, Update, DownloadEvent } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { RefreshCw, Download, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -81,7 +81,7 @@ export default function AppUpdater() {
           setState({ phase: 'installing' });
         }
       });
-      await relaunch();
+      await invoke('relaunch_after_update');
     } catch (e) {
       console.error('Update failed', e);
       setState({ phase: 'available', version: savedVersion, update });

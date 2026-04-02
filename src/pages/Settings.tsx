@@ -55,6 +55,31 @@ const CONTRIBUTORS = [
       'songToTrack() — unified track construction across all sources',
     ],
   },
+  {
+    github: 'nisarg-78',
+    since: '1.29.0',
+    contributions: [
+      'Click-to-seek in synced lyrics (PR #38)',
+      'Volume scroll wheel on volume slider (PR #38)',
+      'Lyrics line visual states: active / completed / upcoming (PR #38)',
+    ],
+  },
+  {
+    github: 'JulianNymark',
+    since: '1.29.0',
+    contributions: [
+      'OGG/Vorbis container support via symphonia-format-ogg (PR #42)',
+      'Themed toast notifications for audio playback errors (PR #43)',
+      'Human-readable audio error messages (PR #44)',
+    ],
+  },
+] as const;
+
+const SPECIAL_THANKS = [
+  {
+    github: 'netherguy4',
+    reason: 'Countless constructive feature ideas and thoughtful feedback',
+  },
 ] as const;
 
 type Tab = 'playback' | 'library' | 'appearance' | 'shortcuts' | 'server' | 'about';
@@ -415,24 +440,7 @@ export default function Settings() {
                 </label>
               </div>
 
-              <div className="divider" />
 
-              {/* Infinite Queue */}
-              <div className="settings-toggle-row">
-                <div>
-                  <div style={{ fontWeight: 500 }}>
-                    {t('settings.infiniteQueue')}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {t('settings.infiniteQueueDesc')}
-                  </div>
-                </div>
-                <label className="toggle-switch" aria-label={t('settings.infiniteQueue')}>
-                  <input type="checkbox" checked={auth.infiniteQueueEnabled}
-                    onChange={e => auth.setInfiniteQueueEnabled(e.target.checked)} id="infinite-queue-toggle" />
-                  <span className="toggle-track" />
-                </label>
-              </div>
             </div>
           </section>
 
@@ -1128,6 +1136,28 @@ export default function Settings() {
                       ))}
                     </div>
                   )}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                  <span style={{ color: 'var(--text-muted)', minWidth: 56, flexShrink: 0, paddingTop: 2, fontSize: 13 }}>{t('settings.aboutSpecialThanksLabel')}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
+                    {SPECIAL_THANKS.map(s => (
+                      <div key={s.github} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <img
+                          src={`https://github.com/${s.github}.png?size=32`}
+                          width={22} height={22}
+                          style={{ borderRadius: '50%', flexShrink: 0 }}
+                          alt={s.github}
+                        />
+                        <button
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--accent)', fontWeight: 600, fontSize: 13 }}
+                          onClick={() => openUrl(`https://github.com/${s.github}`)}
+                        >
+                          @{s.github}
+                        </button>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>— {s.reason}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 

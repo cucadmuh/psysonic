@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Music, Star, ExternalLink, MicVocal } from 'lucide-react';
+import { Music, Star, ExternalLink, MicVocal, Heart } from 'lucide-react';
 import { usePlayerStore } from '../store/playerStore';
 import { useLyricsStore } from '../store/lyricsStore';
 import {
@@ -296,7 +296,7 @@ export default function NowPlaying() {
                     <button onClick={toggleStar} className="np-star-btn"
                       data-tooltip={starred ? t('contextMenu.unfavorite') : t('contextMenu.favorite')}
                     >
-                      <Star size={17} fill={starred ? 'var(--ctp-yellow)' : 'none'} color={starred ? 'var(--ctp-yellow)' : 'white'} />
+                      <Heart size={17} fill={starred ? 'var(--ctp-yellow)' : 'none'} color={starred ? 'var(--ctp-yellow)' : 'white'} />
                     </button>
                     <button
                       className="np-star-btn"

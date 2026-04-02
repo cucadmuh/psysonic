@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { buildStreamUrl, buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs } from '../api/subsonic';
+import { showToast } from '../utils/toast';
+import { buildStreamUrl, buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs } from '../api/subsonic';
 import { lastfmScrobble, lastfmUpdateNowPlaying, lastfmLoveTrack, lastfmUnloveTrack, lastfmGetTrackLoved, lastfmGetAllLovedTracks } from '../api/lastfm';
 import { useAuthStore } from './authStore';
 import { useOfflineStore } from './offlineStore';
@@ -29,6 +30,7 @@ export interface Track {
   samplingRate?: number;
   bitDepth?: number;
   autoAdded?: boolean;
+  radioAdded?: boolean;
 }
 
 export function songToTrack(song: SubsonicSong): Track {
@@ -84,6 +86,8 @@ interface PlayerState {
    setProgress: (t: number, duration: number) => void;
   enqueue: (tracks: Track[]) => void;
   enqueueAt: (tracks: Track[], insertIndex: number) => void;
+  enqueueRadio: (tracks: Track[], artistId?: string) => void;
+  setRadioArtistId: (artistId: string) => void;
   clearQueue: () => void;
 
   isQueueVisible: boolean;
@@ -133,6 +137,14 @@ let isAudioPaused = false;
 // The invoke().catch() error handler captures its own gen and bails if
 // playGeneration has moved on, preventing stale errors from skipping wrong tracks.
 let playGeneration = 0;
+
+// Guard against concurrent infinite-queue fetches.
+let infiniteQueueFetching = false;
+// Guard against concurrent radio top-up fetches.
+let radioFetching = false;
+// Artist ID used to start the current radio session — persists across track
+// advances so proactive loading works even when songs lack artistId.
+let currentRadioArtistId: string | null = null;
 
 // Debounce timer for seek slider drags.
 let seekDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -321,12 +333,16 @@ function handleAudioTrackSwitched(duration: number) {
 function handleAudioError(message: string) {
   console.error('[psysonic] Audio error from backend:', message);
   isAudioPaused = false;
+
+  const detail = message.length > 80 ? message.slice(0, 80) + '…' : message;
+  showToast(`Couldn't play track — skipping. ${detail}`, 8000, 'error');
+
   const gen = playGeneration;
   usePlayerStore.setState({ isPlaying: false });
   setTimeout(() => {
     if (playGeneration !== gen) return;
     usePlayerStore.getState().next();
-  }, 500);
+  }, 1500);
 }
 
 /**
@@ -676,12 +692,91 @@ export const usePlayerStore = create<PlayerState>()(
         const nextIdx = queueIndex + 1;
         if (nextIdx < queue.length) {
           get().playTrack(queue[nextIdx], queue);
+          // Proactively top up auto-added tracks when ≤ 2 remain ahead,
+          // so the queue never runs dry without a visible loading pause.
+          const { infiniteQueueEnabled } = useAuthStore.getState();
+          if (infiniteQueueEnabled && repeatMode === 'off' && !infiniteQueueFetching) {
+            const remainingAuto = queue.slice(nextIdx + 1).filter(t => t.autoAdded).length;
+            if (remainingAuto <= 2) {
+              infiniteQueueFetching = true;
+              getRandomSongs(5, currentTrack?.genre).then(songs => {
+                if (songs.length > 0) {
+                  const newTracks: Track[] = songs.map(s => ({ ...songToTrack(s), autoAdded: true }));
+                  set(state => ({ queue: [...state.queue, ...newTracks] }));
+                }
+              }).catch(() => {}).finally(() => { infiniteQueueFetching = false; });
+            }
+          }
+          // Proactively top up radio tracks when ≤ 2 remain — always, regardless
+          // of infinite queue setting.
+          const nextTrack = queue[nextIdx];
+          if (nextTrack.radioAdded && !radioFetching) {
+            const remainingRadio = queue.slice(nextIdx + 1).filter(t => t.radioAdded).length;
+            if (remainingRadio <= 2) {
+              const artistId = nextTrack.artistId ?? currentRadioArtistId ?? null;
+              const artistName = nextTrack.artist;
+              if (artistId) {
+                radioFetching = true;
+                Promise.all([getSimilarSongs2(artistId), getTopSongs(artistName)])
+                  .then(([similar, top]) => {
+                    const existingIds = new Set(get().queue.map(t => t.id));
+                    const fresh: Track[] = [...top, ...similar]
+                      .map(songToTrack)
+                      .filter(t => !existingIds.has(t.id))
+                      .slice(0, 10)
+                      .map(t => ({ ...t, radioAdded: true as const }));
+                    if (fresh.length > 0) {
+                      set(state => ({ queue: [...state.queue, ...fresh] }));
+                    }
+                  })
+                  .catch(() => {})
+                  .finally(() => { radioFetching = false; });
+              }
+            }
+          }
         } else if (repeatMode === 'all' && queue.length > 0) {
           get().playTrack(queue[0], queue);
         } else {
+          // Queue exhausted. Check radio first (independent of infinite queue setting),
+          // then infinite queue, then stop.
+          if (currentTrack?.radioAdded && !radioFetching) {
+            const artistId = currentTrack.artistId ?? currentRadioArtistId ?? null;
+            if (artistId) {
+              radioFetching = true;
+              Promise.all([getSimilarSongs2(artistId), getTopSongs(currentTrack.artist)])
+                .then(([similar, top]) => {
+                  radioFetching = false;
+                  const existingIds = new Set(get().queue.map(t => t.id));
+                  const fresh: Track[] = [...top, ...similar]
+                    .map(songToTrack)
+                    .filter(t => !existingIds.has(t.id))
+                    .slice(0, 10)
+                    .map(t => ({ ...t, radioAdded: true as const }));
+                  if (fresh.length > 0) {
+                    const currentQueue = get().queue;
+                    const newQueue = [...currentQueue, ...fresh];
+                    get().playTrack(fresh[0], newQueue);
+                  } else {
+                    invoke('audio_stop').catch(console.error);
+                    isAudioPaused = false;
+                    set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
+                  }
+                })
+                .catch(() => {
+                  radioFetching = false;
+                  invoke('audio_stop').catch(console.error);
+                  isAudioPaused = false;
+                  set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
+                });
+              return;
+            }
+          }
           const { infiniteQueueEnabled } = useAuthStore.getState();
           if (infiniteQueueEnabled && repeatMode === 'off') {
-            getRandomSongs(25, currentTrack?.genre).then(songs => {
+            if (infiniteQueueFetching) return;
+            infiniteQueueFetching = true;
+            getRandomSongs(5, currentTrack?.genre).then(songs => {
+              infiniteQueueFetching = false;
               if (songs.length === 0) {
                 invoke('audio_stop').catch(console.error);
                 isAudioPaused = false;
@@ -693,6 +788,7 @@ export const usePlayerStore = create<PlayerState>()(
               const newQueue = [...currentQueue, ...newTracks];
               get().playTrack(newTracks[0], newQueue);
             }).catch(() => {
+              infiniteQueueFetching = false;
               invoke('audio_stop').catch(console.error);
               isAudioPaused = false;
               set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
@@ -748,7 +844,42 @@ export const usePlayerStore = create<PlayerState>()(
       // ── queue management ─────────────────────────────────────────────────────
       enqueue: (tracks) => {
         set(state => {
-          const newQueue = [...state.queue, ...tracks];
+          // Insert before the first upcoming auto-added track so the
+          // "Added automatically" separator always stays at the boundary.
+          const firstAutoIdx = state.queue.findIndex(
+            (t, i) => t.autoAdded && i > state.queueIndex
+          );
+          const newQueue = firstAutoIdx === -1
+            ? [...state.queue, ...tracks]
+            : [
+                ...state.queue.slice(0, firstAutoIdx),
+                ...tracks,
+                ...state.queue.slice(firstAutoIdx),
+              ];
+          syncQueueToServer(newQueue, state.currentTrack, state.currentTime);
+          return { queue: newQueue };
+        });
+      },
+
+      setRadioArtistId: (artistId) => { currentRadioArtistId = artistId; },
+
+      enqueueRadio: (tracks, artistId) => {
+        if (artistId) currentRadioArtistId = artistId;
+        set(state => {
+          // Drop all upcoming (not yet played) radio tracks — clicking "Start Radio"
+          // again replaces the pending radio batch instead of stacking on top.
+          const beforeAndCurrent = state.queue.slice(0, state.queueIndex + 1);
+          const upcoming = state.queue.slice(state.queueIndex + 1).filter(t => !t.radioAdded);
+          // Insert new radio tracks before any autoAdded tracks in the upcoming section.
+          const firstAutoIdx = upcoming.findIndex(t => t.autoAdded);
+          const merged = firstAutoIdx === -1
+            ? [...upcoming, ...tracks]
+            : [
+                ...upcoming.slice(0, firstAutoIdx),
+                ...tracks,
+                ...upcoming.slice(firstAutoIdx),
+              ];
+          const newQueue = [...beforeAndCurrent, ...merged];
           syncQueueToServer(newQueue, state.currentTrack, state.currentTime);
           return { queue: newQueue };
         });

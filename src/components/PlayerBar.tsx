@@ -64,6 +64,12 @@ export default function PlayerBar() {
     setVolume(parseFloat(e.target.value));
   }, [setVolume]);
 
+  const handleVolumeWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.05 : 0.05;
+    setVolume(Math.max(0, Math.min(1, volume + delta)));
+  }, [volume, setVolume]);
+
   const volumeStyle = {
     background: `linear-gradient(to right, var(--volume-accent, var(--accent)) ${volume * 100}%, var(--ctp-surface2) ${volume * 100}%)`,
   };
@@ -203,7 +209,7 @@ export default function PlayerBar() {
         >
           {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
-        <div className="player-volume-slider-wrap">
+        <div className="player-volume-slider-wrap" onWheel={handleVolumeWheel}>
           {showVolPct && (
             <span className="player-volume-pct" style={{ left: `${volume * 100}%` }}>
               {Math.round(volume * 100)}%
