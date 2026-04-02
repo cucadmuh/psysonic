@@ -19,8 +19,8 @@ if (!VERSION) {
 
 // Platform → update bundle filename (produced by tauri-action with updater plugin)
 const PLATFORM_FILES = {
-  'darwin-aarch64': `Psysonic_${VERSION}_aarch64.app.tar.gz`,
-  'darwin-x86_64':  `Psysonic_${VERSION}_x64.app.tar.gz`,
+  'darwin-aarch64': `Psysonic_aarch64.app.tar.gz`,
+  'darwin-x86_64':  `Psysonic_x64.app.tar.gz`,
   'windows-x86_64': `Psysonic_${VERSION}_x64-setup.nsis.zip`,
 };
 
