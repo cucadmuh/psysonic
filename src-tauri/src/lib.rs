@@ -43,10 +43,9 @@ fn exit_app(app_handle: tauri::AppHandle) {
 ///      prevent_close() and releases the single-instance lock immediately.
 #[tauri::command]
 fn relaunch_after_update(app: tauri::AppHandle) {
-    let exe = std::env::current_exe().unwrap_or_default();
-
     #[cfg(target_os = "windows")]
     {
+        let exe = std::env::current_exe().unwrap_or_default();
         let exe_str = exe.to_string_lossy().to_string().replace('\'', "''");
         let script = format!(
             "Start-Sleep -Milliseconds 1500; Start-Process '{exe_str}'"
@@ -58,6 +57,7 @@ fn relaunch_after_update(app: tauri::AppHandle) {
 
     #[cfg(target_os = "macos")]
     {
+        let exe = std::env::current_exe().unwrap_or_default();
         // exe lives at Psysonic.app/Contents/MacOS/psysonic — walk up to the bundle.
         let bundle = exe
             .parent()                  // MacOS/

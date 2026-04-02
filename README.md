@@ -27,7 +27,9 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - 🌍 **Internationalization (i18n)**: Fully translated into English, German, French, Dutch, and Chinese.
 - 📻 **Live "Now Playing"**: See what other users on your server are currently listening to in real-time.
 - 🎵 **Last.fm Integration**: Direct scrobbling, Now Playing updates, love/unlove, Similar Artists, and top stats — no Navidrome configuration required.
-- 🎤 **Synchronized Lyrics**: In-sidebar lyrics pane powered by LRCLIB — synced with auto-scroll and line highlighting, plain-text fallback.
+- 🎤 **Synchronized Lyrics**: In-sidebar lyrics pane powered by LRCLIB — synced with auto-scroll, line highlighting, click-to-seek, and plain-text fallback.
+- 📻 **Smart Radio**: Start a Radio session from any song or artist. Playback begins instantly from top local tracks while similar artist tracks (via Last.fm) load in the background. Radio queues reload proactively so sessions never run dry.
+- ♾️ **Infinite Queue**: When the queue runs out with Repeat off, Psysonic silently appends more random tracks (optionally filtered by genre) so playback never stops. Auto-added tracks appear below a clear `— Auto —` divider.
 - 💾 **IndexedDB Caching**: Ultra-fast loading times with persistent IndexedDB image caching for cover art and artist images.
 - 📀 **Album Downloads**: Support for downloading entire albums directly to your local machine.
 - 💿 **Album & Artist Views**: Beautiful grid displays and detailed artist pages with related albums and color-coded initial avatars for fast browsing.
@@ -37,8 +39,8 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - 🔤 **Font Picker**: 10 UI fonts to choose from in Settings → Appearance.
 - 🎼 **Random Mix**: Generate a random playlist from your entire library. Filter by keyword or pick a Super Genre (Metal, Rock, Electronic, Jazz…) for a focused mix with progressive loading.
 - 🏷️ **Genres**: Browse your entire library by genre — coloured cards sorted by album count with a dedicated album view per genre. Multi-select genre filter available on Albums, New Releases, and Random Albums pages.
-- 🔄 **Update Notifications**: Built-in update checker (on startup + every 10 minutes) that notifies you when a new version is available on GitHub.
-- 🖥️ **Cross-Platform**: Available natively for Windows, macOS, and Linux (including Wayland support).
+- 🔄 **In-App Auto-Update**: Checks for new releases on startup. macOS and Windows can install and relaunch directly in-app; Linux users get a link to the GitHub release page.
+- 🖥️ **Cross-Platform**: Available natively for Windows, macOS, and Linux (Arch AUR, .deb, .rpm).
 
 ## 🗺️ Roadmap
 
@@ -52,7 +54,11 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - [x] Last.fm scrobbling, Now Playing & love/unlove
 - [x] Similar Artists via Last.fm, filtered to library
 - [x] Statistics — Last.fm top charts & recent scrobbles
-- [x] Synchronized lyrics via LRCLIB (in-sidebar, auto-scroll)
+- [x] Synchronized lyrics via LRCLIB (in-sidebar, auto-scroll, click-to-seek)
+- [x] Smart Radio with proactive queue loading
+- [x] Infinite Queue (random auto-fill when queue runs out)
+- [x] OGG/Vorbis native playback
+- [x] In-app auto-updater (macOS + Windows)
 - [x] Multi-server support
 - [x] IndexedDB image caching
 - [x] Random Mix with server-native Genre Mix (top genres by song count, shuffleable)
@@ -70,16 +76,11 @@ Designed specifically for users hosting their own music via Navidrome or other S
 
 ---
 
-## ● Known Limitations
-
-Some known bugs actively working on fixes
-
-
 ## 📥 Installation
 
 Navigate to the [Releases](https://github.com/Psychotoxical/psysonic/releases) page and download the installer for your operating system.
 
-- **Windows**: `.exe` or `.msi`
+- **Windows**: `.exe` (NSIS installer)
 - **macOS**: `.dmg` (Universal or Apple Silicon)
 - **Linux (Ubuntu/Debian)**: `.deb` from GitHub Releases
 - **Linux (Fedora/RHEL)**: `.rpm` from GitHub Releases

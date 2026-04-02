@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-04-02
+
+### Added
+
+- **Radio: instant start + background enrichment** *(requested by [@netherguy4](https://github.com/netherguy4))*: Artist Radio now starts immediately from fast local `getTopSongs` results. `getSimilarSongs2` (Last.fm-dependent, slow) continues in the background and silently enriches the queue once it resolves — no waiting before the first song.
+- **Proactive Radio queue loading** *(requested by [@netherguy4](https://github.com/netherguy4))*: When ≤2 Radio tracks remain, Psysonic automatically fetches more similar songs and appends them — independent of the Infinite Queue setting. Radio sessions now continue indefinitely.
+- **OGG/Vorbis playback** *(contributed by [@JulianNymark](https://github.com/JulianNymark), [PR #42](https://github.com/Psychotoxical/psysonic/pull/42))*: Added `symphonia-format-ogg` — `.ogg` files now play natively without server-side transcoding.
+- **Click-to-seek in synced lyrics** *(contributed by [@nisarg-78](https://github.com/nisarg-78), [PR #38](https://github.com/Psychotoxical/psysonic/pull/38))*: Clicking any line in the synced lyrics pane seeks directly to that timestamp.
+- **Volume scroll wheel** *(contributed by [@nisarg-78](https://github.com/nisarg-78), [PR #38](https://github.com/Psychotoxical/psysonic/pull/38))*: Scrolling the mouse wheel over the volume slider adjusts volume in ±5 % steps.
+- **Lyrics visual states** *(contributed by [@nisarg-78](https://github.com/nisarg-78), [PR #38](https://github.com/Psychotoxical/psysonic/pull/38))*: Synced lyrics lines now show three distinct visual states — active (highlighted), completed (muted), upcoming (neutral).
+- **Themed audio error toasts** *(contributed by [@JulianNymark](https://github.com/JulianNymark), [PR #43](https://github.com/Psychotoxical/psysonic/pull/43) / [PR #44](https://github.com/Psychotoxical/psysonic/pull/44))*: Unsupported formats and decode failures are now surfaced as themed in-app toast notifications with human-readable messages instead of silent failures.
+
+### Fixed
+
+- **Auto-updater endless loop on macOS / Windows**: The single-instance plugin was killing the relaunching process before it could start. Fixed by exiting the old process first (releasing the lock) and spawning the new process via a shell-based delayed restart.
+- **Radio queue stacking**: Clicking "Start Radio" multiple times no longer appends unlimited duplicate batches — each click replaces the pending Radio section cleanly.
+- **Start Radio keeps current song playing**: Triggering Radio while a song is playing no longer stops and restarts the current track.
+- **Radio proactive loading with songs missing `artistId`**: `getSimilarSongs2` results frequently lack `artistId`. A `currentRadioArtistId` module variable now persists the original artist ID as fallback, so proactive loading always fires correctly.
+- **Seek audio glitch after lyrics click**: Any seek ≥ 100 ms into a track no longer causes a brief fade-from-zero. `EqualPowerFadeIn` now only resets to zero-gain for seeks to the track start.
+
+### Changed
+
+- **Infinite Queue: 5 tracks at a time** (was 25): Proactive loading fetches 5 tracks when ≤ 2 remain, keeping the queue lean without interruption.
+- **Queue section order is now explicit**: Manual tracks → Radio (with `— Radio —` separator) → Infinite Queue auto-added tracks (with `— Auto —` separator). Manually enqueued songs always appear before auto-managed sections.
+
+### Contributors
+
+Thanks to [@nisarg-78](https://github.com/nisarg-78) and [@JulianNymark](https://github.com/JulianNymark) for their first contributions in this release.
+Special thanks to [@netherguy4](https://github.com/netherguy4) for continued feature ideas and feedback.
+
+---
+
 ## [1.28.0] - 2026-04-02
 
 ### Added
