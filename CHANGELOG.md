@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Radio: instant start + background enrichment** *(requested by [@netherguy4](https://github.com/netherguy4))*: Artist Radio now starts immediately from fast local `getTopSongs` results. `getSimilarSongs2` (Last.fm-dependent, slow) continues in the background and silently enriches the queue once it resolves — no waiting before the first song.
-- **Proactive Radio queue loading** *(requested by [@netherguy4](https://github.com/netherguy4))*: When ≤2 Radio tracks remain, Psysonic automatically fetches more similar songs and appends them — independent of the Infinite Queue setting. Radio sessions now continue indefinitely.
 - **OGG/Vorbis playback** *(contributed by [@JulianNymark](https://github.com/JulianNymark), [PR #42](https://github.com/Psychotoxical/psysonic/pull/42))*: Added `symphonia-format-ogg` — `.ogg` files now play natively without server-side transcoding.
 - **Click-to-seek in synced lyrics** *(contributed by [@nisarg-78](https://github.com/nisarg-78), [PR #38](https://github.com/Psychotoxical/psysonic/pull/38))*: Clicking any line in the synced lyrics pane seeks directly to that timestamp.
 - **Volume scroll wheel** *(contributed by [@nisarg-78](https://github.com/nisarg-78), [PR #38](https://github.com/Psychotoxical/psysonic/pull/38))*: Scrolling the mouse wheel over the volume slider adjusts volume in ±5 % steps.
