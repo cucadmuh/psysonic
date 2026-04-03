@@ -84,9 +84,18 @@ Navigate to the [Releases](https://github.com/Psychotoxical/psysonic/releases) p
 - **macOS**: `.dmg` (Universal or Apple Silicon)
 - **Linux (Ubuntu/Debian)**: `.deb` from GitHub Releases
 - **Linux (Fedora/RHEL)**: `.rpm` from GitHub Releases
-- **Linux (Arch/CachyOS)**: AUR — `yay -S psysonic` or `paru -S psysonic`
 
-> The AUR package builds from source using your system's own WebKitGTK — no bundled libs, no EGL/Mesa compatibility issues.
+## 📦 Installation (Arch Linux / AUR)
+
+Psysonic is available in the **AUR** in two versions. Choose the one that best fits your needs:
+
+| Package | Type | Description |
+| :--- | :--- | :--- |
+| [**psysonic**](https://aur.archlinux.org/packages/psysonic) | **Source** | Builds from source using your system's native **WebKitGTK** (no bundled libs, no EGL/Mesa compatibility issues). |
+| [**psysonic-bin**](https://aur.archlinux.org/packages/psysonic-bin) | **Binary** | Pre-compiled version for faster installation. |
+
+> [!TIP]
+> The AUR binary package is kindly provided and maintained by [**kilyabin**](https://github.com/kilyabin).
 
 ## 🚀 Getting Started
 
