@@ -133,19 +133,17 @@ export default function Favorites() {
                         document.addEventListener('mouseup', onUp);
                       }}
                     >
-                      <div className="track-num col-center" style={{ cursor: 'pointer' }}>
-                        <span style={{ color: currentTrack?.id === song.id ? 'var(--accent)' : 'var(--text-muted)' }}>
-                          {currentTrack?.id === song.id && isPlaying
-                            ? <div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div>
-                            : <Play size={13} fill="currentColor" />}
-                        </span>
+                      <div className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, visibleSongs.map(songToTrack)); }}>
+                        {currentTrack?.id === song.id && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
+                        <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
+                        <span className="track-num-number">{i + 1}</span>
                       </div>
                       <div className="track-info">
                         <span className="track-title">{song.title}</span>
                       </div>
                       <div className="track-artist-cell">
                         <span
-                          className="track-artist"
+                          className={`track-artist${song.artistId ? ' track-artist-link' : ''}`}
                           style={{ cursor: song.artistId ? 'pointer' : 'default' }}
                           onClick={() => song.artistId && navigate(`/artist/${song.artistId}`)}
                         >{song.artist}</span>

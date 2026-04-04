@@ -88,6 +88,14 @@ export interface SubsonicSong {
   };
 }
 
+export interface InternetRadioStation {
+  id: string;
+  name: string;
+  streamUrl: string;
+  homepageUrl?: string;
+  coverArt?: string; // Navidrome v0.61.0+
+}
+
 export interface SubsonicPlaylist {
   id: string;
   name: string;
@@ -441,4 +449,37 @@ export async function getNowPlaying(): Promise<SubsonicNowPlaying[]> {
   } catch {
     return [];
   }
+}
+
+
+// ─── Internet Radio ───────────────────────────────────────────
+export async function getInternetRadioStations(): Promise<InternetRadioStation[]> {
+  try {
+    const data = await api<{ internetRadioStations?: { internetRadioStation?: InternetRadioStation[] } }>(
+      'getInternetRadioStations.view'
+    );
+    return data.internetRadioStations?.internetRadioStation ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createInternetRadioStation(
+  name: string, streamUrl: string, homepageUrl?: string
+): Promise<void> {
+  const params: Record<string, unknown> = { name, streamUrl };
+  if (homepageUrl) params.homepageUrl = homepageUrl;
+  await api('createInternetRadioStation.view', params);
+}
+
+export async function updateInternetRadioStation(
+  id: string, name: string, streamUrl: string, homepageUrl?: string
+): Promise<void> {
+  const params: Record<string, unknown> = { id, name, streamUrl };
+  if (homepageUrl) params.homepageUrl = homepageUrl;
+  await api('updateInternetRadioStation.view', params);
+}
+
+export async function deleteInternetRadioStation(id: string): Promise<void> {
+  await api('deleteInternetRadioStation.view', { id });
 }

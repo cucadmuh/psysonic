@@ -37,19 +37,22 @@ export const BUILTIN_PRESETS: EqPreset[] = [
 interface EqState {
   gains: number[];           // 10 values, -12 to +12 dB
   enabled: boolean;
+  preGain: number;           // pre-amplification in dB (-30 to +6), applied before bands
   activePreset: string | null;
   customPresets: EqPreset[];
 
   setBandGain: (index: number, gain: number) => void;
   setEnabled: (v: boolean) => void;
+  setPreGain: (v: number) => void;
   applyPreset: (name: string) => void;
+  applyAutoEq: (name: string, gains: number[], preGain: number) => void;
   saveCustomPreset: (name: string) => void;
   deleteCustomPreset: (name: string) => void;
   syncToRust: () => void;
 }
 
-function syncEq(gains: number[], enabled: boolean) {
-  invoke('audio_set_eq', { gains: gains.map(g => g), enabled }).catch(() => {});
+function syncEq(gains: number[], enabled: boolean, preGain: number) {
+  invoke('audio_set_eq', { gains: gains.map(g => g), enabled, preGain }).catch(() => {});
 }
 
 export const useEqStore = create<EqState>()(
@@ -57,6 +60,7 @@ export const useEqStore = create<EqState>()(
     (set, get) => ({
       gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       enabled: false,
+      preGain: 0,
       activePreset: 'Flat',
       customPresets: [],
 
@@ -65,12 +69,25 @@ export const useEqStore = create<EqState>()(
         const gains = [...get().gains];
         gains[index] = clamped;
         set({ gains, activePreset: null });
-        syncEq(gains, get().enabled);
+        syncEq(gains, get().enabled, get().preGain);
       },
 
       setEnabled: (v) => {
         set({ enabled: v });
-        syncEq(get().gains, v);
+        syncEq(get().gains, v, get().preGain);
+      },
+
+      setPreGain: (v) => {
+        const clamped = Math.max(-30, Math.min(6, v));
+        set({ preGain: clamped, activePreset: null });
+        syncEq(get().gains, get().enabled, clamped);
+      },
+
+      applyAutoEq: (name, gains, preGain) => {
+        const clampedPreGain = Math.max(-30, Math.min(6, preGain));
+        const clampedGains = gains.map(g => Math.max(-12, Math.min(12, g)));
+        set({ gains: clampedGains, preGain: clampedPreGain, activePreset: name });
+        syncEq(clampedGains, get().enabled, clampedPreGain);
       },
 
       applyPreset: (name) => {
@@ -78,7 +95,7 @@ export const useEqStore = create<EqState>()(
         const preset = all.find(p => p.name === name);
         if (!preset) return;
         set({ gains: [...preset.gains], activePreset: name });
-        syncEq(preset.gains, get().enabled);
+        syncEq(preset.gains, get().enabled, get().preGain);
       },
 
       saveCustomPreset: (name) => {
@@ -95,8 +112,8 @@ export const useEqStore = create<EqState>()(
       },
 
       syncToRust: () => {
-        const { gains, enabled } = get();
-        syncEq(gains, enabled);
+        const { gains, enabled, preGain } = get();
+        syncEq(gains, enabled, preGain);
       },
     }),
     {
@@ -105,6 +122,7 @@ export const useEqStore = create<EqState>()(
       partialize: (s) => ({
         gains: s.gains,
         enabled: s.enabled,
+        preGain: s.preGain,
         activePreset: s.activePreset,
         customPresets: s.customPresets,
       }),

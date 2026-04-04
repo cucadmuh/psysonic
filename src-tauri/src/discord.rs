@@ -10,7 +10,7 @@
 /// so the app always starts cleanly regardless of Discord availability.
 
 use discord_rich_presence::{
-    activity::{Activity, Assets, Timestamps},
+    activity::{Activity, ActivityType, Assets, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
 use std::sync::Mutex;
@@ -56,7 +56,10 @@ pub fn discord_update_presence(
 
     let client = guard.as_mut().unwrap();
 
-    let state_text = format!("by {artist}");
+    // Discord RPC only exposes two visible text rows (details + state).
+    // The application name "Psysonic" is shown automatically by Discord as the
+    // header line. Album goes into large_text — visible as a hover tooltip on
+    // the cover art icon.
     let large_text = album.as_deref().unwrap_or("Psysonic");
 
     let assets = Assets::new()
@@ -64,8 +67,9 @@ pub fn discord_update_presence(
         .large_text(large_text);
 
     let mut activity = Activity::new()
+        .activity_type(ActivityType::Listening)
         .details(&title)
-        .state(&state_text)
+        .state(&artist)
         .assets(assets);
 
     // Start timestamp: Discord auto-counts up from this point. We back-calculate

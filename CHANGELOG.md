@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-04-04
+
+> **Note:** This is likely the last update for the coming week — taking a short break. See you on the other side. ☀️
+
+### Added
+
+- **AutoEQ — 10-Band Parametric Equalizer**: Full parametric EQ with 10 adjustable bands, bypass toggle, and pre-gain control. AutoEQ presets are loaded directly from the AutoEQ GitHub repository — search for your headphone model and apply a community-measured correction curve with one click.
+- **Internet Radio — infrastructure** *(work in progress, not yet released)*: The full backend for Internet Radio playback is in place — a dedicated Rust `RadioBuffer` streaming pipeline in the audio engine, Subsonic API integration (`getInternetRadioStations`, create/update/delete), and a `playRadio` action in the player store. The UI page exists but the feature is **not yet accessible** from the sidebar — it will be enabled once the experience is polished.
+- **Tracklist columns — resizable & configurable** *(experimental)*: Album tracklist columns can now be resized by dragging the dividers between header cells, similar to a spreadsheet. A column visibility picker (chevron button at the top right) lets you show or hide individual columns. The `#` column is fixed-width. Column widths and visibility are persisted in localStorage. The feature works but is still being refined.
+- **Genre column in album tracklist**: Albums that have genre tags per track now show a Genre column in the tracklist.
+- **Sidebar auto-migration**: New sidebar items (e.g. Internet Radio) are automatically appended to existing persisted sidebar configurations on first launch — no more missing entries after updates.
+
+### Changed
+
+- **Discord Rich Presence**: Activity type is now `Listening` instead of the default `Playing`. The artist field no longer has the "by " prefix — Discord's layout makes the context clear without it. Album name is shown as a tooltip on the cover icon.
+- **Clickable artist names everywhere**: Artist names in Album Cards, Favorites, Random Mix, Playlist Detail, and Artist Detail tracklists are now clickable links that navigate to the artist page.
+- **Duration format supports hours**: Tracks and albums longer than 60 minutes are now displayed as `H:MM:SS` instead of overflowing minutes (e.g. `75:03` → `1:15:03`).
+- **Format column**: Codec label no longer includes the "kbps" suffix or the `·` separator — cleaner and fits the narrower column better (e.g. `FLAC 1411` instead of `FLAC · 1411 kbps`).
+- **Now Playing sidebar link**: No longer permanently styled as an active menu item. It now only shows the accent background when you are actually on the Now Playing page; at all other times it is distinguished only by its accent text colour.
+- **Paused-state indicator in tracklist**: When the currently active track is paused, a dimmed play icon is shown in the `#` column instead of a blank space — making it clear which track is loaded even when playback is stopped.
+- **Text selection disabled**: Text can no longer be accidentally selected anywhere in the player by click-dragging or pressing Ctrl+A. Standard input fields are unaffected.
+- **Settings — button styles**: "Test connection", "Add server", and "Pick download folder" buttons are now `btn-surface` (with a subtle border) instead of the borderless `btn-ghost` — clearer affordance.
+- **Settings — Behavior section icon**: Replaced the generic `Sliders` icon with `AppWindow` for the Behavior section header.
+- **`btn-surface` border**: The surface button variant now has a 1 px border that brightens on hover — consistent with the card and input visual language.
+- **Queue panel minimum width**: Increased from 250 px to 310 px to prevent layout overflow when the codec/bitrate overlay is visible.
+- **Server compatibility hint**: A short note below the Servers section header in Settings clarifies which Subsonic-compatible servers are supported.
+
+### Fixed
+
+- **Tracklist `#` column header alignment**: The "Select all" checkbox and the `#` symbol in the header now use the same internal layout as the row cells — ensuring alignment with individual checkboxes and track numbers at all window sizes.
+- **Column resize dividers**: The visible 2 px divider line is now placed in the gap between columns rather than inside the cell, so header labels appear visually centred between their dividers.
+- **Internet Radio sidebar link hidden**: The navigation entry is temporarily removed until the feature is ready for release. The underlying code remains in place and will be re-enabled without any migration required.
+
+---
+
 ## [1.30.0] - 2026-04-03
 
 ### Added

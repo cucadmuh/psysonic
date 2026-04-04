@@ -18,6 +18,7 @@ export const DEFAULT_SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { id: 'randomMix',     visible: true },
   { id: 'favorites',     visible: true },
   { id: 'playlists',     visible: true },
+  { id: 'radio',         visible: true },
   { id: 'statistics',    visible: true },
   { id: 'help',          visible: true },
 ];
@@ -42,6 +43,16 @@ export const useSidebarStore = create<SidebarStore>()(
 
       reset: () => set({ items: DEFAULT_SIDEBAR_ITEMS }),
     }),
-    { name: 'psysonic_sidebar' }
+    {
+      name: 'psysonic_sidebar',
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const known = new Set(state.items.map(i => i.id));
+        const missing = DEFAULT_SIDEBAR_ITEMS.filter(i => !known.has(i.id));
+        if (missing.length > 0) {
+          state.items = [...state.items, ...missing];
+        }
+      },
+    }
   )
 );

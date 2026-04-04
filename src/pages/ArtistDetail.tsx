@@ -410,12 +410,10 @@ export default function ArtistDetail() {
                          openContextMenu(e.clientX, e.clientY, track, 'song');
                        }}
                      >
-                <div className="track-num" style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, topSongs.map(songToTrack)); }}>
-                  <span style={{ color: currentTrack?.id === song.id ? 'var(--accent)' : 'var(--text-muted)' }}>
-                    {currentTrack?.id === song.id && isPlaying
-                      ? <div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div>
-                      : <Play size={13} fill="currentColor" />}
-                  </span>
+                <div className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, topSongs.map(songToTrack)); }}>
+                  {currentTrack?.id === song.id && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
+                  <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
+                  <span className="track-num-number">{idx + 1}</span>
                 </div>
                 <div className="track-info" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   {song.coverArt && (

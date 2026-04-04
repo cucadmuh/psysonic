@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Disc3, Users, Music4, Radio, Settings, Heart, BarChart3, Shuffle,
-  PanelLeftClose, PanelLeft, HelpCircle, Dices, AudioLines, HardDriveDownload, Tags, ListMusic
+  PanelLeftClose, PanelLeft, HelpCircle, Dices, AudioLines, HardDriveDownload, Tags, ListMusic, Cast
 } from 'lucide-react';
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
@@ -24,6 +24,7 @@ export const ALL_NAV_ITEMS: Record<string, { icon: React.ElementType; labelKey: 
   randomMix:    { icon: Shuffle,    labelKey: 'sidebar.randomMix',    to: '/random-mix',    section: 'library' },
   favorites:    { icon: Heart,      labelKey: 'sidebar.favorites',    to: '/favorites',     section: 'library' },
   playlists:    { icon: ListMusic,  labelKey: 'sidebar.playlists',    to: '/playlists',     section: 'library' },
+  // radio:        { icon: Cast,       labelKey: 'sidebar.radio',         to: '/radio',         section: 'library' }, // TODO: unhide when radio is ready
   statistics:   { icon: BarChart3,  labelKey: 'sidebar.statistics',   to: '/statistics',    section: 'system'  },
   help:         { icon: HelpCircle, labelKey: 'sidebar.help',         to: '/help',          section: 'system'  },
 };

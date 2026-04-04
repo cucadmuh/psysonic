@@ -3670,10 +3670,12 @@ body.psy-dragging * {
 .btn-surface {
   background: var(--bg-card);
   color: var(--text-primary);
+  border: 1px solid var(--ctp-surface1);
 }
 
 .btn-surface:hover {
   background: var(--bg-hover);
+  border-color: var(--ctp-overlay0);
 }
 
 /* ─── Input ─── */

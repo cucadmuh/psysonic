@@ -29,6 +29,7 @@ import SearchResults from './pages/SearchResults';
 import AdvancedSearch from './pages/AdvancedSearch';
 import Playlists from './pages/Playlists';
 import PlaylistDetail from './pages/PlaylistDetail';
+import InternetRadio from './pages/InternetRadio';
 import NowPlayingPage from './pages/NowPlaying';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
@@ -141,7 +142,7 @@ function AppShell() {
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDraggingQueue) {
-      const newWidth = Math.max(250, Math.min(window.innerWidth - e.clientX, 500));
+      const newWidth = Math.max(310, Math.min(window.innerWidth - e.clientX, 500));
       setQueueWidth(newWidth);
     }
   }, [isDraggingQueue]);
@@ -185,14 +186,36 @@ function AppShell() {
     // from the OS file manager) is dropped on the document body.
     const blockDrop = (e: DragEvent) => { e.preventDefault(); };
 
+    // Block Ctrl+A / Cmd+A "select all" — WebKit ignores user-select:none for keyboard shortcuts
+    const blockSelectAll = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        const target = e.target as HTMLElement;
+        // Allow Ctrl+A inside actual text inputs and textareas
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        e.preventDefault();
+      }
+    };
+
+    // Block mouse drag selection — WebKitGTK ignores user-select:none on * for drag selection
+    const blockSelectStart = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if ((target as HTMLElement).closest('[data-selectable]')) return;
+      e.preventDefault();
+    };
+
     document.addEventListener('dragover', allow);
     document.addEventListener('dragenter', allow);
     document.addEventListener('drop', blockDrop);
+    document.addEventListener('keydown', blockSelectAll, true);
+    document.addEventListener('selectstart', blockSelectStart);
 
     return () => {
       document.removeEventListener('dragover', allow);
       document.removeEventListener('dragenter', allow);
       document.removeEventListener('drop', blockDrop);
+      document.removeEventListener('keydown', blockSelectAll, true);
+      document.removeEventListener('selectstart', blockSelectStart);
     };
   }, []);
 
@@ -258,6 +281,7 @@ function AppShell() {
             <Route path="/genres/:name" element={<GenreDetail />} />
             <Route path="/playlists" element={<Playlists />} />
             <Route path="/playlists/:id" element={<PlaylistDetail />} />
+            <Route path="/radio" element={<InternetRadio />} />
           </Routes>
         </div>
       </main>

@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Music,
-  Square, Repeat, Repeat1, Maximize2, SlidersHorizontal, X, Heart, MicVocal
+  Square, Repeat, Repeat1, Maximize2, SlidersHorizontal, X, Heart, MicVocal, Cast
 } from 'lucide-react';
 import { usePlayerStore } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
@@ -31,7 +31,7 @@ export default function PlayerBar() {
   const showLyrics   = useLyricsStore(s => s.showLyrics);
   const activeTab    = useLyricsStore(s => s.activeTab);
   const {
-    currentTrack, isPlaying, currentTime, volume,
+    currentTrack, currentRadio, isPlaying, currentTime, volume,
     togglePlay, next, previous, setVolume,
     stop, toggleRepeat, repeatMode, toggleFullscreen,
     lastfmLoved, toggleLastfmLove,
@@ -39,6 +39,8 @@ export default function PlayerBar() {
     starredOverrides, setStarredOverride,
   } = usePlayerStore();
   const { lastfmSessionKey } = useAuthStore();
+
+  const isRadio = !!currentRadio;
 
   const isStarred = currentTrack
     ? (currentTrack.id in starredOverrides ? starredOverrides[currentTrack.id] : !!currentTrack.starred)
@@ -57,6 +59,13 @@ export default function PlayerBar() {
   }, [currentTrack, isStarred, setStarredOverride]);
 
   const duration = currentTrack?.duration ?? 0;
+
+  // Cover art: prefer radio station art, fall back to track art.
+  const radioCoverSrc = useMemo(
+    () => currentRadio?.coverArt ? buildCoverArtUrl(currentRadio.coverArt, 128) : '',
+    [currentRadio?.coverArt]
+  );
+  const radioCoverKey = currentRadio?.coverArt ? coverArtCacheKey(currentRadio.coverArt, 128) : '';
   const coverSrc = useMemo(() => currentTrack?.coverArt ? buildCoverArtUrl(currentTrack.coverArt, 128) : '', [currentTrack?.coverArt]);
   const coverKey = currentTrack?.coverArt ? coverArtCacheKey(currentTrack.coverArt, 128) : '';
 
@@ -80,11 +89,24 @@ export default function PlayerBar() {
       {/* Track Info */}
       <div className="player-track-info">
         <div
-          className={`player-album-art-wrap ${currentTrack ? 'clickable' : ''}`}
-          onClick={() => currentTrack && toggleFullscreen()}
-          data-tooltip={currentTrack ? t('player.openFullscreen') : undefined}
+          className={`player-album-art-wrap ${currentTrack && !isRadio ? 'clickable' : ''}`}
+          onClick={() => !isRadio && currentTrack && toggleFullscreen()}
+          data-tooltip={!isRadio && currentTrack ? t('player.openFullscreen') : undefined}
         >
-          {currentTrack?.coverArt ? (
+          {isRadio ? (
+            currentRadio?.coverArt ? (
+              <CachedImage
+                className="player-album-art"
+                src={radioCoverSrc}
+                cacheKey={radioCoverKey}
+                alt={currentRadio.name}
+              />
+            ) : (
+              <div className="player-album-art-placeholder">
+                <Cast size={20} />
+              </div>
+            )
+          ) : currentTrack?.coverArt ? (
             <CachedImage
               className="player-album-art"
               src={coverSrc}
@@ -96,7 +118,7 @@ export default function PlayerBar() {
               <Music size={22} />
             </div>
           )}
-          {currentTrack && (
+          {currentTrack && !isRadio && (
             <div className="player-art-expand-hint" aria-hidden="true">
               <Maximize2 size={16} />
             </div>
@@ -104,19 +126,19 @@ export default function PlayerBar() {
         </div>
         <div className="player-track-meta">
           <MarqueeText
-            text={currentTrack?.title ?? t('player.noTitle')}
+            text={isRadio ? (currentRadio?.name ?? '—') : (currentTrack?.title ?? t('player.noTitle'))}
             className="player-track-name"
-            style={{ cursor: currentTrack?.albumId ? 'pointer' : 'default' }}
-            onClick={() => currentTrack?.albumId && navigate(`/album/${currentTrack.albumId}`)}
+            style={{ cursor: !isRadio && currentTrack?.albumId ? 'pointer' : 'default' }}
+            onClick={() => !isRadio && currentTrack?.albumId && navigate(`/album/${currentTrack.albumId}`)}
           />
           <MarqueeText
-            text={currentTrack?.artist ?? '—'}
+            text={isRadio ? t('radio.liveStream') : (currentTrack?.artist ?? '—')}
             className="player-track-artist"
-            style={{ cursor: currentTrack?.artistId ? 'pointer' : 'default' }}
-            onClick={() => currentTrack?.artistId && navigate(`/artist/${currentTrack.artistId}`)}
+            style={{ cursor: !isRadio && currentTrack?.artistId ? 'pointer' : 'default' }}
+            onClick={() => !isRadio && currentTrack?.artistId && navigate(`/artist/${currentTrack.artistId}`)}
           />
         </div>
-        {currentTrack && (
+        {currentTrack && !isRadio && (
           <button
             className="player-btn player-btn-sm player-star-btn"
             onClick={toggleStar}
@@ -127,7 +149,7 @@ export default function PlayerBar() {
             <Heart size={15} fill={isStarred ? 'currentColor' : 'none'} />
           </button>
         )}
-        {currentTrack && lastfmSessionKey && (
+        {currentTrack && !isRadio && lastfmSessionKey && (
           <button
             className="player-btn player-btn-sm player-love-btn"
             onClick={toggleLastfmLove}
@@ -145,7 +167,7 @@ export default function PlayerBar() {
         <button className="player-btn player-btn-sm" onClick={stop} aria-label={t('player.stop')} data-tooltip={t('player.stop')}>
           <Square size={14} fill="currentColor" />
         </button>
-        <button className="player-btn" onClick={() => previous()} aria-label={t('player.prev')} data-tooltip={t('player.prev')}>
+        <button className="player-btn" onClick={() => previous()} aria-label={t('player.prev')} data-tooltip={t('player.prev')} disabled={isRadio} style={isRadio ? { opacity: 0.3, pointerEvents: 'none' } : undefined}>
           <SkipBack size={19} />
         </button>
         <button
@@ -156,7 +178,7 @@ export default function PlayerBar() {
         >
           {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
         </button>
-        <button className="player-btn" onClick={() => next()} aria-label={t('player.next')} data-tooltip={t('player.next')}>
+        <button className="player-btn" onClick={() => next()} aria-label={t('player.next')} data-tooltip={t('player.next')} disabled={isRadio} style={isRadio ? { opacity: 0.3, pointerEvents: 'none' } : undefined}>
           <SkipForward size={19} />
         </button>
         <button
@@ -170,13 +192,25 @@ export default function PlayerBar() {
         </button>
       </div>
 
-      {/* Waveform Seekbar */}
+      {/* Waveform Seekbar / Radio live bar */}
       <div className="player-waveform-section">
-        <span className="player-time">{formatTime(currentTime)}</span>
-        <div className="player-waveform-wrap">
-          <WaveformSeek trackId={currentTrack?.id} />
-        </div>
-        <span className="player-time">{formatTime(duration)}</span>
+        {isRadio ? (
+          <>
+            <span className="player-time">{formatTime(currentTime)}</span>
+            <div className="player-waveform-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="radio-live-badge">{t('radio.live')}</span>
+            </div>
+            <span className="player-time" style={{ opacity: 0 }}>0:00</span>
+          </>
+        ) : (
+          <>
+            <span className="player-time">{formatTime(currentTime)}</span>
+            <div className="player-waveform-wrap">
+              <WaveformSeek trackId={currentTrack?.id} />
+            </div>
+            <span className="player-time">{formatTime(duration)}</span>
+          </>
+        )}
       </div>
 
       {/* Lyrics Button */}

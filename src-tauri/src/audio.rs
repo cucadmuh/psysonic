@@ -1,5 +1,6 @@
-use std::io::{Cursor, Read, Seek};
-use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
+use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,7 @@ use symphonia::core::{
     probe::Hint,
     units::{self, Time},
 };
+use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter, State};
 
 // ─── 10-Band Graphic Equalizer ────────────────────────────────────────────────
@@ -30,6 +32,7 @@ struct EqSource<S: Source<Item = f32>> {
     channels: u16,
     gains: Arc<[AtomicU32; 10]>,
     enabled: Arc<AtomicBool>,
+    pre_gain: Arc<AtomicU32>,
     filters: [[DirectForm2Transposed<f32>; 2]; 10],
     current_gains: [f32; 10],
     sample_counter: usize,
@@ -37,7 +40,7 @@ struct EqSource<S: Source<Item = f32>> {
 }
 
 impl<S: Source<Item = f32>> EqSource<S> {
-    fn new(inner: S, gains: Arc<[AtomicU32; 10]>, enabled: Arc<AtomicBool>) -> Self {
+    fn new(inner: S, gains: Arc<[AtomicU32; 10]>, enabled: Arc<AtomicBool>, pre_gain: Arc<AtomicU32>) -> Self {
         let sample_rate = inner.sample_rate();
         let channels = inner.channels();
         let filters = std::array::from_fn(|band| {
@@ -58,7 +61,7 @@ impl<S: Source<Item = f32>> EqSource<S> {
             })
         });
         Self {
-            inner, sample_rate, channels, gains, enabled,
+            inner, sample_rate, channels, gains, enabled, pre_gain,
             filters,
             current_gains: [0.0; 10],
             sample_counter: 0,
@@ -106,7 +109,9 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
         let ch = self.channel_idx.min(1);
         self.channel_idx = (self.channel_idx + 1) % self.channels as usize;
 
-        let mut s = sample;
+        let pre_gain_db = f32::from_bits(self.pre_gain.load(Ordering::Relaxed));
+        let pre_gain_factor = 10_f32.powf(pre_gain_db / 20.0);
+        let mut s = sample * pre_gain_factor;
         for band in 0..10 {
             s = self.filters[band][ch].run(s);
         }
@@ -411,6 +416,120 @@ impl<S: Source<Item = f32>> Source for CountingSource<S> {
 
 // ─── SizedCursorSource — MediaSource with correct byte_len ────────────────────
 //
+// ─── RadioBuffer — streaming MediaSource for live HTTP radio ─────────────────
+//
+// Bridges an async reqwest byte-stream (download task) into a synchronous
+// Read+Seek interface that symphonia / rodio can consume.
+//
+// Back-pressure: the download task pauses when the ring buffer exceeds 4 MB
+// (~4 min at 128 kbps).  Read() blocks (via Condvar) until data arrives so
+// rodio's audio thread can decode in real time.  is_seekable() = false so
+// symphonia never tries to seek backward into consumed data.
+
+const RADIO_BUF_MAX: usize = 256 * 1024;
+
+pub(crate) struct RadioInner {
+    data: VecDeque<u8>,
+    eof: bool,
+    pos: u64,
+}
+
+// The read-side: given to symphonia / rodio.
+struct RadioBuffer {
+    inner: Arc<(Mutex<RadioInner>, Condvar)>,
+}
+
+// The write-side: held by the async download task.
+pub struct RadioFeed {
+    pub inner: Arc<(Mutex<RadioInner>, Condvar)>,
+}
+
+impl RadioBuffer {
+    fn new() -> (RadioBuffer, RadioFeed) {
+        let arc = Arc::new((
+            Mutex::new(RadioInner { data: VecDeque::new(), eof: false, pos: 0 }),
+            Condvar::new(),
+        ));
+        (RadioBuffer { inner: arc.clone() }, RadioFeed { inner: arc })
+    }
+}
+
+impl RadioFeed {
+    pub fn push(&self, chunk: &[u8]) {
+        let (lock, cvar) = &*self.inner;
+        let mut g = lock.lock().unwrap();
+        g.data.extend(chunk.iter().copied());
+        cvar.notify_one();
+    }
+
+    pub fn is_full(&self) -> bool {
+        let (lock, _) = &*self.inner;
+        lock.lock().unwrap().data.len() >= RADIO_BUF_MAX
+    }
+
+    pub fn flush(&self) {
+        let (lock, _) = &*self.inner;
+        lock.lock().unwrap().data.clear();
+    }
+
+    pub fn close(&self) {
+        let (lock, cvar) = &*self.inner;
+        let mut g = lock.lock().unwrap();
+        g.eof = true;
+        cvar.notify_all();
+    }
+}
+
+impl Read for RadioBuffer {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let (lock, cvar) = &*self.inner;
+        let mut g = lock.lock().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while g.data.is_empty() && !g.eof {
+            let rem = deadline.saturating_duration_since(std::time::Instant::now());
+            if rem.is_zero() {
+                eprintln!("[radio] RadioBuffer::read() timed out — no data for 10 s");
+                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "radio: no data after 10 s"));
+            }
+            let (new_g, _) = cvar.wait_timeout(g, rem).unwrap();
+            g = new_g;
+        }
+        if g.data.is_empty() {
+            eprintln!("[radio] RadioBuffer::read() → EOF (eof flag set, buffer empty)");
+            return Ok(0); // EOF
+        }
+        let n = buf.len().min(g.data.len());
+        for (i, b) in g.data.drain(..n).enumerate() {
+            buf[i] = b;
+        }
+        g.pos += n as u64;
+        // Notify downloader that buffer has drained below the cap.
+        cvar.notify_one();
+        Ok(n)
+    }
+}
+
+impl Seek for RadioBuffer {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        // Live streams cannot seek.  Symphonia will not try because
+        // is_seekable() = false; the only call it makes is SeekFrom::Current(0)
+        // (tell) which we handle.
+        let (lock, _) = &*self.inner;
+        let g = lock.lock().unwrap();
+        match pos {
+            SeekFrom::Current(0) => Ok(g.pos),
+            _ => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "radio stream: not seekable")),
+        }
+    }
+}
+
+impl MediaSource for RadioBuffer {
+    fn is_seekable(&self) -> bool { false }
+    fn byte_len(&self) -> Option<u64> { None }
+}
+
+// ─── SizedCursorSource — correct byte_len for seekable in-memory sources ──────
+//
 // rodio's internal ReadSeekSource wraps Cursor<Vec<u8>> but hardcodes
 // byte_len() → None.  This tells symphonia "stream length unknown", which
 // prevents the FLAC demuxer from seeking (it validates seek offsets against
@@ -550,6 +669,50 @@ impl SizedDecoder {
             buffer,
             spec,
         })
+    }
+
+    /// Build a decoder from any `MediaSource` (e.g. `RadioBuffer`).
+    /// Uses `enable_gapless: false` — live streams are not seekable; gapless
+    /// trimming requires seeking to read the LAME/iTunSMPB end-padding info.
+    fn new_streaming(media: Box<dyn MediaSource>, format_hint: Option<&str>) -> Result<Self, String> {
+        let mss = MediaSourceStream::new(media, Default::default());
+        let mut hint = Hint::new();
+        if let Some(ext) = format_hint { hint.with_extension(ext); }
+        let format_opts = FormatOptions { enable_gapless: false, ..Default::default() };
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &MetadataOptions::default())
+            .map_err(|e| format!("radio: format probe failed: {e}"))?;
+
+        let track = probed.format.tracks().iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .ok_or_else(|| "radio: no audio track found".to_string())?;
+        let track_id = track.id;
+        // Live streams have no known total frame count → total_duration = None.
+        let total_duration = None;
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .map_err(|e| format!("radio: codec init failed: {e}"))?;
+        let mut format = probed.format;
+
+        let mut errors = 0usize;
+        let decoded = loop {
+            let packet = match format.next_packet() {
+                Ok(p) => p,
+                Err(_) => break decoder.last_decoded(),
+            };
+            if packet.track_id() != track_id { continue; }
+            match decoder.decode(&packet) {
+                Ok(d) => break d,
+                Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                    errors += 1;
+                    if errors > DECODE_MAX_RETRIES { return Err("radio: too many decode errors".into()); }
+                }
+                Err(e) => return Err(format!("radio: decode error: {e}")),
+            }
+        };
+        let spec = decoded.spec().to_owned();
+        let buffer = Self::make_buffer(decoded, &spec);
+        Ok(SizedDecoder { decoder, current_frame_offset: 0, format, total_duration, buffer, spec })
     }
 
     #[inline]
@@ -765,6 +928,7 @@ fn build_source(
     duration_hint: f64,
     eq_gains: Arc<[AtomicU32; 10]>,
     eq_enabled: Arc<AtomicBool>,
+    eq_pre_gain: Arc<AtomicU32>,
     done_flag: Arc<AtomicBool>,
     fade_in_dur: Duration,
     sample_counter: Arc<AtomicU64>,
@@ -824,7 +988,7 @@ fn build_source(
     let fadeout_trigger = Arc::new(AtomicBool::new(false));
     let fadeout_samples = Arc::new(AtomicU64::new(0));
 
-    let eq_src = EqSource::new(dyn_src, eq_gains, eq_enabled);
+    let eq_src = EqSource::new(dyn_src, eq_gains, eq_enabled, eq_pre_gain);
     let fade_in = EqualPowerFadeIn::new(eq_src, fade_in_dur);
     let fade_out = TriggeredFadeOut::new(fade_in, fadeout_trigger.clone(), fadeout_samples.clone());
     let notifying = NotifyingSource::new(fade_out, done_flag);
@@ -870,6 +1034,7 @@ pub struct AudioEngine {
     pub http_client: reqwest::Client,
     pub eq_gains: Arc<[AtomicU32; 10]>,
     pub eq_enabled: Arc<AtomicBool>,
+    pub eq_pre_gain: Arc<AtomicU32>,
     pub preloaded: Arc<Mutex<Option<PreloadedTrack>>>,
     pub crossfade_enabled: Arc<AtomicBool>,
     pub crossfade_secs: Arc<AtomicU32>,
@@ -979,6 +1144,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
             .unwrap_or_default(),
         eq_gains: Arc::new(std::array::from_fn(|_| AtomicU32::new(0f32.to_bits()))),
         eq_enabled: Arc::new(AtomicBool::new(false)),
+        eq_pre_gain: Arc::new(AtomicU32::new(0f32.to_bits())),
         preloaded: Arc::new(Mutex::new(None)),
         crossfade_enabled: Arc::new(AtomicBool::new(false)),
         crossfade_secs: Arc::new(AtomicU32::new(3.0f32.to_bits())),
@@ -1041,7 +1207,17 @@ async fn fetch_data(
         app.emit("audio:error", &msg).ok();
         return Err(msg);
     }
-    let data: Vec<u8> = response.bytes().await.map_err(|e| e.to_string())?.into();
+    // Stream the body, checking gen between chunks so a rapid manual skip can
+    // abort a superseded download mid-flight and free bandwidth for the new one.
+    let hint = response.content_length().unwrap_or(0) as usize;
+    let mut stream = response.bytes_stream();
+    let mut data = Vec::with_capacity(hint);
+    while let Some(chunk) = stream.next().await {
+        if state.generation.load(Ordering::SeqCst) != gen {
+            return Ok(None); // superseded — abort
+        }
+        data.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
+    }
     Ok(Some(data))
 }
 
@@ -1181,6 +1357,7 @@ pub async fn audio_play(
         duration_hint,
         state.eq_gains.clone(),
         state.eq_enabled.clone(),
+        state.eq_pre_gain.clone(),
         done_flag.clone(),
         fade_in_dur,
         state.samples_played.clone(),
@@ -1350,7 +1527,16 @@ pub async fn audio_chain_preload(
                 if !resp.status().is_success() {
                     return Ok(()); // silently fail — audio_play will retry
                 }
-                resp.bytes().await.map_err(|e| e.to_string())?.into()
+                let hint = resp.content_length().unwrap_or(0) as usize;
+                let mut stream = resp.bytes_stream();
+                let mut buf = Vec::with_capacity(hint);
+                while let Some(chunk) = stream.next().await {
+                    if state.generation.load(Ordering::SeqCst) != snapshot_gen {
+                        return Ok(()); // superseded by manual skip — abort download
+                    }
+                    buf.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
+                }
+                buf
             }
         }
     };
@@ -1376,6 +1562,7 @@ pub async fn audio_chain_preload(
         duration_hint,
         state.eq_gains.clone(),
         state.eq_enabled.clone(),
+        state.eq_pre_gain.clone(),
         done_next.clone(),
         Duration::ZERO, // gapless: no fade-in — sample-accurate boundary, no click
         chain_counter.clone(),
@@ -1461,6 +1648,15 @@ fn spawn_progress_task(
             // ready, transition seamlessly: swap tracking state, emit
             // audio:track_switched for the new track, and continue the loop.
             if current_done.load(Ordering::SeqCst) {
+                // Radio (dur == 0): stream exhausted / connection dropped → stop.
+                let cur_dur = current_arc.lock().unwrap().duration_secs;
+                if cur_dur <= 0.0 {
+                    eprintln!("[radio] current_done fired → emitting audio:ended (dur=0)");
+                    gen_counter.fetch_add(1, Ordering::SeqCst);
+                    app.emit("audio:ended", ()).ok();
+                    break;
+                }
+
                 let chained = chained_arc.lock().unwrap().take();
                 if let Some(info) = chained {
                     // Swap to the chained source's done flag.
@@ -1663,9 +1859,56 @@ pub fn audio_update_replay_gain(
     }
 }
 
+/// Proxy: fetches https://autoeq.app/entries via Rust to bypass WebView CORS restrictions.
 #[tauri::command]
-pub fn audio_set_eq(gains: [f32; 10], enabled: bool, state: State<'_, AudioEngine>) {
+pub async fn autoeq_entries(state: State<'_, AudioEngine>) -> Result<String, String> {
+    state.http_client
+        .get("https://autoeq.app/entries")
+        .send().await.map_err(|e| e.to_string())?
+        .text().await.map_err(|e| e.to_string())
+}
+
+/// Fetches the AutoEQ GraphicEQ profile for a specific headphone from GitHub raw content.
+///
+/// Directory layout in the AutoEQ repo:
+///   results/{source}/{form}/{name}/{name} GraphicEQ.txt           (most sources)
+///   results/{source}/{rig} {form}/{name}/{name} GraphicEQ.txt     (crinacle — rig-prefixed dir)
+///
+/// We try the rig-prefixed path first (when rig is present), then fall back to form-only.
+#[tauri::command]
+pub async fn autoeq_fetch_profile(
+    name: String,
+    source: String,
+    rig: Option<String>,
+    form: String,
+    state: State<'_, AudioEngine>,
+) -> Result<String, String> {
+    let base = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results";
+    let filename = format!("{} GraphicEQ.txt", name);
+
+    let candidates: Vec<String> = if let Some(ref r) = rig {
+        vec![
+            format!("{}/{}/{} {}/{}/{}", base, source, r, form, name, filename),
+            format!("{}/{}/{}/{}/{}", base, source, form, name, filename),
+        ]
+    } else {
+        vec![format!("{}/{}/{}/{}/{}", base, source, form, name, filename)]
+    };
+
+    for url in &candidates {
+        let resp = state.http_client.get(url).send().await.map_err(|e| e.to_string())?;
+        if resp.status().is_success() {
+            return resp.text().await.map_err(|e| e.to_string());
+        }
+    }
+
+    Err(format!("GraphicEQ profile not found for '{}'", name))
+}
+
+#[tauri::command]
+pub fn audio_set_eq(gains: [f32; 10], enabled: bool, pre_gain: f32, state: State<'_, AudioEngine>) {
     state.eq_enabled.store(enabled, Ordering::Relaxed);
+    state.eq_pre_gain.store(pre_gain.clamp(-30.0, 6.0).to_bits(), Ordering::Relaxed);
     for (i, &gain) in gains.iter().enumerate() {
         state.eq_gains[i].store(gain.clamp(-12.0, 12.0).to_bits(), Ordering::Relaxed);
     }
@@ -1694,6 +1937,200 @@ pub async fn audio_preload(
     };
     let _ = duration_hint; // kept in API for compatibility
     *state.preloaded.lock().unwrap() = Some(PreloadedTrack { url, data });
+    Ok(())
+}
+
+/// Play a live internet radio stream.
+///
+/// Unlike `audio_play`, the stream URL is infinite so bytes cannot be
+/// downloaded upfront.  A `RadioBuffer` bridges the async HTTP download into
+/// the synchronous Read interface that symphonia/rodio expect.  Emits
+/// `audio:playing` with `duration = 0.0` to signal "unknown duration" to JS.
+#[tauri::command]
+pub async fn audio_play_radio(
+    url: String,
+    volume: f32,
+    app: AppHandle,
+    state: State<'_, AudioEngine>,
+) -> Result<(), String> {
+    let gen = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
+
+    // Cancel pending chain and fading-out sink immediately so audio stops.
+    *state.chained_info.lock().unwrap() = None;
+    {
+        let mut cur = state.current.lock().unwrap();
+        if let Some(old) = cur.sink.take() { old.stop(); }
+    }
+    if let Some(old) = state.fading_out_sink.lock().unwrap().take() { old.stop(); }
+
+    // Open the HTTP stream.
+    let response = state.http_client
+        .get(&url)
+        .header("Icy-MetaData", "0") // opt-out of Shoutcast inline metadata
+        .send().await
+        .map_err(|e| { let m = format!("radio: connection failed: {e}"); app.emit("audio:error", &m).ok(); m })?;
+
+    if !response.status().is_success() {
+        let m = format!("radio: HTTP {}", response.status());
+        app.emit("audio:error", &m).ok();
+        return Err(m);
+    }
+
+    // Derive a format hint from Content-Type so symphonia probes faster.
+    let ct = response.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+    let fmt_hint: Option<String> = if ct.contains("mpeg") || ct.contains("mp3") {
+        Some("mp3".into())
+    } else if ct.contains("aac") || ct.contains("aacp") {
+        Some("aac".into())
+    } else if ct.contains("ogg") {
+        Some("ogg".into())
+    } else if ct.contains("flac") {
+        Some("flac".into())
+    } else {
+        None
+    };
+
+    let (radio_buf, feed) = RadioBuffer::new();
+    let feed = Arc::new(feed);
+
+    // Background task: stream HTTP chunks into RadioBuffer with auto-reconnect.
+    // Many radio CDNs (Shoutcast/Icecast) close the TCP connection periodically.
+    // Rather than stopping, we reconnect to the same URL and keep pushing into
+    // the same RadioBuffer so the decoder recovers with only a brief glitch.
+    {
+        let gen_arc = state.generation.clone();
+        let feed2 = feed.clone();
+        let http_client2 = state.http_client.clone();
+        let url2 = url.clone();
+        tokio::spawn(async move {
+            let mut bytes_total: u64 = 0;
+            let mut reconnects: u32 = 0;
+            // Use the already-open response for the first connection; reconnect as needed.
+            let mut response_opt: Option<reqwest::Response> = Some(response);
+
+            'outer: loop {
+                if gen_arc.load(Ordering::SeqCst) != gen {
+                    eprintln!("[radio] download: gen mismatch → exit ({bytes_total} bytes, {reconnects} reconnects)");
+                    break 'outer;
+                }
+
+                let resp = match response_opt.take() {
+                    Some(r) => r,
+                    None => {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        if gen_arc.load(Ordering::SeqCst) != gen { break 'outer; }
+                        match http_client2.get(&url2).header("Icy-MetaData", "0").send().await {
+                            Ok(r) if r.status().is_success() => {
+                                reconnects += 1;
+                                eprintln!("[radio] reconnected #{reconnects} ({bytes_total} bytes so far)");
+                                feed2.flush(); // clear stale buffer so decoder gets a clean stream start
+                                r
+                            },
+                            Ok(r) => { eprintln!("[radio] reconnect failed: HTTP {} — giving up", r.status()); break 'outer; },
+                            Err(e) => { eprintln!("[radio] reconnect error: {e} — giving up"); break 'outer; },
+                        }
+                    },
+                };
+
+                let mut stream = resp.bytes_stream();
+                loop {
+                    if gen_arc.load(Ordering::SeqCst) != gen { break 'outer; }
+                    if feed2.is_full() {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    match stream.next().await {
+                        Some(Ok(chunk)) => {
+                            bytes_total += chunk.len() as u64;
+                            feed2.push(&chunk);
+                        },
+                        Some(Err(e)) => {
+                            eprintln!("[radio] stream error: {e} → reconnecting (attempt {})", reconnects + 1);
+                            break; // triggers outer reconnect
+                        },
+                        None => {
+                            eprintln!("[radio] stream ended cleanly → reconnecting (attempt {})", reconnects + 1);
+                            break;
+                        },
+                    }
+                }
+            }
+
+            eprintln!("[radio] download task exiting, closing feed");
+            feed2.close();
+        });
+    }
+
+    if state.generation.load(Ordering::SeqCst) != gen { return Ok(()); }
+
+    // Build symphonia decoder in a blocking thread (RadioBuffer::read blocks).
+    let decoder = tokio::task::spawn_blocking(move || {
+        SizedDecoder::new_streaming(Box::new(radio_buf), fmt_hint.as_deref())
+    }).await.map_err(|e| e.to_string())??;
+
+    if state.generation.load(Ordering::SeqCst) != gen { return Ok(()); }
+
+    let sample_rate = decoder.sample_rate();
+    let channels = decoder.channels();
+
+    let done_flag = Arc::new(AtomicBool::new(false));
+    state.samples_played.store(0, Ordering::Relaxed);
+
+    // Radio: no gapless trim, no ReplayGain, 5 ms micro-fade to suppress click.
+    let dyn_src = DynSource::new(decoder.convert_samples::<f32>());
+    let fadeout_trigger = Arc::new(AtomicBool::new(false));
+    let fadeout_samples = Arc::new(AtomicU64::new(0));
+    let eq_src = EqSource::new(dyn_src, state.eq_gains.clone(), state.eq_enabled.clone(), state.eq_pre_gain.clone());
+    let fade_in = EqualPowerFadeIn::new(eq_src, Duration::from_millis(5));
+    let fade_out = TriggeredFadeOut::new(fade_in, fadeout_trigger.clone(), fadeout_samples.clone());
+    let notifying = NotifyingSource::new(fade_out, done_flag.clone());
+    let counting = CountingSource::new(notifying, state.samples_played.clone());
+
+    if state.generation.load(Ordering::SeqCst) != gen { return Ok(()); }
+
+    let sink = Sink::try_new(&*state.stream_handle).map_err(|e| e.to_string())?;
+    let effective_vol = (volume.clamp(0.0, 1.0) * MASTER_HEADROOM).clamp(0.0, 1.0);
+    sink.set_volume(effective_vol);
+    sink.append(counting);
+
+    {
+        let mut cur = state.current.lock().unwrap();
+        if let Some(old) = cur.sink.take() { old.stop(); }
+        cur.sink = Some(sink);
+        cur.duration_secs = 0.0; // sentinel: live stream
+        cur.seek_offset = 0.0;
+        cur.play_started = Some(Instant::now());
+        cur.paused_at = None;
+        cur.replay_gain_linear = 1.0;
+        cur.base_volume = volume.clamp(0.0, 1.0);
+        cur.fadeout_trigger = Some(fadeout_trigger);
+        cur.fadeout_samples = Some(fadeout_samples);
+    }
+
+    state.current_sample_rate.store(sample_rate, Ordering::Relaxed);
+    state.current_channels.store(channels as u32, Ordering::Relaxed);
+
+    app.emit("audio:playing", 0.0f64).ok();
+
+    spawn_progress_task(
+        gen,
+        state.generation.clone(),
+        state.current.clone(),
+        state.chained_info.clone(),
+        state.crossfade_enabled.clone(),
+        state.crossfade_secs.clone(),
+        done_flag,
+        app,
+        state.samples_played.clone(),
+        state.current_sample_rate.clone(),
+        state.current_channels.clone(),
+        state.gapless_switch_at.clone(),
+    );
+
     Ok(())
 }
 

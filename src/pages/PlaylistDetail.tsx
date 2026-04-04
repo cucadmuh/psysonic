@@ -7,6 +7,7 @@ import {
   getRandomSongs, SubsonicPlaylist, SubsonicSong,
 } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlaylistStore } from '../store/playlistStore';
 import { useOfflineStore } from '../store/offlineStore';
 import { useAuthStore } from '../store/authStore';
@@ -56,7 +57,17 @@ export default function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { playTrack, enqueue, openContextMenu, currentTrack, isPlaying, starredOverrides, setStarredOverride } = usePlayerStore();
+  const { playTrack, enqueue, openContextMenu, currentTrack, isPlaying, starredOverrides, setStarredOverride } = usePlayerStore(
+    useShallow(s => ({
+      playTrack: s.playTrack,
+      enqueue: s.enqueue,
+      openContextMenu: s.openContextMenu,
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+      starredOverrides: s.starredOverrides,
+      setStarredOverride: s.setStarredOverride,
+    }))
+  );
   const touchPlaylist = usePlaylistStore((s) => s.touchPlaylist);
   const { startDrag, isDragging } = useDragDrop();
   const { downloadPlaylist, isAlbumDownloading, isAlbumDownloaded, getAlbumProgress } = useOfflineStore();
@@ -561,11 +572,9 @@ export default function PlaylistDetail() {
 
         {songs.map((song, idx) => (
           <React.Fragment key={song.id + idx}>
-            {/* Drop indicator above row */}
             {isDragging && dropTargetIdx?.idx === idx && dropTargetIdx.before && (
               <div className="playlist-drop-indicator" />
             )}
-
             <div
               data-track-idx={idx}
               className={`track-row track-row-va tracklist-playlist${currentTrack?.id === song.id ? ' active' : ''}${contextMenuSongId === song.id ? ' context-active' : ''}${selectedIds.has(song.id) ? ' bulk-selected' : ''}`}
@@ -590,7 +599,7 @@ export default function PlaylistDetail() {
                 const inSelectMode = selectedIds.size > 0;
                 return (
                   <div
-                    className="track-num"
+                    className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}`}
                     style={{ cursor: 'pointer' }}
                     onClick={e => {
                       e.stopPropagation();
@@ -601,11 +610,9 @@ export default function PlaylistDetail() {
                       className={`bulk-check${selectedIds.has(song.id) ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`}
                       onClick={e => { e.stopPropagation(); toggleSelect(song.id, idx, e.shiftKey); }}
                     />
-                    <span style={{ color: currentTrack?.id === song.id ? 'var(--accent)' : 'var(--text-muted)' }}>
-                      {currentTrack?.id === song.id && isPlaying
-                        ? <div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div>
-                        : <Play size={13} fill="currentColor" />}
-                    </span>
+                    {currentTrack?.id === song.id && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
+                    <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
+                    <span className="track-num-number">{idx + 1}</span>
                   </div>
                 );
               })()}
@@ -617,7 +624,11 @@ export default function PlaylistDetail() {
 
               {/* Artist */}
               <div className="track-artist-cell">
-                <span className="track-artist">{song.artist}</span>
+                <span
+                  className={`track-artist${song.artistId ? ' track-artist-link' : ''}`}
+                  style={{ cursor: song.artistId ? 'pointer' : 'default' }}
+                  onClick={e => { if (song.artistId) { e.stopPropagation(); navigate(`/artist/${song.artistId}`); } }}
+                >{song.artist}</span>
               </div>
 
               {/* Favorite */}
@@ -654,8 +665,6 @@ export default function PlaylistDetail() {
                 </button>
               </div>
             </div>
-
-            {/* Drop indicator below last row or between rows */}
             {isDragging && dropTargetIdx?.idx === idx && !dropTargetIdx.before && (
               <div className="playlist-drop-indicator" />
             )}
@@ -726,7 +735,11 @@ export default function PlaylistDetail() {
                   <span className="track-title">{song.title}</span>
                 </div>
                 <div className="track-artist-cell">
-                  <span className="track-artist">{song.artist}</span>
+                  <span
+                    className={`track-artist${song.artistId ? ' track-artist-link' : ''}`}
+                    style={{ cursor: song.artistId ? 'pointer' : 'default' }}
+                    onClick={e => { if (song.artistId) { e.stopPropagation(); navigate(`/artist/${song.artistId}`); } }}
+                  >{song.artist}</span>
                 </div>
                 {/* no star/rating for suggestions */}
                 <div />

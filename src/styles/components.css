@@ -1217,6 +1217,7 @@
 /* ─ Tracklist ─ */
 .tracklist {
   padding: 0 var(--space-6) var(--space-6);
+  contain: layout;
 }
 
 .col-center {
@@ -1225,7 +1226,6 @@
 
 .tracklist-header {
   display: grid;
-  grid-template-columns: 60px minmax(100px, 3fr) 70px 80px 60px 120px;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -1238,13 +1238,8 @@
   margin-bottom: var(--space-2);
 }
 
-.tracklist-header.tracklist-va {
-  grid-template-columns: 60px minmax(80px, 1.5fr) minmax(60px, 1fr) 70px 80px 60px 120px;
-}
-
 .track-row {
   display: grid;
-  grid-template-columns: 60px minmax(100px, 3fr) 70px 80px 60px 120px;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -1252,65 +1247,156 @@
   cursor: pointer;
   transition: background var(--transition-fast);
   user-select: none;
-}
-
-.track-row.track-row-va {
-  grid-template-columns: 60px minmax(80px, 1.5fr) minmax(60px, 1fr) 70px 80px 60px 120px;
+  contain: layout style;
+  overflow: hidden;
 }
 
 .tracklist-total {
   display: grid;
-  grid-template-columns: 60px minmax(100px, 3fr) 70px 80px 60px 120px;
-  gap: var(--space-3);
+  align-items: center;
   border-top: 1px solid var(--border-subtle);
   padding: var(--space-2) var(--space-3);
   margin-top: var(--space-1);
 }
 
-.tracklist-total.tracklist-va {
-  grid-template-columns: 60px minmax(80px, 1.5fr) minmax(60px, 1fr) 70px 80px 60px 120px;
-}
-
 .tracklist-total-label {
-  grid-column: 1 / 5;
-  text-align: right;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  text-align: right;
 }
 
 .tracklist-total-value {
-  grid-column: 5 / 6;
-  text-align: center;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
-.tracklist-total.tracklist-va .tracklist-total-label {
-  grid-column: 1 / 6;
+/* ── Column resize handle ── */
+/* Sits at the right edge of each header cell, fully inside the cell bounds */
+.col-resize-handle {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
 }
 
-.tracklist-total.tracklist-va .tracklist-total-value {
-  grid-column: 6 / 7;
+.col-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ctp-surface1);
+  transition: background 0.15s;
+}
+
+.col-resize-handle:hover::after,
+.col-resize-handle:active::after {
+  background: var(--accent);
+}
+
+/* ── Column visibility picker ── */
+.tracklist-col-picker {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.tracklist-col-picker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.tracklist-col-picker-btn:hover {
+  opacity: 1;
+  background: var(--ctp-surface0);
+  color: var(--text-primary);
+}
+
+.tracklist-col-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  min-width: 160px;
+  z-index: 200;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.tracklist-col-picker-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 4px 8px 6px;
+}
+
+.tracklist-col-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.tracklist-col-picker-item:hover {
+  background: var(--ctp-surface0);
+  color: var(--text-primary);
+}
+
+.tracklist-col-picker-item.active {
+  color: var(--accent);
+}
+
+.tracklist-col-picker-check {
+  width: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
 }
 
 /* ── Playlist tracklist variant — adds delete column ── */
 .tracklist-header.tracklist-playlist,
-.track-row.tracklist-playlist,
-.tracklist-total.tracklist-playlist {
-  grid-template-columns: 60px minmax(80px, 1.5fr) minmax(60px, 1fr) 70px 80px 60px 120px 36px;
-}
-
-.tracklist-total.tracklist-playlist .tracklist-total-label {
-  grid-column: 1 / 6;
-}
-
-.tracklist-total.tracklist-playlist .tracklist-total-value {
-  grid-column: 6 / 7;
+.track-row.tracklist-playlist {
+  grid-template-columns: 60px minmax(80px, 1.5fr) minmax(60px, 1fr) 70px 80px 60px 80px 80px 36px;
 }
 
 /* Delete button in playlist row */
@@ -1392,7 +1478,7 @@
 }
 .track-num .bulk-check {
   position: absolute;
-  left: 6px;
+  left: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.1s;
@@ -1405,6 +1491,44 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+/* Default: show track number */
+.track-num-number {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Play icon: hidden by default */
+.track-num-play {
+  display: none;
+  align-items: center;
+  color: var(--text-primary);
+}
+
+/* Eq-bars wrapper */
+.track-num-eq {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ── Hover (non-active row): hide number, show play icon ── */
+.track-row:hover .track-num-number       { display: none; }
+.track-row:hover .track-num-play         { display: flex; }
+
+/* ── Active (currently playing): hide number, show eq-bars ── */
+.track-num.track-num-active .track-num-number { display: none; }
+.track-num.track-num-active .track-num-number { color: var(--accent); } /* kept for when visible */
+
+/* ── Active + hover: hide eq-bars, show play icon ── */
+.track-row:hover .track-num.track-num-active .track-num-eq  { display: none; }
+.track-row:hover .track-num.track-num-active .track-num-play { display: flex; }
+
+/* Paused state: show play icon statically (no hover needed) */
+.track-num.track-num-paused .track-num-play { display: flex; opacity: 0.5; }
+.track-row:hover .track-num.track-num-paused .track-num-play { opacity: 1; }
 
 /* Equalizer bars — shown for the currently playing track */
 .eq-bars {
@@ -1478,11 +1602,6 @@
   font-size: 16px;
 }
 
-.track-num {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
 
 .track-info {
   min-width: 0;
@@ -1508,6 +1627,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.track-artist-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .track-codec {
@@ -1540,6 +1664,14 @@
 
 .track-meta .track-codec {
   margin-top: 0;
+}
+
+.track-genre {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-star-cell {
@@ -2281,8 +2413,16 @@
   box-shadow: var(--shadow-sm);
 }
 
+.toggle-switch:hover .toggle-track {
+  background: var(--ctp-overlay0);
+}
+
 .toggle-switch input:checked+.toggle-track {
   background: var(--accent);
+}
+
+.toggle-switch:hover input:checked+.toggle-track {
+  filter: brightness(1.15);
 }
 
 .toggle-switch input:checked+.toggle-track::before {
@@ -2507,10 +2647,10 @@
 /* ── Blurred background ── */
 .fs-bg {
   position: absolute;
-  inset: -30%;
+  inset: -20%;
   background-size: cover;
   background-position: center 20%;
-  filter: blur(6px) brightness(0.25) saturate(1.6);
+  filter: blur(4px) brightness(0.25) saturate(1.5);
   animation: ken-burns 120s linear infinite;
   z-index: 0;
   will-change: transform;
@@ -2561,6 +2701,7 @@
   gap: 18px;
   width: min(440px, 88vw);
   padding: 16px 0;
+  will-change: transform;
 }
 
 /* Artist name — above cover */
@@ -2584,6 +2725,7 @@
   box-shadow: none;
   flex-shrink: 0;
   animation: cover-breathe 9s ease-in-out infinite;
+  will-change: transform;
 }
 
 .fs-cover {
@@ -4354,6 +4496,134 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* Pre-gain row */
+.eq-pregain-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.eq-pregain-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 72px;
+}
+
+.eq-pregain-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+
+.eq-pregain-val {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+
+/* AutoEQ section */
+.eq-autoeq-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.eq-autoeq-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.eq-autoeq-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.eq-autoeq-toggle span {
+  flex: 1;
+}
+
+.eq-autoeq-body {
+  padding: 10px 12px 12px;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eq-autoeq-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.eq-autoeq-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.eq-autoeq-error {
+  color: var(--danger);
+}
+
+.eq-autoeq-applied {
+  color: var(--accent);
+}
+
+.eq-autoeq-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.eq-autoeq-result-btn {
+  text-align: left;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.eq-autoeq-result-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.eq-autoeq-result-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.eq-autoeq-result-source {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* ─── Changelog ────────────────────────────────────────────────────────────── */
 
 .changelog-list {
@@ -4666,6 +4936,32 @@
 @keyframes delete-confirm-pulse {
   from { background: #dc3c3c; }
   to   { background: #ff2222; }
+}
+
+/* ─ Internet Radio ─ */
+.radio-card-active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.radio-live-overlay {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.radio-live-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #e03030;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
 }
 
 /* ─ Bulk Select ─ */

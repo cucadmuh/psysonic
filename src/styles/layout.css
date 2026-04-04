@@ -1,5 +1,14 @@
 /* ─── Psysonic App Shell ─── */
 
+*, *::before, *::after {
+  user-select: none;
+}
+
+/* Allow text selection only where the user needs to copy content */
+.artist-bio, [data-selectable] {
+  user-select: text;
+}
+
 .app-shell {
   position: relative;
   display: grid;
@@ -141,18 +150,17 @@
   opacity: 1;
 }
 
-/* Now Playing nav link */
+/* Now Playing nav link — subtly accented but not permanently "active"-looking */
 .nav-link-nowplaying {
   color: var(--accent);
-  background: var(--accent-dim);
   font-weight: 600;
 }
 .nav-link-nowplaying:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  background: var(--bg-hover);
   color: var(--accent);
 }
 .nav-link-nowplaying.active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-dim);
   color: var(--accent);
 }
 .nav-link-nowplaying svg {

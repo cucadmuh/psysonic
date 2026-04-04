@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen,
   Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard, ChevronDown,
-  GripVertical, PanelLeft, RotateCcw, LayoutGrid
+  GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -453,7 +453,7 @@ export default function Settings() {
           {/* Cache */}
           <section className="settings-section">
             <div className="settings-section-header">
-              <Sliders size={18} />
+              <AppWindow size={18} />
               <h2>{t('settings.behavior')}</h2>
             </div>
             <div className="settings-card">
@@ -847,6 +847,9 @@ export default function Settings() {
               <Server size={18} />
               <h2>{t('settings.servers')}</h2>
             </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              {t('settings.serverCompatible')}
+            </div>
 
             {auth.servers.length === 0 && !showAddForm ? (
               <div className="settings-card" style={{ color: 'var(--text-muted)', fontSize: 14 }}>
@@ -876,7 +879,7 @@ export default function Settings() {
                           {status === 'error' && <WifiOff size={16} style={{ color: 'var(--danger)' }} />}
                           {status === 'testing' && <div className="spinner" style={{ width: 16, height: 16 }} />}
                           <button
-                            className="btn btn-ghost"
+                            className="btn btn-surface"
                             style={{ fontSize: 12, padding: '4px 10px' }}
                             onClick={() => testConnection(srv)}
                             disabled={status === 'testing'}
@@ -915,7 +918,7 @@ export default function Settings() {
             {showAddForm ? (
               <AddServerForm onSave={handleAddServer} onCancel={() => setShowAddForm(false)} />
             ) : (
-              <button className="btn btn-ghost" style={{ marginTop: '0.75rem' }} onClick={() => setShowAddForm(true)} id="settings-add-server-btn">
+              <button className="btn btn-surface" style={{ marginTop: '0.75rem' }} onClick={() => setShowAddForm(true)} id="settings-add-server-btn">
                 <Plus size={16} /> {t('settings.addServer')}
               </button>
             )}
@@ -993,7 +996,7 @@ export default function Settings() {
           {/* Downloads + Tray */}
           <section className="settings-section">
             <div className="settings-section-header">
-              <Sliders size={18} />
+              <AppWindow size={18} />
               <h2>{t('settings.behavior')}</h2>
             </div>
             <div className="settings-card">
@@ -1060,7 +1063,7 @@ export default function Settings() {
                       <X size={16} />
                     </button>
                   )}
-                  <button className="btn btn-ghost" onClick={pickDownloadFolder} id="settings-download-folder-btn">
+                  <button className="btn btn-surface" onClick={pickDownloadFolder} id="settings-download-folder-btn">
                     <FolderOpen size={16} /> {t('settings.pickFolder')}
                   </button>
                 </div>

@@ -1,6 +1,6 @@
 {
   "name": "psysonic",
-  "version": "1.30.0",
+  "version": "1.31.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.23",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",

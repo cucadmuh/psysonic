@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { showToast } from '../utils/toast';
-import { buildStreamUrl, buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs } from '../api/subsonic';
+import { buildStreamUrl, buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs, InternetRadioStation } from '../api/subsonic';
 import { lastfmScrobble, lastfmUpdateNowPlaying, lastfmLoveTrack, lastfmUnloveTrack, lastfmGetTrackLoved, lastfmGetAllLovedTracks } from '../api/lastfm';
 import { useAuthStore } from './authStore';
 import { useOfflineStore } from './offlineStore';
@@ -60,6 +60,7 @@ export function songToTrack(song: SubsonicSong): Track {
 
 interface PlayerState {
   currentTrack: Track | null;
+  currentRadio: InternetRadioStation | null;
   queue: Track[];
   queueIndex: number;
   isPlaying: boolean;
@@ -73,6 +74,7 @@ interface PlayerState {
   starredOverrides: Record<string, boolean>;
   setStarredOverride: (id: string, starred: boolean) => void;
 
+  playRadio: (station: InternetRadioStation) => void;
   playTrack: (track: Track, queue?: Track[], manual?: boolean) => void;
   pause: () => void;
   resume: () => void;
@@ -259,6 +261,13 @@ function handleAudioEnded() {
   // If a gapless switch happened recently, this ended event is stale — the
   // progress task fired it for the OLD source before seeing the chained one.
   if (Date.now() - lastGaplessSwitchTime < 600) {
+    return;
+  }
+
+  // Radio stream disconnected — just stop; don't advance queue.
+  if (usePlayerStore.getState().currentRadio) {
+    isAudioPaused = false;
+    usePlayerStore.setState({ isPlaying: false, currentRadio: null, progress: 0, currentTime: 0 });
     return;
   }
 
@@ -481,6 +490,7 @@ export const usePlayerStore = create<PlayerState>()(
   persist(
     (set, get) => ({
       currentTrack: null,
+      currentRadio: null,
       queue: [],
       queueIndex: 0,
       isPlaying: false,
@@ -572,7 +582,31 @@ export const usePlayerStore = create<PlayerState>()(
         invoke('audio_stop').catch(console.error);
         isAudioPaused = false;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
-        set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
+        set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0, currentRadio: null });
+      },
+
+      // ── playRadio ────────────────────────────────────────────────────────────
+      playRadio: (station) => {
+        const { volume } = get();
+        ++playGeneration;
+        isAudioPaused = false;
+        gaplessPreloadingId = null;
+        if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
+        invoke('audio_play_radio', { url: station.streamUrl, volume }).catch((err: unknown) => {
+          console.error('[psysonic] audio_play_radio failed:', err);
+          set({ isPlaying: false, currentRadio: null });
+        });
+        set({
+          currentRadio: station,
+          currentTrack: null,
+          queue: [],
+          queueIndex: 0,
+          isPlaying: true,
+          progress: 0,
+          currentTime: 0,
+          buffered: 0,
+          scrobbled: true, // no scrobbling for radio
+        });
       },
 
       // ── playTrack ────────────────────────────────────────────────────────────

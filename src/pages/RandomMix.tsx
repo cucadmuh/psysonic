@@ -333,7 +333,7 @@ export default function RandomMix() {
                 <div className="col-center">{t('randomMix.trackFavorite')}</div>
                 <div className="col-center">{t('randomMix.trackDuration')}</div>
               </div>
-              {genreMixSongs.map(song => {
+              {genreMixSongs.map((song, idx) => {
                 const track = songToTrack(song);
                 const queueSongs = genreMixSongs.map(songToTrack);
                 const isCurrentTrack = currentTrack?.id === song.id;
@@ -364,12 +364,10 @@ export default function RandomMix() {
                       document.addEventListener('mouseup', onUp);
                     }}
                   >
-                    <div className="track-num" style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, queueSongs); }}>
-                      <span style={{ color: isCurrentTrack ? 'var(--accent)' : 'var(--text-muted)' }}>
-                        {isCurrentTrack && isPlaying
-                          ? <div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div>
-                          : <Play size={13} fill="currentColor" />}
-                      </span>
+                    <div className={`track-num${isCurrentTrack ? ' track-num-active' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, queueSongs); }}>
+                      {isCurrentTrack && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
+                      <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
+                      <span className="track-num-number">{idx + 1}</span>
                     </div>
                     <div className="track-info"><span className="track-title">{song.title}</span></div>
                     <div className="track-artist-cell">
@@ -428,7 +426,7 @@ export default function RandomMix() {
             <div className="col-center">{t('randomMix.trackDuration')}</div>
           </div>
 
-          {filteredSongs.map((song) => {
+          {filteredSongs.map((song, idx) => {
             const track = songToTrack(song);
             const queueSongs = filteredSongs.map(songToTrack);
             const isCurrentTrack = currentTrack?.id === song.id;
@@ -469,12 +467,10 @@ export default function RandomMix() {
                   document.addEventListener('mouseup', onUp);
                 }}
               >
-                <div className="track-num" style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, queueSongs); }}>
-                  <span style={{ color: isCurrentTrack ? 'var(--accent)' : 'var(--text-muted)' }}>
-                    {isCurrentTrack && isPlaying
-                      ? <div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div>
-                      : <Play size={13} fill="currentColor" />}
-                  </span>
+                <div className={`track-num${isCurrentTrack ? ' track-num-active' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, queueSongs); }}>
+                  {isCurrentTrack && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
+                  <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
+                  <span className="track-num-number">{idx + 1}</span>
                 </div>
 
                 <div className="track-info">

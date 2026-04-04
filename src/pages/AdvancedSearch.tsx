@@ -169,7 +169,7 @@ export default function AdvancedSearch() {
               <span style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 90, flexShrink: 0 }}>
                 {t('search.advancedGenre')}
               </span>
-              <div style={{ minWidth: 180 }}>
+              <div style={{ minWidth: 240, flex: '1 1 240px', maxWidth: 360 }}>
                 <CustomSelect
                   value={genre}
                   options={genreSelectOptions}
@@ -188,7 +188,7 @@ export default function AdvancedSearch() {
                 value={yearFrom}
                 onChange={e => setYearFrom(e.target.value)}
                 placeholder={t('search.advancedYearFrom')}
-                style={{ width: 76 }}
+                style={{ width: 96 }}
               />
               <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>–</span>
               <input
@@ -199,7 +199,7 @@ export default function AdvancedSearch() {
                 value={yearTo}
                 onChange={e => setYearTo(e.target.value)}
                 placeholder={t('search.advancedYearTo')}
-                style={{ width: 76 }}
+                style={{ width: 96 }}
               />
             </div>
 
@@ -319,7 +319,7 @@ export default function AdvancedSearch() {
                       </div>
                       <div className="track-artist-cell">
                         <span
-                          className="track-artist"
+                          className={`track-artist${song.artistId ? ' track-artist-link' : ''}`}
                           style={{ cursor: song.artistId ? 'pointer' : 'default' }}
                           onClick={() => song.artistId && navigate(`/artist/${song.artistId}`)}
                         >
