@@ -8,7 +8,17 @@
     <a href="https://github.com/Psychotoxical/psysonic/blob/main/LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-cba6f7?style=flat-square"></a>
     <a href="https://tauri.app/"><img alt="Built with Tauri" src="https://img.shields.io/badge/Built%20with-Tauri-242938?style=flat-square&logo=tauri"></a>
     <a href="https://aur.archlinux.org/packages/psysonic"><img alt="AUR" src="https://img.shields.io/aur/version/psysonic?style=flat-square&color=1793d1"></a>
+    <a href="https://discord.gg/ckVPGPMS"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
   </p>
+</div>
+
+---
+
+<div align="center">
+  <a href="https://discord.gg/ckVPGPMS">
+    <img src="https://img.shields.io/badge/Join%20the%20Psysonic%20Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord"/>
+  </a>
+  <p>Have questions, ideas, or just want to hang out? Come chat in our Discord server!</p>
 </div>
 
 ---
@@ -22,7 +32,7 @@ Designed specifically for users hosting their own music via Navidrome or other S
 
 ## ✨ Features
 
-- 🎨 **Gorgeous UI**: A large selection of beautiful, lean themes for every taste — Open Source Classics (Catppuccin, Nord, Gruvbox), Operating Systems, Games, Movies, Series, Psysonic originals, and Mediaplayer — with smooth glassmorphism effects and micro-animations.
+- 🎨 **Gorgeous UI**: A large selection of beautiful, lean themes for every taste — Open Source Classics (Catppuccin, Nord, Gruvbox, Nightfox), Operating Systems, Games, Movies, Series, Psysonic originals, and Mediaplayer — with smooth glassmorphism effects and micro-animations.
 - ⚡ **Blazing Fast**: Built with Rust & Tauri — native audio engine (rodio), minimal RAM usage compared to typical Electron apps.
 - 🌍 **Internationalization (i18n)**: Fully translated into English, German, French, Dutch, and Chinese.
 - 📻 **Live "Now Playing"**: See what other users on your server are currently listening to in real-time.
