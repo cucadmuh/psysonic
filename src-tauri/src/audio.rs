@@ -1336,6 +1336,9 @@ pub(crate) struct PreloadedTrack {
 pub(crate) struct ChainedInfo {
     /// The URL that was chained — used by audio_play to detect a pre-chain hit.
     url: String,
+    /// Raw file bytes (shared with the chained decoder). Lets manual skip reuse
+    /// them instead of re-downloading after dropping the Sink queue.
+    raw_bytes: Arc<Vec<u8>>,
     duration_secs: f64,
     replay_gain_linear: f32,
     base_volume: f32,
@@ -1495,6 +1498,32 @@ pub struct ProgressPayload {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/// Subsonic `buildStreamUrl()` uses a fresh random salt on every call, so two
+/// URLs for the same track differ in `t`/`s` query params. Compare a stable key.
+fn playback_identity(url: &str) -> Option<String> {
+    if let Some(path) = url.strip_prefix("psysonic-local://") {
+        return Some(format!("local:{path}"));
+    }
+    if !url.contains("stream.view") {
+        return None;
+    }
+    let q = url.split('?').nth(1)?;
+    for pair in q.split('&') {
+        if let Some(v) = pair.strip_prefix("id=") {
+            let v = v.split('&').next().unwrap_or(v);
+            return Some(format!("stream:{v}"));
+        }
+    }
+    None
+}
+
+fn same_playback_target(a_url: &str, b_url: &str) -> bool {
+    match (playback_identity(a_url), playback_identity(b_url)) {
+        (Some(a), Some(b)) => a == b,
+        _ => a_url == b_url,
+    }
+}
+
 /// Fetch track bytes from the preload cache or via HTTP.
 async fn fetch_data(
     url: &str,
@@ -1505,7 +1534,7 @@ async fn fetch_data(
     // Check preload cache first.
     let cached = {
         let mut preloaded = state.preloaded.lock().unwrap();
-        if preloaded.as_ref().map(|p| p.url == url).unwrap_or(false) {
+        if preloaded.as_ref().is_some_and(|p| same_playback_target(&p.url, url)) {
             preloaded.take().map(|p| p.data)
         } else {
             None
@@ -1610,7 +1639,7 @@ pub async fn audio_play(
     if gapless && !manual {
         let already_chained = state.chained_info.lock().unwrap()
             .as_ref()
-            .map(|c| c.url == url)
+            .map(|c| same_playback_target(&c.url, &url))
             .unwrap_or(false);
         if already_chained {
             return Ok(());
@@ -1621,18 +1650,40 @@ pub async fn audio_play(
     // Used for: manual skip, gapless OFF, first play, or gapless when the
     // proactive chain was not set up in time.
 
+    // Bump generation first so the old progress task stops before we peel
+    // chained_info (avoids a race where it sees current_done + empty chain).
     let gen = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
 
-    // Cancel any pending chain (manual skip while gapless chain was set up).
-    *state.chained_info.lock().unwrap() = None;
+    // Manual skip onto the gapless-pre-chained track: reuse raw bytes (no HTTP;
+    // preload cache was already consumed when the chain was built). Otherwise
+    // clear any stale chain metadata.
+    let reuse_chained_bytes: Option<Vec<u8>> = if gapless && manual {
+        let mut ci = state.chained_info.lock().unwrap();
+        if ci.as_ref().is_some_and(|c| same_playback_target(&c.url, &url)) {
+            ci.take().map(|info| {
+                Arc::try_unwrap(info.raw_bytes).unwrap_or_else(|a| (*a).clone())
+            })
+        } else {
+            *ci = None;
+            None
+        }
+    } else {
+        *state.chained_info.lock().unwrap() = None;
+        None
+    };
 
     // Stop fading-out sink from previous crossfade.
     if let Some(old) = state.fading_out_sink.lock().unwrap().take() {
         old.stop();
     }
 
-    // Fetch bytes (may use preload cache).
-    let data = match fetch_data(&url, &state, gen, &app).await? {
+    // Fetch bytes (preload cache) unless we reused the chained download above.
+    let data = if let Some(d) = reuse_chained_bytes {
+        Some(d)
+    } else {
+        fetch_data(&url, &state, gen, &app).await?
+    };
+    let data = match data {
         Some(d) => d,
         None => return Ok(()), // superseded while downloading
     };
@@ -1820,10 +1871,10 @@ pub async fn audio_chain_preload(
     replay_gain_peak: Option<f32>,
     state: State<'_, AudioEngine>,
 ) -> Result<(), String> {
-    // Idempotent: already chained this URL → nothing to do.
+    // Idempotent: already chained this track → nothing to do.
     {
         let chained = state.chained_info.lock().unwrap();
-        if chained.as_ref().map(|c| c.url == url).unwrap_or(false) {
+        if chained.as_ref().is_some_and(|c| same_playback_target(&c.url, &url)) {
             return Ok(());
         }
     }
@@ -1839,7 +1890,7 @@ pub async fn audio_chain_preload(
     let data: Vec<u8> = {
         let cached = {
             let mut preloaded = state.preloaded.lock().unwrap();
-            if preloaded.as_ref().map(|p| p.url == url).unwrap_or(false) {
+            if preloaded.as_ref().is_some_and(|p| same_playback_target(&p.url, &url)) {
                 preloaded.take().map(|p| p.data)
             } else {
                 None
@@ -1875,6 +1926,8 @@ pub async fn audio_chain_preload(
         return Ok(());
     }
 
+    let raw_bytes = Arc::new(data);
+
     let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, volume);
 
     let done_next = Arc::new(AtomicBool::new(false));
@@ -1887,7 +1940,7 @@ pub async fn audio_chain_preload(
         .and_then(|ext| ext.split('?').next())
         .map(|s| s.to_lowercase());
     let built = build_source(
-        data,
+        (*raw_bytes).clone(),
         duration_hint,
         state.eq_gains.clone(),
         state.eq_enabled.clone(),
@@ -1920,6 +1973,7 @@ pub async fn audio_chain_preload(
 
     *state.chained_info.lock().unwrap() = Some(ChainedInfo {
         url,
+        raw_bytes,
         duration_secs,
         replay_gain_linear: gain_linear,
         base_volume: volume.clamp(0.0, 1.0),
@@ -2308,7 +2362,7 @@ pub async fn audio_preload(
 ) -> Result<(), String> {
     {
         let preloaded = state.preloaded.lock().unwrap();
-        if preloaded.as_ref().map(|p| p.url == url).unwrap_or(false) {
+        if preloaded.as_ref().is_some_and(|p| same_playback_target(&p.url, &url)) {
             return Ok(());
         }
     }
