@@ -54,6 +54,7 @@ import { version } from '../package.json';
 import { useConnectionStatus } from './hooks/useConnectionStatus';
 import { useAuthStore } from './store/authStore';
 import { useOfflineStore } from './store/offlineStore';
+import { initHotCachePrefetch } from './hotCachePrefetch';
 import { usePlayerStore, initAudioListeners } from './store/playerStore';
 import { useThemeStore } from './store/themeStore';
 import { useFontStore } from './store/fontStore';
@@ -459,6 +460,10 @@ export default function App() {
 
   useEffect(() => {
     return initAudioListeners();
+  }, []);
+
+  useEffect(() => {
+    return initHotCachePrefetch();
   }, []);
 
   useEffect(() => {

@@ -3,10 +3,13 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { showToast } from '../utils/toast';
-import { buildStreamUrl, buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs, InternetRadioStation } from '../api/subsonic';
+import { buildCoverArtUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs, InternetRadioStation } from '../api/subsonic';
+import { resolvePlaybackUrl } from '../utils/resolvePlaybackUrl';
+import { setDeferHotCachePrefetch } from '../utils/hotCacheGate';
 import { lastfmScrobble, lastfmUpdateNowPlaying, lastfmLoveTrack, lastfmUnloveTrack, lastfmGetTrackLoved, lastfmGetAllLovedTracks } from '../api/lastfm';
 import { useAuthStore } from './authStore';
 import { useOfflineStore } from './offlineStore';
+import { useHotCacheStore } from './hotCacheStore';
 
 export interface Track {
   id: string;
@@ -209,6 +212,11 @@ radioAudio.addEventListener('suspend', () => {
 // Used to suppress ghost-commands from stale IPC arriving after the switch.
 let lastGaplessSwitchTime = 0;
 
+function touchHotCacheOnPlayback(trackId: string, serverId: string) {
+  if (!trackId || !serverId) return;
+  useHotCacheStore.getState().touchPlayed(trackId, serverId);
+}
+
 // Track ID that has already been sent to audio_chain_preload / audio_preload.
 // Prevents the 100ms progress ticker from firing 300 identical IPC calls over
 // the last 30 seconds of a track, each spawning its own HTTP download.
@@ -230,6 +238,7 @@ function syncQueueToServer(queue: Track[], currentTrack: Track | null, currentTi
 // ─── Audio event handlers (called from initAudioListeners) ───────────────────
 
 function handleAudioPlaying(_duration: number) {
+  setDeferHotCachePrefetch(false);
   usePlayerStore.setState({ isPlaying: true });
 }
 
@@ -281,7 +290,7 @@ function handleAudioProgress(current_time: number, duration: number) {
     if (nextTrack && nextTrack.id !== track.id && nextTrack.id !== gaplessPreloadingId) {
       gaplessPreloadingId = nextTrack.id;
       const serverId = useAuthStore.getState().activeServerId ?? '';
-      const nextUrl = useOfflineStore.getState().getLocalUrl(nextTrack.id, serverId) ?? buildStreamUrl(nextTrack.id);
+      const nextUrl = resolvePlaybackUrl(nextTrack.id, serverId);
       if (gaplessEnabled) {
         // Gapless ON: decode + chain directly into the Sink now, 30 s in
         // advance. By the time the track boundary arrives, the next source is
@@ -390,6 +399,7 @@ function handleAudioTrackSwitched(duration: number) {
     });
   }
   syncQueueToServer(queue, nextTrack, 0);
+  touchHotCacheOnPlayback(nextTrack.id, useAuthStore.getState().activeServerId ?? '');
 }
 
 function handleAudioError(message: string) {
@@ -721,7 +731,8 @@ export const usePlayerStore = create<PlayerState>()(
         });
 
         const authState = useAuthStore.getState();
-        const url = useOfflineStore.getState().getLocalUrl(track.id, authState.activeServerId ?? '') ?? buildStreamUrl(track.id);
+        setDeferHotCachePrefetch(true);
+        const url = resolvePlaybackUrl(track.id, authState.activeServerId ?? '');
         const replayGainDb = authState.replayGainEnabled
           ? (authState.replayGainMode === 'album' ? track.replayGainAlbumDb : track.replayGainTrackDb) ?? null
           : null;
@@ -735,6 +746,7 @@ export const usePlayerStore = create<PlayerState>()(
           manual,
         }).catch((err: unknown) => {
           if (playGeneration !== gen) return;
+          setDeferHotCachePrefetch(false);
           console.error('[psysonic] audio_play failed:', err);
           set({ isPlaying: false });
           setTimeout(() => {
@@ -757,6 +769,7 @@ export const usePlayerStore = create<PlayerState>()(
           });
         }
         syncQueueToServer(newQueue, track, 0);
+        touchHotCacheOnPlayback(track.id, authState.activeServerId ?? '');
       },
 
       // ── pause / resume / togglePlay ──────────────────────────────────────────
@@ -784,6 +797,7 @@ export const usePlayerStore = create<PlayerState>()(
           invoke('audio_resume').catch(console.error);
           isAudioPaused = false;
           set({ isPlaying: true });
+          touchHotCacheOnPlayback(currentTrack.id, useAuthStore.getState().activeServerId ?? '');
         } else {
           // Cold start (app relaunch) — fetch fresh track data for replay gain, then play.
           const gen = ++playGeneration;
@@ -801,7 +815,9 @@ export const usePlayerStore = create<PlayerState>()(
               : null;
             const replayGainPeakCold = authStateCold.replayGainEnabled ? (trackToPlay.replayGainPeak ?? null) : null;
             const coldServerId = useAuthStore.getState().activeServerId ?? '';
-            const coldUrl = useOfflineStore.getState().getLocalUrl(trackToPlay.id, coldServerId) ?? buildStreamUrl(trackToPlay.id);
+            setDeferHotCachePrefetch(true);
+            const coldUrl = resolvePlaybackUrl(trackToPlay.id, coldServerId);
+            touchHotCacheOnPlayback(trackToPlay.id, coldServerId);
             invoke('audio_play', {
               url: coldUrl,
               volume: vol,
@@ -815,6 +831,7 @@ export const usePlayerStore = create<PlayerState>()(
               }
             }).catch((err: unknown) => {
               if (playGeneration !== gen) return;
+              setDeferHotCachePrefetch(false);
               console.error('[psysonic] audio_play (cold resume) failed:', err);
               set({ isPlaying: false });
             });
@@ -828,7 +845,9 @@ export const usePlayerStore = create<PlayerState>()(
                : null;
              const replayGainPeakCold = authStateCold.replayGainEnabled ? (currentTrack.replayGainPeak ?? null) : null;
              const coldServerId = useAuthStore.getState().activeServerId ?? '';
-             const coldUrl = useOfflineStore.getState().getLocalUrl(currentTrack.id, coldServerId) ?? buildStreamUrl(currentTrack.id);
+             setDeferHotCachePrefetch(true);
+             const coldUrl = resolvePlaybackUrl(currentTrack.id, coldServerId);
+             touchHotCacheOnPlayback(currentTrack.id, coldServerId);
              invoke('audio_play', {
                url: coldUrl,
                volume: vol,
@@ -838,6 +857,7 @@ export const usePlayerStore = create<PlayerState>()(
                manual: false,
              }).catch((err: unknown) => {
                if (playGeneration !== gen) return;
+               setDeferHotCachePrefetch(false);
                console.error('[psysonic] audio_play (cold resume) failed:', err);
                set({ isPlaying: false });
              });

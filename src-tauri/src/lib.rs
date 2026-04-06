@@ -578,6 +578,167 @@ async fn delete_offline_track(
     Ok(())
 }
 
+// ─── Hot playback cache (ephemeral; queue-based prefetch) ─────────────────────
+
+fn resolve_hot_cache_root(
+    custom_dir: Option<String>,
+    app: &tauri::AppHandle,
+) -> Result<std::path::PathBuf, String> {
+    if let Some(ref cd) = custom_dir.filter(|s| !s.is_empty()) {
+        let base = std::path::PathBuf::from(cd);
+        if !base.exists() {
+            return Err("VOLUME_NOT_FOUND".to_string());
+        }
+        Ok(base.join("psysonic-hot-cache"))
+    } else {
+        Ok(app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("psysonic-hot-cache"))
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotCacheDownloadResult {
+    path: String,
+    size: u64,
+}
+
+/// Downloads a single track into the hot playback cache (separate from offline library).
+/// Optional `custom_dir`: parent folder; files go under `<custom_dir>/psysonic-hot-cache/<server_id>/`.
+/// Returns absolute path and file size for `psysonic-local://` URLs.
+#[tauri::command]
+async fn download_track_hot_cache(
+    track_id: String,
+    server_id: String,
+    url: String,
+    suffix: String,
+    custom_dir: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<HotCacheDownloadResult, String> {
+    let root = resolve_hot_cache_root(custom_dir, &app)?;
+    let cache_dir = root.join(&server_id);
+
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let file_path = cache_dir.join(format!("{}.{}", track_id, suffix));
+    let path_str = file_path.to_string_lossy().to_string();
+
+    if file_path.exists() {
+        let size = tokio::fs::metadata(&file_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+        return Ok(HotCacheDownloadResult {
+            path: path_str,
+            size,
+        });
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status().as_u16()));
+    }
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    tokio::fs::write(&file_path, &bytes)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let size = bytes.len() as u64;
+    Ok(HotCacheDownloadResult {
+        path: path_str,
+        size,
+    })
+}
+
+#[tauri::command]
+async fn get_hot_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
+    fn dir_size(root: std::path::PathBuf) -> u64 {
+        if !root.exists() {
+            return 0;
+        }
+        let mut total: u64 = 0;
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            let rd = match std::fs::read_dir(&dir) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(meta) = std::fs::metadata(&path) {
+                    total += meta.len();
+                }
+            }
+        }
+        total
+    }
+
+    resolve_hot_cache_root(custom_dir, &app)
+        .map(|root| dir_size(root))
+        .unwrap_or(0)
+}
+
+#[tauri::command]
+async fn delete_hot_cache_track(
+    local_path: String,
+    custom_dir: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let file_path = std::path::PathBuf::from(&local_path);
+    if file_path.exists() {
+        tokio::fs::remove_file(&file_path)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let boundary = resolve_hot_cache_root(custom_dir, &app)?;
+
+    let mut current = file_path.parent().map(|p| p.to_path_buf());
+    while let Some(dir) = current {
+        if dir == boundary || !dir.starts_with(&boundary) {
+            break;
+        }
+        match std::fs::read_dir(&dir) {
+            Ok(mut entries) => {
+                if entries.next().is_some() {
+                    break;
+                }
+                if std::fs::remove_dir(&dir).is_err() {
+                    break;
+                }
+                current = dir.parent().map(|p| p.to_path_buf());
+            }
+            Err(_) => break,
+        }
+    }
+
+    Ok(())
+}
+
+/// Removes the entire hot cache root (`psysonic-hot-cache` for the active location).
+#[tauri::command]
+async fn purge_hot_cache(custom_dir: Option<String>, app: tauri::AppHandle) -> Result<(), String> {
+    let dir = resolve_hot_cache_root(custom_dir, &app)?;
+    if dir.exists() {
+        tokio::fs::remove_dir_all(&dir)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Builds and returns a new system-tray icon with all menu items and event handlers.
 /// Called from `setup()` (initial creation) and from `toggle_tray_icon` (re-creation).
 fn build_tray_icon(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
@@ -866,6 +1027,10 @@ pub fn run() {
             download_track_offline,
             delete_offline_track,
             get_offline_cache_size,
+            download_track_hot_cache,
+            get_hot_cache_size,
+            delete_hot_cache_track,
+            purge_hot_cache,
             relaunch_after_update,
             toggle_tray_icon,
         ])

@@ -47,6 +47,13 @@ interface AuthState {
   showChangelogOnUpdate: boolean;
   lastSeenChangelogVersion: string;
 
+  /** Alpha: ephemeral queue prefetch cache on disk */
+  hotCacheEnabled: boolean;
+  hotCacheMaxMb: number;
+  hotCacheDebounceSec: number;
+  /** Parent directory; actual cache is `<dir>/psysonic-hot-cache/`. Empty = app data. */
+  hotCacheDownloadDir: string;
+
   // Status
   isLoggedIn: boolean;
   isConnecting: boolean;
@@ -88,6 +95,10 @@ interface AuthState {
   setShowFullscreenLyrics: (v: boolean) => void;
   setShowChangelogOnUpdate: (v: boolean) => void;
   setLastSeenChangelogVersion: (v: string) => void;
+  setHotCacheEnabled: (v: boolean) => void;
+  setHotCacheMaxMb: (v: number) => void;
+  setHotCacheDebounceSec: (v: number) => void;
+  setHotCacheDownloadDir: (v: string) => void;
   logout: () => void;
 
   // Derived
@@ -131,6 +142,10 @@ export const useAuthStore = create<AuthState>()(
       showFullscreenLyrics: true,
       showChangelogOnUpdate: true,
       lastSeenChangelogVersion: '',
+      hotCacheEnabled: false,
+      hotCacheMaxMb: 256,
+      hotCacheDebounceSec: 30,
+      hotCacheDownloadDir: '',
       isLoggedIn: false,
       isConnecting: false,
       connectionError: null,
@@ -206,6 +221,11 @@ export const useAuthStore = create<AuthState>()(
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),
       setShowChangelogOnUpdate: (v) => set({ showChangelogOnUpdate: v }),
       setLastSeenChangelogVersion: (v) => set({ lastSeenChangelogVersion: v }),
+
+      setHotCacheEnabled: (v) => set({ hotCacheEnabled: v }),
+      setHotCacheMaxMb: (v) => set({ hotCacheMaxMb: v }),
+      setHotCacheDebounceSec: (v) => set({ hotCacheDebounceSec: v }),
+      setHotCacheDownloadDir: (v) => set({ hotCacheDownloadDir: v }),
 
       logout: () => set({ isLoggedIn: false }),
 
