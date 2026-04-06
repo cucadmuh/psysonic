@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.1] - 2026-04-06
+
+### Added
+
+- **Fullscreen Player — Synced Lyrics Overlay**: Synced lyrics are now displayed directly in the Fullscreen Player as an animated 5-line rail with a soft fade mask at the top and bottom edges. Click any visible line to seek to that position. Toggle the overlay on/off with the new microphone icon button next to the heart — preference is persisted.
+
+  > **Note:** The overlay currently requires synced (timestamped) lyrics. Support for unsynced lyrics in the Fullscreen Player is planned for a future release.
+
+- **Embedded Lyrics & LRC support**: The app now fetches lyrics from two sources using the shared `useLyrics` hook (used by both the Lyrics Pane and the Fullscreen overlay):
+  - **Server-embedded lyrics** via the OpenSubsonic `getLyricsBySongId` endpoint — reads timestamped or plain lyrics baked directly into the audio file's tags (Navidrome 0.53+).
+  - **LRCLIB** — external LRC lookup as fallback (or primary, configurable in Settings → Playback).
+  Both sources share a module-level cache so switching between the Lyrics Pane and the Fullscreen Player never triggers a second network request.
+
+- **Artist Image Upload**: A camera overlay now appears when hovering the artist portrait on the Artist page. Clicking it opens a file picker and uploads the image directly to your server.
+
+  > **Requires `EnableArtworkUpload = true`** in your Navidrome configuration (new option in Navidrome [#5110](https://github.com/navidrome/navidrome/issues/5110) / [#5198](https://github.com/navidrome/navidrome/issues/5198) — default: `true`). The same requirement applies to the existing Radio Station cover upload.
+
+- **Discord Rich Presence — Album Cover Art**: Album artwork is now displayed in Discord's Rich Presence card. Because Subsonic cover URLs require authentication (and can't be accessed by Discord directly), artwork is fetched from the iTunes Search API using a 3-strategy search (exact → relaxed → track-title fallback), cached for 1 hour, and passed as a direct URL to Discord. Falls back to the static Psysonic asset when no match is found.
+- **Nightfox themes** *(PR [#112](https://github.com/Psychotoxical/psysonic/pull/112) by [@nisrael](https://github.com/nisrael))*: Six themes from the [nightfox.nvim](https://github.com/EdenEast/nightfox.nvim) palette have been added to the **Open Source Classics** group — Dawnfox, Dayfox, Nightfox, Nordfox, Carbonfox, and Terafox.
+- **Auto-install script** *(PR [#121](https://github.com/Psychotoxical/psysonic/pull/121) by [@kilyabin](https://github.com/kilyabin))*: `install.sh` now supports Debian/Ubuntu (`.deb`) and RHEL/Fedora (`.rpm`) — automatically detects the distro, downloads the correct package from the latest release, and installs it.
+
+### Changed
+
+- **Fullscreen Player — performance overhaul**:
+  - `FsArt` (cover art) and `FsLyrics` are now isolated `memo` components — unrelated state changes no longer trigger their re-renders.
+  - Cover crossfade uses an `onLoad` DOM event instead of `new Image()` preloading. This avoids a React batching edge case where both state updates were flushed together and the browser never saw the `opacity: 0` starting state, preventing the CSS transition from firing.
+  - `useCachedUrl(..., true)` passes the raw URL as an immediate fallback — the image starts fetching from the network instantly while IndexedDB resolves the blob in the background.
+  - Lyrics slot height is stored in a `useRef` and updated only on `resize` — eliminates repeated `window.innerHeight` layout reads on every render.
+  - Mouse-move handler is throttled to 200 ms.
+- **Artist page — biography**: The bio text is now collapsed by default with a *Read more* / *Show less* toggle button, keeping the page layout clean for artists with long bios.
+- **Settings — Logout button**: Moved from the System tab to the bottom of the Server tab, styled as a danger button (red outline → red fill on hover).
+
+### Fixed
+
+- **Gapless playback — manual skip** *(PR [#119](https://github.com/Psychotoxical/psysonic/pull/119) by [@cucadmuh](https://github.com/cucadmuh))*: When the next track had already been gapless-pre-chained into the Sink, a manual skip would not interrupt it — the pre-chained track continued playing at full volume from the old Sink after the fade-out. The chain is now matched by stream identity so user-initiated playback always takes precedence.
+- **Radio / Artist cover cache**: `invalidateCoverArt` is now called after every cover upload and delete, so the old image is evicted from the local cache immediately.
+- **Queue auto-scroll**: The active track now scrolls reliably into view; eliminated unnecessary component re-renders caused by unstable selector references.
+- **macOS TLS** *(PR [#114](https://github.com/Psychotoxical/psysonic/pull/114) by [@nisrael](https://github.com/nisrael))*: Switched `reqwest` from `native-tls` (macOS Security framework) to `rustls-tls` (statically linked). The native backend was returning *bad protocol version* when connecting to HTTPS music servers, silently preventing playback.
+
+### i18n
+
+- **Russian translation improvements** *(PR [#120](https://github.com/Psychotoxical/psysonic/pull/120) by [@kilyabin](https://github.com/kilyabin))*: Extensive phrasing refinements across the entire Russian locale.
+- New keys (`fsLyricsToggle`, embedded lyrics settings) added to all 7 languages (EN, DE, FR, NL, ZH, NB, RU).
+
+---
+
 ## [1.34.0] - 2026-04-06
 
 ### Added
