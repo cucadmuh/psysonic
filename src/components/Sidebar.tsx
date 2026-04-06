@@ -24,7 +24,7 @@ export const ALL_NAV_ITEMS: Record<string, { icon: React.ElementType; labelKey: 
   randomMix:    { icon: Shuffle,    labelKey: 'sidebar.randomMix',    to: '/random-mix',    section: 'library' },
   favorites:    { icon: Heart,      labelKey: 'sidebar.favorites',    to: '/favorites',     section: 'library' },
   playlists:    { icon: ListMusic,  labelKey: 'sidebar.playlists',    to: '/playlists',     section: 'library' },
-  radio:        { icon: Cast,       labelKey: 'sidebar.radio',         to: '/radio',         section: 'library' }, // TODO: unhide when radio is ready
+  radio:        { icon: Cast,       labelKey: 'sidebar.radio',         to: '/radio',         section: 'library' },
   statistics:   { icon: BarChart3,  labelKey: 'sidebar.statistics',   to: '/statistics',    section: 'system'  },
   help:         { icon: HelpCircle, labelKey: 'sidebar.help',         to: '/help',          section: 'system'  },
 };

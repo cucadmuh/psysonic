@@ -75,6 +75,13 @@ const CONTRIBUTORS = [
       'Human-readable audio error messages (PR #44)',
     ],
   },
+  {
+    github: 'zz5zz',
+    since: '1.32.0',
+    contributions: [
+      'Norwegian (Bokmål) translation (PR #101)',
+    ],
+  },
 ] as const;
 
 const SPECIAL_THANKS = [
@@ -450,6 +457,41 @@ export default function Settings() {
                 </label>
               </div>
 
+              <div className="divider" />
+
+              {/* Preload mode */}
+              <div className="settings-toggle-row">
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.preloadMode')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.preloadModeDesc')}</div>
+                </div>
+              </div>
+              <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {(['balanced', 'early', 'custom'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    className={`btn ${auth.preloadMode === mode ? 'btn-primary' : 'btn-surface'}`}
+                    style={{ fontSize: 12, padding: '3px 12px' }}
+                    onClick={() => auth.setPreloadMode(mode)}
+                  >
+                    {t(`settings.preload${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any)}
+                  </button>
+                ))}
+              </div>
+              {auth.preloadMode === 'custom' && (
+                <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <input
+                    type="range"
+                    min={5} max={120} step={5}
+                    value={auth.preloadCustomSeconds}
+                    onChange={e => auth.setPreloadCustomSeconds(parseInt(e.target.value))}
+                    style={{ width: 120 }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 36 }}>
+                    {t('settings.preloadCustomSeconds', { n: auth.preloadCustomSeconds })}
+                  </span>
+                </div>
+              )}
 
             </div>
           </section>
@@ -467,6 +509,17 @@ export default function Settings() {
               <h2>{t('settings.behavior')}</h2>
             </div>
             <div className="settings-card">
+              <div className="settings-toggle-row">
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.showTrayIcon')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.showTrayIconDesc')}</div>
+                </div>
+                <label className="toggle-switch" aria-label={t('settings.showTrayIcon')}>
+                  <input type="checkbox" checked={auth.showTrayIcon} onChange={e => auth.setShowTrayIcon(e.target.checked)} />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+              <div className="settings-section-divider" />
               <div className="settings-toggle-row">
                 <div>
                   <div style={{ fontWeight: 500 }}>{t('settings.minimizeToTray')}</div>

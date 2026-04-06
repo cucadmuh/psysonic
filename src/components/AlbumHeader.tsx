@@ -199,11 +199,10 @@ export default function AlbumHeader({
                 </div>
 
                 <button
-                  className="btn btn-ghost"
+                  className={`btn btn-ghost album-detail-star-btn${isStarred ? ' is-starred' : ''}`}
                   id="album-star-btn"
                   onClick={onToggleStar}
                   data-tooltip={isStarred ? t('albumDetail.favoriteRemove') : t('albumDetail.favoriteAdd')}
-                  style={{ color: isStarred ? 'var(--color-star-active, var(--accent))' : 'inherit', border: isStarred ? '1px solid var(--color-star-active, var(--accent))' : undefined }}
                 >
                   <Heart size={16} fill={isStarred ? 'currentColor' : 'none'} />
                   {t('albumDetail.favorite')}

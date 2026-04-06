@@ -1628,9 +1628,16 @@
   text-overflow: ellipsis;
 }
 
+.track-artist-link {
+  cursor: pointer;
+}
 .track-artist-link:hover {
   color: var(--accent);
   text-decoration: underline;
+}
+.track-artist-sep {
+  color: var(--text-muted);
+  user-select: none;
 }
 
 .track-codec {
@@ -1684,6 +1691,26 @@
   padding: 4px;
   height: auto;
   min-height: unset;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.track-star-btn:hover,
+.track-star-btn.is-starred {
+  color: var(--color-star-active, var(--accent));
+}
+
+.album-detail-star-btn {
+  transition: color var(--transition-fast), border-color var(--transition-fast) !important;
+}
+
+.album-detail-star-btn:hover {
+  color: var(--color-star-active, var(--accent)) !important;
+}
+
+.album-detail-star-btn.is-starred {
+  color: var(--color-star-active, var(--accent)) !important;
+  border: 1px solid var(--color-star-active, var(--accent)) !important;
 }
 
 /* ── Random Mix — clickable artist name ── */
@@ -2271,6 +2298,70 @@
   opacity: 0.8;
 }
 
+/* ── Theme Card (individual theme preview button) ───────────────────────── */
+
+.theme-card-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-card-preview {
+  width: 100%;
+  height: 46px;
+  border-radius: 8px;
+  overflow: hidden;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: outline-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+/* Hover: dim accent ring + subtle lift */
+.theme-card-btn:hover .theme-card-preview {
+  outline-color: var(--accent-glow);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  transform: scale(1.04);
+}
+
+/* Active: full accent ring + glow */
+.theme-card-preview.is-active {
+  outline-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow, rgba(0,0,0,0.2));
+}
+
+/* Active + hover: keep strong ring, keep lift */
+.theme-card-btn:hover .theme-card-preview.is-active {
+  outline-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow, rgba(0,0,0,0.3));
+  transform: scale(1.04);
+}
+
+.theme-card-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-align: center;
+  line-height: 1.2;
+  word-break: break-word;
+  transition: color var(--transition-fast), font-weight 0s;
+}
+
+.theme-card-btn:hover .theme-card-label {
+  color: var(--text-primary);
+}
+
+.theme-card-label.is-active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ── Queue Tab Bar ────────────────────────────────────────────────────────── */
 
 .queue-tab-bar {
@@ -2715,80 +2806,145 @@
 }
 
 /* ─────────────────────────────────────────
-   Fullscreen Player — Ambient Stage
+   Fullscreen Player — Adaptive Portrait
 ──────────────────────────────────────────── */
 .fs-player {
   position: fixed;
   inset: 0;
   z-index: 9000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
-  will-change: transform;
   contain: layout style paint;
-  animation: fsIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  background: #0e0e1a;
+  animation: fsIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  background: #06060e;
+  /* Promote to own compositor layer immediately on mount */
+  will-change: transform, opacity;
 }
 
 @keyframes fsIn {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
 }
 
-/* ── Cover breathing ── */
-@keyframes ambilight-pulse {
-  0%, 100% { opacity: 0.7; }
-  50%       { opacity: 1.0; }
+/* ── Animated dark mesh — GPU-only: only transform3d, no scale, real divs for will-change ── */
+@keyframes mesh-aura-a {
+  0%   { transform: translate3d(0,    0,   0); }
+  33%  { transform: translate3d(5%,  -6%,  0); }
+  66%  { transform: translate3d(-3%,  2%,  0); }
+  100% { transform: translate3d(0,    0,   0); }
 }
 
-@keyframes cover-breathe {
-
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.018);
-  }
+@keyframes mesh-aura-b {
+  0%   { transform: translate3d(0,    0,  0); }
+  50%  { transform: translate3d(-6%,  5%, 0); }
+  100% { transform: translate3d(0,    0,  0); }
 }
 
-@keyframes ken-burns {
-  0%   { transform: scale(1.05) translate(-4%,  -1%); }
-  25%  { transform: scale(1.08) translate( 4%,  -1.5%); }
-  50%  { transform: scale(1.06) translate( 3%,   1%); }
-  75%  { transform: scale(1.09) translate(-3%,   1.5%); }
-  100% { transform: scale(1.05) translate(-4%,  -1%); }
+@keyframes portrait-drift {
+  0%, 100% { transform: translate3d(0,     0, 0); }
+  50%       { transform: translate3d(0, -10px, 0); }
 }
 
-/* ── Blurred background ── */
-.fs-bg {
-  position: absolute;
-  inset: -20%;
-  background-size: cover;
-  background-position: center 20%;
-  filter: blur(4px) brightness(0.25) saturate(1.5);
-  animation: ken-burns 120s linear infinite;
-  z-index: 0;
-  will-change: transform;
-  pointer-events: none;
-  transition: opacity 700ms ease;
-}
-
-.fs-bg-overlay {
+.fs-mesh-bg {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
   z-index: 0;
+  background: #06060e;
+  overflow: hidden;
   pointer-events: none;
+}
+
+/* Blobs are real divs so will-change: transform applies (pseudo-elements can't have it) */
+.fs-mesh-blob {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.fs-mesh-blob-a {
+  /* Oversized so panning never exposes the dark base underneath */
+  width: 130%;
+  height: 130%;
+  left: -35%;
+  bottom: -35%;
+  background: radial-gradient(ellipse, var(--accent-glow, rgba(120, 80, 255, 0.14)) 0%, transparent 65%);
+  filter: blur(55px);
+  animation: mesh-aura-a 26s ease-in-out infinite;
+  animation-delay: 350ms;
+}
+
+.fs-mesh-blob-b {
+  width: 100%;
+  height: 110%;
+  right: -25%;
+  top: -25%;
+  background: radial-gradient(ellipse, var(--accent-dim, rgba(120, 80, 255, 0.08)) 0%, transparent 65%);
+  filter: blur(65px);
+  animation: mesh-aura-b 20s ease-in-out infinite;
+  animation-delay: 350ms;
+}
+
+/* ── Artist portrait — right half, object-fit: contain ── */
+.fs-portrait-wrap {
+  position: absolute;
+  right: 4vw;
+  top: 4vw;
+  bottom: 8vw;
+  width: 46%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: 12px;
+  overflow: hidden;
+  transform: translateZ(0);
+  /* Fade left edge to blend into the dark mesh */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.45) 18%,
+    rgba(0, 0, 0, 0.85) 40%,
+    #000 60%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.45) 18%,
+    rgba(0, 0, 0, 0.85) 40%,
+    #000 60%
+  );
+}
+
+.fs-portrait {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  filter: drop-shadow(-24px 0 48px rgba(0, 0, 0, 0.85));
+  transition: opacity 1000ms ease-in-out;
+  will-change: transform;
+  animation: portrait-drift 22s ease-in-out infinite;
+  animation-delay: 350ms;
+  display: block;
+}
+
+/* ── Horizontal scrim — dark left edge for text legibility ── */
+.fs-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    rgba(6, 6, 14, 0.88) 0%,
+    rgba(6, 6, 14, 0.65) 32%,
+    rgba(6, 6, 14, 0.18) 58%,
+    transparent 78%
+  );
 }
 
 /* ── Close button ── */
@@ -2811,179 +2967,102 @@
 }
 
 .fs-close:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.18);
   color: #ffffff;
   transform: translateY(-1px);
 }
 
-/* ── Center stage ── */
-.fs-stage {
-  position: relative;
-  z-index: 1;
+/* ── Info cluster — bottom-left quadrant ── */
+.fs-cluster {
+  position: absolute;
+  bottom: 72px;
+  left: clamp(28px, 4vw, 64px);
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  width: min(440px, 88vw);
-  padding: 16px 0;
-  will-change: transform;
+  gap: 12px;
+  max-width: 85vw;
 }
 
-/* Artist name — above cover */
-.fs-artist {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin: 0;
-  opacity: 0.9;
-}
-
-/* Cover — breathes slowly */
-.fs-cover-wrap {
-  width: clamp(300px, 30vw, 480px);
-  max-height: calc(100vh - 300px);
-  aspect-ratio: 1 / 1;
-  border-radius: var(--radius-xl);
+/* Album art — small, rounded, glowing */
+.fs-art-wrap {
+  width: clamp(120px, 10vw, 180px);
+  height: clamp(120px, 10vw, 180px);
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: none;
   flex-shrink: 0;
-  animation: cover-breathe 9s ease-in-out infinite;
-  will-change: transform;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 0 28px var(--accent-glow, var(--accent));
 }
 
-.fs-cover {
+.fs-art {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.fs-cover-placeholder {
+.fs-art-placeholder {
   width: 100%;
   height: 100%;
-  background: var(--ctp-surface0);
+  background: rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.3);
 }
 
-/* Track info — below cover */
-.fs-track-info {
-  text-align: center;
-  width: 100%;
-}
-
-.fs-title-wrap {
+/* Artist name — massive, font-black, uppercase, wraps gracefully */
+.fs-artist-name {
   font-family: var(--font-display);
-  font-size: clamp(20px, 3vw, 32px);
-  font-weight: 800;
+  font-size: clamp(28px, 4.5vw, 68px);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
   color: #ffffff;
-  margin: 0 0 6px;
-  line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.fs-title-marquee {
-  display: inline-block;
-  animation: marquee-scroll 14s linear infinite alternate;
-}
-
-@keyframes marquee-scroll {
-
-  0%,
-  15% {
-    transform: translateX(0);
-  }
-
-  85%,
-  100% {
-    transform: translateX(var(--scroll-amount, 0px));
-  }
-}
-
-.fs-album {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.5);
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.05;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.7);
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
-.fs-codec {
-  display: inline-block;
-  font-size: 10px;
-  font-family: monospace;
-  letter-spacing: 0.04em;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  color: rgba(255, 255, 255, 0.35);
-  margin-top: 8px;
+/* Track title — large, light, accent color, wraps gracefully */
+.fs-track-title {
+  font-family: var(--font-display);
+  font-size: clamp(18px, 2.6vw, 40px);
+  font-weight: 300;
+  color: var(--accent);
+  margin: 0;
+  line-height: 1.2;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
-/* Progress bar */
-.fs-progress-wrap {
+/* Metadata row */
+.fs-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
-  width: 100%;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: clamp(11px, 1vw, 13px);
+  color: rgba(255, 255, 255, 0.5);
 }
 
-.fs-time {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
-  font-variant-numeric: tabular-nums;
-  min-width: 36px;
-  text-align: center;
+.fs-meta-dot {
+  opacity: 0.4;
 }
 
-.fs-progress-bar {
-  flex: 1;
-  position: relative;
-}
-
-.fs-progress-bar input[type="range"] {
-  width: 100%;
-  height: 3px;
-  background: linear-gradient(to right,
-      rgba(255, 255, 255, 0.85) var(--pct, 0%),
-      rgba(255, 255, 255, 0.32) var(--pct, 0%),
-      rgba(255, 255, 255, 0.32) var(--buf, 0%),
-      rgba(255, 255, 255, 0.15) var(--buf, 0%));
-  border-radius: 2px;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.fs-progress-bar input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: #ffffff;
-  cursor: pointer;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
-  transition: transform var(--transition-fast);
-}
-
-.fs-progress-bar input[type="range"]:hover::-webkit-slider-thumb {
-  transform: scale(1.3);
-}
-
-/* Transport controls */
+/* Controls row — left-aligned */
 .fs-controls {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 14px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .fs-btn {
@@ -2993,7 +3072,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
   transition: all var(--transition-fast);
   background: transparent;
@@ -3002,6 +3081,7 @@
 .fs-btn:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
 }
 
 .fs-btn.active {
@@ -3014,19 +3094,94 @@
 }
 
 .fs-btn-play {
-  width: 54px;
-  height: 54px;
+  width: 52px;
+  height: 52px;
   background: var(--accent);
   color: var(--ctp-crust);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 20px var(--accent-glow, var(--accent));
 }
 
 .fs-btn-play:hover {
   background: var(--accent);
   color: var(--ctp-crust);
-  transform: scale(1.07);
+  transform: scale(1.1);
   filter: brightness(1.12);
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 28px var(--accent-glow, var(--accent));
+}
+
+.fs-btn-heart:hover,
+.fs-btn-heart.active {
+  color: var(--color-star-active, var(--accent));
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Full-width seekbar — pinned to bottom edge ── */
+.fs-seekbar-wrap {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+}
+
+.fs-seekbar-times {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 16px 5px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fs-seekbar {
+  position: relative;
+  height: 3px;
+  cursor: pointer;
+  transition: height 120ms ease;
+}
+
+.fs-seekbar:hover {
+  height: 5px;
+}
+
+.fs-seekbar-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fs-seekbar-buf {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.fs-seekbar-played {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--accent);
+  box-shadow: 0 0 15px var(--accent-glow, var(--accent));
+  pointer-events: none;
+}
+
+.fs-seekbar input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 /* Chat */

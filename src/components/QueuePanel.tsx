@@ -404,13 +404,11 @@ export default function QueuePanel() {
             <div className="queue-current-info">
               <h3 className="truncate">{currentTrack.title}</h3>
               <div
-                className="queue-current-sub truncate"
-                style={{ cursor: currentTrack.artistId ? 'pointer' : 'default' }}
+                className={`queue-current-sub truncate${currentTrack.artistId ? ' is-link' : ''}`}
                 onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}`)}
               >{currentTrack.artist}</div>
               <div
-                className="queue-current-sub truncate"
-                style={{ cursor: currentTrack.albumId ? 'pointer' : 'default' }}
+                className={`queue-current-sub truncate${currentTrack.albumId ? ' is-link' : ''}`}
                 onClick={() => currentTrack.albumId && navigate(`/album/${currentTrack.albumId}`)}
               >{currentTrack.album}</div>
               {currentTrack.year && (

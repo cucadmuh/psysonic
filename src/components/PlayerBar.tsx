@@ -141,11 +141,11 @@ export default function PlayerBar() {
         </div>
         {currentTrack && !isRadio && (
           <button
-            className="player-btn player-btn-sm player-star-btn"
+            className={`player-btn player-btn-sm player-star-btn${isStarred ? ' is-starred' : ''}`}
             onClick={toggleStar}
             aria-label={isStarred ? t('contextMenu.unfavorite') : t('contextMenu.favorite')}
             data-tooltip={isStarred ? t('contextMenu.unfavorite') : t('contextMenu.favorite')}
-            style={{ color: isStarred ? 'var(--accent)' : 'var(--text-muted)', flexShrink: 0 }}
+            style={{ flexShrink: 0 }}
           >
             <Heart size={15} fill={isStarred ? 'currentColor' : 'none'} />
           </button>

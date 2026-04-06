@@ -314,6 +314,13 @@ function TauriEventBridge() {
   const next = usePlayerStore(s => s.next);
   const previous = usePlayerStore(s => s.previous);
 
+  // Sync tray-icon visibility with the user's stored setting.
+  // Runs once on mount (initial sync) and again whenever the setting changes.
+  const showTrayIcon = useAuthStore(s => s.showTrayIcon);
+  useEffect(() => {
+    invoke('toggle_tray_icon', { show: showTrayIcon }).catch(console.error);
+  }, [showTrayIcon]);
+
   // Configurable keybindings
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

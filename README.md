@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/logo-psysonic.png" alt="Psysonic Logo" width="200"/>
+  <img src="public/psysonic-inapp-logo.svg" alt="Psysonic Logo" width="200"/>
   <h1>Psysonic</h1>
   <p><strong>A modern, gorgeous, and blazing fast desktop client for Subsonic API compatible music servers (Navidrome, Gonic, etc.).</strong></p>
   
@@ -80,10 +80,29 @@ Designed specifically for users hosting their own music via Navidrome or other S
 
 Navigate to the [Releases](https://github.com/Psychotoxical/psysonic/releases) page and download the installer for your operating system.
 
-- **Windows**: `.exe` (NSIS installer)
+### 🐧 Linux
+
+- **Ubuntu / Debian**: `.deb` from GitHub Releases
+- **Fedora / RHEL**: `.rpm` from GitHub Releases
+
+### 🍎 macOS
+
 - **macOS**: `.dmg` (Universal or Apple Silicon)
-- **Linux (Ubuntu/Debian)**: `.deb` from GitHub Releases
-- **Linux (Fedora/RHEL)**: `.rpm` from GitHub Releases
+
+> [!WARNING]
+> **Gatekeeper Note:**
+> Since the app is released without an Apple Developer certificate, macOS will block it by default. To bypass this, run the following command in the Terminal after moving the app to the Applications folder:
+> ```sh
+> xattr -cr /Applications/Psysonic.app
+> ```
+
+### 🪟 Windows
+
+- **Windows**: `.exe` (NSIS installer)
+
+> [!WARNING]
+> **SmartScreen Note:**
+> Windows SmartScreen might show a warning because the installer isn't signed with an expensive developer certificate. Click on **"More info"** and then **"Run anyway"**.
 
 ## 📦 Installation (Arch Linux / AUR)
 

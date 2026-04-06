@@ -99,7 +99,7 @@ export default function Albums() {
   const clearYear = () => { setYearFrom(''); setYearTo(''); };
 
   const sortOptions: { value: SortType; label: string }[] = [
-    { value: 'alphabeticalByName', label: t('albums.sortByName') },
+    { value: 'alphabeticalByName',   label: t('albums.sortByName') },
     { value: 'alphabeticalByArtist', label: t('albums.sortByArtist') },
   ];
 

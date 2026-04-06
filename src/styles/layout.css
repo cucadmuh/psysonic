@@ -735,6 +735,13 @@
 /* Star + Last.fm heart — visually separated from track title */
 .player-star-btn {
   margin: var(--space-1);
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.player-star-btn:hover,
+.player-star-btn.is-starred {
+  color: var(--color-star-active, var(--accent));
 }
 
 .player-btn-primary {
@@ -1025,7 +1032,7 @@
 }
 .queue-round-btn:hover:not(:disabled) {
   background: var(--border);
-  color: var(--text-primary);
+  color: var(--accent);
 }
 .queue-round-btn:disabled {
   opacity: 0.35;
@@ -1093,6 +1100,14 @@
 .queue-current-sub {
   font-size: 12px;
   color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.queue-current-sub.is-link {
+  cursor: pointer;
+}
+.queue-current-sub.is-link:hover {
+  color: var(--accent);
 }
 
 .queue-current-tech {
@@ -1168,6 +1183,12 @@
 .queue-item-artist {
   font-size: 11px;
   color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.queue-item:hover .queue-item-artist,
+.queue-item.context-active .queue-item-artist {
+  color: var(--text-secondary);
 }
 
 .queue-item-duration {

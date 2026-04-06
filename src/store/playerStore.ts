@@ -166,14 +166,43 @@ let togglePlayLock = false;
 const radioAudio = new Audio();
 radioAudio.preload = 'none';
 let radioStopping = false;
+// Pending reconnect timer for stalled streams — null when no reconnect is scheduled.
+let radioReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearRadioReconnectTimer() {
+  if (radioReconnectTimer) { clearTimeout(radioReconnectTimer); radioReconnectTimer = null; }
+}
+
 radioAudio.addEventListener('ended', () => {
   // Stream disconnected unexpectedly — clear radio state.
+  clearRadioReconnectTimer();
   usePlayerStore.setState({ isPlaying: false, currentRadio: null, progress: 0, currentTime: 0 });
 });
 radioAudio.addEventListener('error', () => {
+  clearRadioReconnectTimer();
   if (radioStopping) { radioStopping = false; return; }
   usePlayerStore.setState({ isPlaying: false, currentRadio: null });
   showToast('Radio stream error', 3000, 'error');
+});
+// Stalled: stream stopped delivering data — try to reconnect after 4 s.
+radioAudio.addEventListener('stalled', () => {
+  if (radioReconnectTimer) return; // already scheduled
+  radioReconnectTimer = setTimeout(() => {
+    radioReconnectTimer = null;
+    if (!usePlayerStore.getState().currentRadio) return;
+    // Re-assign src to force a fresh connection, then resume playback.
+    const src = radioAudio.src;
+    radioAudio.src = src;
+    radioAudio.play().catch(console.error);
+  }, 4000);
+});
+// Waiting: browser is rebuffering — normal for live streams, no action needed.
+radioAudio.addEventListener('waiting', () => {
+  console.debug('[psysonic] radio: buffering');
+});
+// Suspend: browser paused loading (sufficient buffer) — cancel any stale reconnect.
+radioAudio.addEventListener('suspend', () => {
+  clearRadioReconnectTimer();
 });
 
 // Timestamp of the last gapless auto-advance (from audio:track_switched).
@@ -235,9 +264,15 @@ function handleAudioProgress(current_time: number, duration: number) {
     }
   }
 
-  // Pre-buffer / pre-chain next track when 30 s remain.
-  const { gaplessEnabled } = useAuthStore.getState();
-  if (dur - current_time < 30 && dur - current_time > 0) {
+  // Pre-buffer / pre-chain next track based on preload mode.
+  const { gaplessEnabled, preloadMode, preloadCustomSeconds } = useAuthStore.getState();
+  const remaining = dur - current_time;
+  const shouldPreload = preloadMode === 'early'
+    ? current_time >= 5
+    : preloadMode === 'custom'
+      ? remaining < preloadCustomSeconds && remaining > 0
+      : remaining < 30 && remaining > 0; // balanced (default)
+  if (shouldPreload) {
     const { queue, queueIndex, repeatMode } = store;
     const nextIdx = queueIndex + 1;
     const nextTrack = repeatMode === 'one'
@@ -598,6 +633,7 @@ export const usePlayerStore = create<PlayerState>()(
       // ── stop ────────────────────────────────────────────────────────────────
       stop: () => {
         if (get().currentRadio) {
+          clearRadioReconnectTimer();
           radioStopping = true;
           radioAudio.pause();
           radioAudio.src = '';
@@ -614,6 +650,7 @@ export const usePlayerStore = create<PlayerState>()(
         const { volume } = get();
         ++playGeneration;
         isAudioPaused = false;
+        clearRadioReconnectTimer();
         gaplessPreloadingId = null;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
         // Stop Rust engine in case a regular track was playing.
@@ -623,6 +660,7 @@ export const usePlayerStore = create<PlayerState>()(
         radioAudio.volume = volume;
         radioAudio.play().catch((err: unknown) => {
           console.error('[psysonic] radio HTML5 play failed:', err);
+          showToast('Radio stream error', 3000, 'error');
           set({ isPlaying: false, currentRadio: null });
         });
         set({
@@ -654,6 +692,7 @@ export const usePlayerStore = create<PlayerState>()(
         // If a radio stream is active, stop it before the new track starts so
         // the PlayerBar clears radio mode immediately and the stream is released.
         if (get().currentRadio) {
+          clearRadioReconnectTimer();
           radioStopping = true;
           radioAudio.pause();
           radioAudio.src = '';

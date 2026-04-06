@@ -1,5 +1,6 @@
 import axios from 'axios';
 import md5 from 'md5';
+import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '../store/authStore';
 import { version } from '../../package.json';
 
@@ -442,10 +443,26 @@ export async function uploadPlaylistCoverArt(id: string, file: File): Promise<vo
   const baseUrl = getBaseUrl();
   const buffer = await file.arrayBuffer();
   const fileBytes = Array.from(new Uint8Array(buffer));
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('upload_playlist_cover', {
     serverUrl: baseUrl,
     playlistId: id,
+    username: server?.username ?? '',
+    password: server?.password ?? '',
+    fileBytes,
+    mimeType: file.type || 'image/jpeg',
+  });
+}
+
+export async function uploadArtistImage(id: string, file: File): Promise<void> {
+  // Navidrome-specific endpoint — handled in Rust to bypass browser CORS restrictions.
+  const { getBaseUrl, getActiveServer } = useAuthStore.getState();
+  const server = getActiveServer();
+  const baseUrl = getBaseUrl();
+  const buffer = await file.arrayBuffer();
+  const fileBytes = Array.from(new Uint8Array(buffer));
+  await invoke('upload_artist_image', {
+    serverUrl: baseUrl,
+    artistId: id,
     username: server?.username ?? '',
     password: server?.password ?? '',
     fileBytes,
@@ -527,7 +544,6 @@ export async function uploadRadioCoverArt(id: string, file: File): Promise<void>
   const baseUrl = getBaseUrl();
   const buffer = await file.arrayBuffer();
   const fileBytes = Array.from(new Uint8Array(buffer));
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('upload_radio_cover', {
     serverUrl: baseUrl,
     radioId: id,
@@ -543,7 +559,6 @@ export async function deleteRadioCoverArt(id: string): Promise<void> {
   const { getBaseUrl, getActiveServer } = useAuthStore.getState();
   const server = getActiveServer();
   const baseUrl = getBaseUrl();
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('delete_radio_cover', {
     serverUrl: baseUrl,
     radioId: id,
@@ -556,7 +571,6 @@ export async function uploadRadioCoverArtBytes(id: string, fileBytes: number[], 
   const { getBaseUrl, getActiveServer } = useAuthStore.getState();
   const server = getActiveServer();
   const baseUrl = getBaseUrl();
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('upload_radio_cover', {
     serverUrl: baseUrl,
     radioId: id,
@@ -580,18 +594,15 @@ function parseRadioBrowserStations(raw: Array<Record<string, string>>): RadioBro
 export const RADIO_PAGE_SIZE = 25;
 
 export async function searchRadioBrowser(query: string, offset = 0): Promise<RadioBrowserStation[]> {
-  const { invoke } = await import('@tauri-apps/api/core');
   const raw = await invoke<Array<Record<string, string>>>('search_radio_browser', { query, offset });
   return parseRadioBrowserStations(raw);
 }
 
 export async function getTopRadioStations(offset = 0): Promise<RadioBrowserStation[]> {
-  const { invoke } = await import('@tauri-apps/api/core');
   const raw = await invoke<Array<Record<string, string>>>('get_top_radio_stations', { offset });
   return parseRadioBrowserStations(raw);
 }
 
 export async function fetchUrlBytes(url: string): Promise<[number[], string]> {
-  const { invoke } = await import('@tauri-apps/api/core');
   return invoke<[number[], string]>('fetch_url_bytes', { url });
 }

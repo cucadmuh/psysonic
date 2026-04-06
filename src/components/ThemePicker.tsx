@@ -164,29 +164,10 @@ export default function ThemePicker({ value, onChange }: Props) {
                     return (
                       <button
                         key={t.id}
+                        className="theme-card-btn"
                         onClick={() => onChange(t.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: '6px',
-                        }}
                       >
-                        <div style={{
-                          width: '100%',
-                          height: '46px',
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                          outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                          outlineOffset: '2px',
-                          position: 'relative',
-                          boxShadow: isActive ? '0 0 8px var(--accent-glow, rgba(0,0,0,0.2))' : '0 1px 3px rgba(0,0,0,0.3)',
-                          transition: 'outline-color 0.15s, box-shadow 0.15s',
-                        }}>
+                        <div className={`theme-card-preview${isActive ? ' is-active' : ''}`}>
                           <div style={{ background: t.bg, height: '55%' }} />
                           <div style={{ background: t.card, height: '20%' }} />
                           <div style={{ background: t.accent, height: '25%' }} />
@@ -208,14 +189,7 @@ export default function ThemePicker({ value, onChange }: Props) {
                             </div>
                           )}
                         </div>
-                        <span style={{
-                          fontSize: '11px',
-                          color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                          fontWeight: isActive ? 600 : 400,
-                          textAlign: 'center',
-                          lineHeight: 1.2,
-                          wordBreak: 'break-word',
-                        }}>
+                        <span className={`theme-card-label${isActive ? ' is-active' : ''}`}>
                           {t.label}
                         </span>
                       </button>

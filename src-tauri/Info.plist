@@ -7,5 +7,14 @@
          (triggered by CoreAudio enumerating input devices during init). -->
     <key>NSMicrophoneUsageDescription</key>
     <string>Psysonic does not use the microphone. This prompt is triggered by the audio subsystem initializing output devices.</string>
+
+    <!-- Allow HTTP (non-TLS) connections so that internet radio streams and
+         Navidrome servers running without HTTPS can load media in WKWebView.
+         Without this, macOS App Transport Security blocks HTTP audio src. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
 </dict>
 </plist>

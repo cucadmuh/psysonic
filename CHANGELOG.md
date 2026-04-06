@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-04-06
+
+### Added
+
+- **Norwegian (Bokmål) translation** *(PR [#101](https://github.com/Psychotoxical/psysonic/pull/101) by [@zz5zz](https://github.com/zz5zz))*: Psysonic is now fully translated into Norwegian Bokmål — selectable in Settings → Appearance.
+- **Configurable next-track preload** *(Issue [#102](https://github.com/Psychotoxical/psysonic/issues/102))*: A new setting in Settings → Playback controls when Psysonic starts buffering the next track. Three modes available:
+  - **Balanced** (default) — begins buffering 30 s before the end of the current track (previous behaviour).
+  - **Early** — begins buffering after just 5 s of playback, maximising reliability on slow connections.
+  - **Custom** — set the exact threshold (5 – 120 s before the end) via a slider.
+- **Tray icon visibility toggle**: A new toggle in Settings → App Behavior lets you show or hide the system tray icon. When disabled, the icon is fully removed from the notification area / menu bar.
+
+### Changed
+
+- **Fullscreen Player — complete redesign**: The Ambient Stage has been rebuilt from the ground up.
+  - **Animated mesh background**: A GPU-only animated dark gradient mesh replaces the static blurred cover art background — smooth, performant, no layout repaints.
+  - **Artist portrait**: The right half of the screen now shows the artist's image (loaded from the server), crossfading smoothly on every track change. Falls back to the album cover if no artist image is available.
+  - **Bottom seekbar**: The seekbar is now pinned to the very bottom edge, spanning the full width, with elapsed and remaining timestamps above it.
+  - **Heart button**: You can now star/unstar the currently playing track directly from the Fullscreen Player without leaving the view.
+  - Removed the marquee-scrolling title in favour of a large, wrapping typographic layout.
+- **Star buttons** — all star/favourite buttons across the app (Player Bar, Album Header, Album Tracklist, Queue Panel) now use the CSS class `.is-starred` instead of inline color overrides, making them trivially themeable.
+
+### Fixed
+
+- **macOS — HTTP audio streams**: Added `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` to `Info.plist`. Without this, App Transport Security silently blocked HTTP radio streams and non-HTTPS Navidrome servers from loading audio in WKWebView on macOS.
+
+---
+
 ## [1.32.0] - 2026-04-05 — *The Big Easter Update* 🐣
 
 ### Added

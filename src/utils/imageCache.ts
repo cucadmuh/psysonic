@@ -171,6 +171,26 @@ export async function getImageCacheSize(): Promise<number> {
   }
 }
 
+/** Removes a single cache entry from both in-memory and IndexedDB caches. */
+export async function invalidateCacheKey(cacheKey: string): Promise<void> {
+  const existing = objectUrlCache.get(cacheKey);
+  if (existing) {
+    URL.revokeObjectURL(existing);
+    objectUrlCache.delete(cacheKey);
+  }
+  try {
+    const database = await openDB();
+    await new Promise<void>(resolve => {
+      const tx = database.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(cacheKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // Ignore
+  }
+}
+
 /** Clears all entries from IndexedDB and revokes all in-memory object URLs. */
 export async function clearImageCache(): Promise<void> {
   for (const url of objectUrlCache.values()) {
