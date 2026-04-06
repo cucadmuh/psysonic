@@ -1603,7 +1603,11 @@ pub async fn audio_play(
     // audio_chain_preload already appended this URL to the Sink 30 s in
     // advance. The source is live in the queue — just return and let the
     // progress task handle the state transition when the previous source ends.
-    if gapless {
+    //
+    // Never for manual skips: the UI already jumped to this track in JS, but
+    // the current source is still playing until the chain drains. User-initiated
+    // play must clear the chain and start this URL immediately (standard path).
+    if gapless && !manual {
         let already_chained = state.chained_info.lock().unwrap()
             .as_ref()
             .map(|c| c.url == url)
