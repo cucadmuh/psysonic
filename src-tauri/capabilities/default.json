@@ -28,6 +28,8 @@
     "window-state:allow-restore-state",
     "core:window:allow-set-title",
     "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-fullscreen",

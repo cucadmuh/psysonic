@@ -27,6 +27,98 @@
   background: var(--bg-app);
 }
 
+/* ─── Custom title bar (Linux only — decorations: false) ─── */
+:root {
+  --titlebar-height: 32px;
+}
+
+.app-shell[data-titlebar] {
+  grid-template-rows: var(--titlebar-height) 1fr var(--player-height);
+  grid-template-areas:
+    "titlebar titlebar titlebar"
+    "sidebar  main     queue"
+    "player   player   player";
+}
+
+.titlebar {
+  grid-area: titlebar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 6px 0 12px;
+  height: var(--titlebar-height);
+  user-select: none;
+}
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  flex: 0 0 auto;
+}
+
+.titlebar-track {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 40%;
+  pointer-events: none;
+}
+
+.titlebar-track-state {
+  font-size: 9px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.titlebar-track-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 100%;
+}
+
+.titlebar-controls {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.titlebar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.titlebar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.titlebar-btn-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Resizer handles must start below the titlebar */
+.app-shell[data-titlebar] .resizer {
+  top: var(--titlebar-height);
+}
+
 /* ─── Resizer Handles ─── */
 .resizer {
   position: absolute;

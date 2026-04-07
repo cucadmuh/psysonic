@@ -134,6 +134,7 @@ export default function Home() {
             {isVisible('mostPlayed') && (
               <AlbumRow
                 title={t('home.mostPlayed')}
+                titleLink="/most-played"
                 albums={mostPlayed}
                 onLoadMore={() => loadMore('frequent', mostPlayed, setMostPlayed)}
                 moreText={t('home.loadMore')}

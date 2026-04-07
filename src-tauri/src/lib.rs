@@ -36,6 +36,19 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+/// Toggle native window decorations at runtime (Linux custom title bar opt-out).
+#[tauri::command]
+fn set_window_decorations(enabled: bool, app_handle: tauri::AppHandle) {
+    if let Some(win) = app_handle.get_webview_window("main") {
+        let _ = win.set_decorations(enabled);
+        // Re-enabling native decorations on GTK causes the window manager to
+        // re-stack the window, which drops focus. Bring it back immediately.
+        if enabled {
+            let _ = win.set_focus();
+        }
+    }
+}
+
 
 /// Authenticate with Navidrome's own REST API and return a Bearer token.
 async fn navidrome_token(server_url: &str, username: &str, password: &str) -> Result<String, String> {
@@ -826,6 +839,17 @@ pub fn run() {
         }))
 
         .setup(|app| {
+            // ── Custom title bar on Linux ─────────────────────────────────
+            // Remove OS window decorations so the React TitleBar component
+            // takes over. macOS and Windows keep their native decorations.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_decorations(false);
+                }
+            }
+
             // ── System tray ───────────────────────────────────────────────
             // Always build on startup; the frontend calls toggle_tray_icon(false)
             // immediately after load if the user has disabled the tray icon.
@@ -951,6 +975,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             exit_app,
+            set_window_decorations,
             register_global_shortcut,
             unregister_global_shortcut,
             mpris_set_metadata,

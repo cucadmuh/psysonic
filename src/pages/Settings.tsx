@@ -19,6 +19,7 @@ import LastfmIcon from '../components/LastfmIcon';
 import CustomSelect from '../components/CustomSelect';
 import ThemePicker from '../components/ThemePicker';
 import { useAuthStore, ServerProfile } from '../store/authStore';
+import { IS_LINUX } from '../utils/platform';
 import { useThemeStore } from '../store/themeStore';
 import { useFontStore, FontId } from '../store/fontStore';
 import { useKeybindingsStore, KeyAction, formatKeyCode, DEFAULT_BINDINGS } from '../store/keybindingsStore';
@@ -615,6 +616,21 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
+              {IS_LINUX && (
+                <>
+                  <div className="settings-section-divider" />
+                  <div className="settings-toggle-row">
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{t('settings.useCustomTitlebar')}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.useCustomTitlebarDesc')}</div>
+                    </div>
+                    <label className="toggle-switch" aria-label={t('settings.useCustomTitlebar')}>
+                      <input type="checkbox" checked={auth.useCustomTitlebar} onChange={e => auth.setUseCustomTitlebar(e.target.checked)} />
+                      <span className="toggle-track" />
+                    </label>
+                  </div>
+                </>
+              )}
               <div className="settings-section-divider" />
               <div className="settings-toggle-row">
                 <div>

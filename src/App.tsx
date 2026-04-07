@@ -51,6 +51,8 @@ import GenreDetail from './pages/GenreDetail';
 import ExportPickerModal from './components/ExportPickerModal';
 import ChangelogModal from './components/ChangelogModal';
 import AppUpdater from './components/AppUpdater';
+import TitleBar from './components/TitleBar';
+import { IS_LINUX } from './utils/platform';
 import { version } from '../package.json';
 import { useConnectionStatus } from './hooks/useConnectionStatus';
 import { useAuthStore } from './store/authStore';
@@ -73,6 +75,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function AppShell() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!IS_LINUX) return;
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    win.onResized(() => {
+      win.isFullscreen().then(setIsWindowFullscreen).catch(() => {});
+    }).then(u => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
   const isFullscreenOpen = usePlayerStore(s => s.isFullscreenOpen);
   const toggleFullscreen = usePlayerStore(s => s.toggleFullscreen);
   const isQueueVisible = usePlayerStore(s => s.isQueueVisible);
@@ -87,8 +100,15 @@ function AppShell() {
   const isLoggedIn = useAuthStore(s => s.isLoggedIn);
   const activeServerId = useAuthStore(s => s.activeServerId);
   const setMusicFolders = useAuthStore(s => s.setMusicFolders);
+  const useCustomTitlebar = useAuthStore(s => s.useCustomTitlebar);
   const offlineAlbums = useOfflineStore(s => s.albums);
   const hasOfflineContent = Object.values(offlineAlbums).some(a => a.serverId === serverId);
+
+  // Sync custom titlebar preference with native decorations on Linux
+  useEffect(() => {
+    if (!IS_LINUX) return;
+    invoke('set_window_decorations', { enabled: !useCustomTitlebar }).catch(() => {});
+  }, [useCustomTitlebar]);
 
   useEffect(() => {
     if (!isLoggedIn || !activeServerId) return;
@@ -248,16 +268,18 @@ function AppShell() {
   const isMobilePlayer = isMobile && location.pathname === '/now-playing';
 
   return (
-    <div 
+    <div
       className="app-shell"
       data-mobile={isMobile || undefined}
       data-mobile-player={isMobilePlayer || undefined}
+      data-titlebar={(IS_LINUX && useCustomTitlebar && !isWindowFullscreen) || undefined}
       style={{
         '--sidebar-width': isMobile ? '0px' : (isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)'),
         '--queue-width': isMobile ? '0px' : (isQueueVisible ? `${queueWidth}px` : '0px')
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
     >
+      {IS_LINUX && useCustomTitlebar && !isWindowFullscreen && <TitleBar />}
       {!isMobile && (
         <Sidebar
           isCollapsed={isSidebarCollapsed}
