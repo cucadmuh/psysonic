@@ -51,6 +51,8 @@ import GenreDetail from './pages/GenreDetail';
 import ExportPickerModal from './components/ExportPickerModal';
 import ChangelogModal from './components/ChangelogModal';
 import AppUpdater from './components/AppUpdater';
+import TitleBar from './components/TitleBar';
+import { IS_LINUX } from './utils/platform';
 import { version } from '../package.json';
 import { useConnectionStatus } from './hooks/useConnectionStatus';
 import { useAuthStore } from './store/authStore';
@@ -248,16 +250,18 @@ function AppShell() {
   const isMobilePlayer = isMobile && location.pathname === '/now-playing';
 
   return (
-    <div 
+    <div
       className="app-shell"
       data-mobile={isMobile || undefined}
       data-mobile-player={isMobilePlayer || undefined}
+      data-titlebar={IS_LINUX || undefined}
       style={{
         '--sidebar-width': isMobile ? '0px' : (isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)'),
         '--queue-width': isMobile ? '0px' : (isQueueVisible ? `${queueWidth}px` : '0px')
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
     >
+      {IS_LINUX && <TitleBar />}
       {!isMobile && (
         <Sidebar
           isCollapsed={isSidebarCollapsed}

@@ -826,6 +826,17 @@ pub fn run() {
         }))
 
         .setup(|app| {
+            // ── Custom title bar on Linux ─────────────────────────────────
+            // Remove OS window decorations so the React TitleBar component
+            // takes over. macOS and Windows keep their native decorations.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_decorations(false);
+                }
+            }
+
             // ── System tray ───────────────────────────────────────────────
             // Always build on startup; the frontend calls toggle_tray_icon(false)
             // immediately after load if the user has disabled the tray icon.
