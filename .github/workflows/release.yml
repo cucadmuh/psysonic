@@ -124,16 +124,10 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.settings.args }}
-
-      # tauri-action auto-generates a latest.json using the pubkey from tauri.conf.json
-      # as the signature value (wrong). Delete it so only our generate-update-manifest.js
-      # output is ever used as the canonical update manifest.
-      - name: remove tauri-action generated update manifest
-        shell: bash
-        run: |
-          gh release delete-asset ${{ github.ref_name }} latest.json --yes || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Prevent tauri-action from auto-uploading a latest.json that uses
+          # the PUBLIC KEY as the signature value. Our generate-update-manifest.js
+          # builds the correct manifest with real .sig file contents.
+          updaterJsonKeepUniversal: false
 
       - name: sign and upload Windows NSIS updater bundle
         if: matrix.settings.platform == 'windows-latest'

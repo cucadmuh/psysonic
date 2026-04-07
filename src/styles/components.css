@@ -3260,6 +3260,7 @@
   z-index: 3;
   overflow: hidden;
   pointer-events: none;
+  contain: layout style;   /* isolate reflows from rest of page */
 
   /* Fade first and last slot (each 3.6/18 = 20% of container) */
   -webkit-mask-image: linear-gradient(
@@ -3300,7 +3301,9 @@
   font-weight: 400;
   cursor: pointer;
   pointer-events: auto;
-  transition: color 280ms ease, font-weight 280ms ease, text-shadow 280ms ease;
+  /* font-weight intentionally NOT transitioned — triggers layout reflow on every frame */
+  transition: color 280ms ease, text-shadow 280ms ease, transform 280ms ease;
+  transform-origin: left center;
   user-select: none;
 }
 
@@ -3312,11 +3315,12 @@
   color: rgba(255, 255, 255, 0.1);
 }
 
-/* Active: emphasis via weight + glow only, height stays 44px */
+/* Active: emphasis via scale + glow; font-weight snaps instantly (no layout-reflow transition) */
 .fs-lyric-line.fsl-active {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 0 28px var(--accent-glow, var(--accent)), 0 1px 8px rgba(0, 0, 0, 0.6);
+  transform: scaleX(1.015);   /* subtle compositor-only emphasis, no layout cost */
 }
 
 
