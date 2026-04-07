@@ -44,3 +44,11 @@ souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] 
 discord-rich-presence = "0.2"
 url = "2"
 thread-priority = "1"
+
+[patch.crates-io]
+# Local patch for Symphonia's isomp4 demuxer:
+# - Fixes descriptor.unwrap() panic on malformed esds atoms (older iTunes M4A)
+# - Tolerates SL predefined=0x01 (null) used by some older iTunes-purchased files
+# - Gracefully skips malformed trak atoms (e.g. MJPEG cover-art streams) instead
+#   of failing the entire probe
+symphonia-format-isomp4 = { path = "patches/symphonia-format-isomp4" }

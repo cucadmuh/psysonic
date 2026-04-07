@@ -923,14 +923,25 @@ impl SizedDecoder {
             hint.with_extension(ext);
         }
         let format_opts = FormatOptions {
-            enable_gapless: true,
+            // Disable gapless parsing — Symphonia 0.5.5 crashes on `edts` atoms
+            // present in older iTunes-purchased M4A files.
+            enable_gapless: false,
+            ..Default::default()
+        };
+
+        let meta_opts = symphonia::core::meta::MetadataOptions {
+            // Cap embedded cover art at 8 MiB so oversized MJPEG images in
+            // iTunes M4A files don't choke the parser.
+            limit_visual_bytes: symphonia::core::meta::Limit::Maximum(8 * 1024 * 1024),
             ..Default::default()
         };
 
         let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &format_opts, &MetadataOptions::default())
+            .format(&hint, mss, &format_opts, &meta_opts)
             .map_err(|e| {
                 let hint_str = format_hint.unwrap_or("unknown");
+                // Always print the raw Symphonia error to the terminal for diagnosis.
+                eprintln!("[psysonic] probe failed (hint={hint_str}): {e}");
                 if e.to_string().to_lowercase().contains("unsupported") {
                     format!("unsupported format: .{hint_str} files cannot be played (no demuxer)")
                 } else {
@@ -941,8 +952,17 @@ impl SizedDecoder {
         let track = probed.format
             .tracks()
             .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or_else(|| "no playable audio track found in file".to_string())?;
+            // Explicitly select only audio tracks: must have a valid codec and a
+            // sample_rate. This skips MJPEG cover-art streams that iTunes M4A
+            // files embed as a secondary video track.
+            .find(|t| {
+                t.codec_params.codec != CODEC_TYPE_NULL
+                    && t.codec_params.sample_rate.is_some()
+            })
+            .ok_or_else(|| {
+                eprintln!("[psysonic] no audio track found among {} tracks", probed.format.tracks().len());
+                "no playable audio track found in file".to_string()
+            })?;
 
         let track_id = track.id;
         let total_duration = track.codec_params.time_base
@@ -952,6 +972,7 @@ impl SizedDecoder {
         let mut decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &DecoderOptions::default())
             .map_err(|e| {
+                eprintln!("[psysonic] codec init failed: {e}");
                 if e.to_string().to_lowercase().contains("unsupported") {
                     "unsupported codec: no decoder available for this audio format".to_string()
                 } else {
@@ -969,18 +990,28 @@ impl SizedDecoder {
                 Err(symphonia::core::errors::Error::IoError(_)) => {
                     break decoder.last_decoded();
                 }
-                Err(e) => return Err(format!("could not read audio data: {e}")),
+                Err(e) => {
+                    eprintln!("[psysonic] next_packet error: {e}");
+                    return Err(format!("could not read audio data: {e}"));
+                }
             };
-            if packet.track_id() != track_id { continue; }
+            if packet.track_id() != track_id {
+                eprintln!("[psysonic] skipping packet for track {} (want {})", packet.track_id(), track_id);
+                continue;
+            }
             match decoder.decode(&packet) {
                 Ok(decoded) => break decoded,
-                Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
+                    eprintln!("[psysonic] decode error (retry {decode_errors}): {msg}");
                     decode_errors += 1;
                     if decode_errors > DECODE_MAX_RETRIES {
                         return Err("too many decode errors — file may be corrupt".into());
                     }
                 }
-                Err(e) => return Err(format!("audio decode error: {e}")),
+                Err(e) => {
+                    eprintln!("[psysonic] fatal decode error: {e}");
+                    return Err(format!("audio decode error: {e}"));
+                }
             }
         };
 
@@ -1201,8 +1232,17 @@ fn parse_gapless_info(data: &[u8]) -> GaplessInfo {
         None => return GaplessInfo::default(),
     };
 
-    // Collect printable ASCII bytes after the tag (skip nulls / control chars)
-    let tail = &data[pos + 8..data.len().min(pos + 8 + 256)];
+    // In M4A/iTunes files the key is followed by a binary 'data' atom header
+    // (16 bytes: size[4] + "data"[4] + type_flags[4] + locale[4]) before the
+    // actual value string. Search for the " 00000000 " sentinel that every
+    // iTunSMPB value starts with to locate the true start of the text.
+    let search_end = data.len().min(pos + 8 + 128);
+    let search_window = &data[pos + 8..search_end];
+    let value_start = find_subsequence(search_window, b" 00000000 ")
+        .map(|off| pos + 8 + off)
+        .unwrap_or(pos + 8);
+
+    let tail = &data[value_start..data.len().min(value_start + 256)];
     let text: String = tail.iter()
         .map(|&b| b as char)
         .filter(|c| c.is_ascii_hexdigit() || *c == ' ')
