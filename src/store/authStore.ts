@@ -42,6 +42,7 @@ interface AuthState {
   minimizeToTray: boolean;
   discordRichPresence: boolean;
   enableAppleMusicCoversDiscord: boolean;
+  useCustomTitlebar: boolean;
   nowPlayingEnabled: boolean;
   lyricsServerFirst: boolean;
   showFullscreenLyrics: boolean;
@@ -105,6 +106,7 @@ interface AuthState {
   setMinimizeToTray: (v: boolean) => void;
   setDiscordRichPresence: (v: boolean) => void;
   setEnableAppleMusicCoversDiscord: (v: boolean) => void;
+  setUseCustomTitlebar: (v: boolean) => void;
   setNowPlayingEnabled: (v: boolean) => void;
   setLyricsServerFirst: (v: boolean) => void;
   setShowFullscreenLyrics: (v: boolean) => void;
@@ -156,6 +158,7 @@ export const useAuthStore = create<AuthState>()(
       minimizeToTray: false,
       discordRichPresence: false,
       enableAppleMusicCoversDiscord: false,
+      useCustomTitlebar: true,
       nowPlayingEnabled: false,
       lyricsServerFirst: true,
       showFullscreenLyrics: true,
@@ -240,6 +243,7 @@ export const useAuthStore = create<AuthState>()(
       setMinimizeToTray: (v) => set({ minimizeToTray: v }),
       setDiscordRichPresence: (v) => set({ discordRichPresence: v }),
       setEnableAppleMusicCoversDiscord: (v) => set({ enableAppleMusicCoversDiscord: v }),
+      setUseCustomTitlebar: (v) => set({ useCustomTitlebar: v }),
       setNowPlayingEnabled: (v) => set({ nowPlayingEnabled: v }),
       setLyricsServerFirst: (v: boolean) => set({ lyricsServerFirst: v }),
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),

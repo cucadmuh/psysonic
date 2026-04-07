@@ -437,6 +437,8 @@ export const deTranslation = {
     minimizeToTrayDesc: 'Beim Schließen des Fensters läuft Psysonic weiter im System-Tray statt zu beenden.',
     discordRichPresence: 'Discord Rich Presence',
     discordRichPresenceDesc: 'Zeigt den aktuell gespielten Titel im Discord-Profil an. Discord muss dafür geöffnet sein.',
+    useCustomTitlebar: 'Eigene Titelleiste',
+    useCustomTitlebarDesc: 'Ersetzt die System-Titelleiste durch eine eingebaute, die zum App-Theme passt. Deaktivieren, um die native GNOME/GTK-Titelleiste zu verwenden.',
     discordAppleCovers: 'Cover über Apple Music für Discord laden',
     discordAppleCoversDesc: 'Sendet Künstler- und Albumname an die Apple-Such-API, um Cover für dein Discord-Profil zu finden. Standardmäßig aus Datenschutzgründen deaktiviert.',
     nowPlayingEnabled: 'Im Livefenster anzeigen',

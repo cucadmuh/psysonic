@@ -89,8 +89,15 @@ function AppShell() {
   const isLoggedIn = useAuthStore(s => s.isLoggedIn);
   const activeServerId = useAuthStore(s => s.activeServerId);
   const setMusicFolders = useAuthStore(s => s.setMusicFolders);
+  const useCustomTitlebar = useAuthStore(s => s.useCustomTitlebar);
   const offlineAlbums = useOfflineStore(s => s.albums);
   const hasOfflineContent = Object.values(offlineAlbums).some(a => a.serverId === serverId);
+
+  // Sync custom titlebar preference with native decorations on Linux
+  useEffect(() => {
+    if (!IS_LINUX) return;
+    invoke('set_window_decorations', { enabled: !useCustomTitlebar }).catch(() => {});
+  }, [useCustomTitlebar]);
 
   useEffect(() => {
     if (!isLoggedIn || !activeServerId) return;
@@ -254,14 +261,14 @@ function AppShell() {
       className="app-shell"
       data-mobile={isMobile || undefined}
       data-mobile-player={isMobilePlayer || undefined}
-      data-titlebar={IS_LINUX || undefined}
+      data-titlebar={(IS_LINUX && useCustomTitlebar) || undefined}
       style={{
         '--sidebar-width': isMobile ? '0px' : (isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)'),
         '--queue-width': isMobile ? '0px' : (isQueueVisible ? `${queueWidth}px` : '0px')
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
     >
-      {IS_LINUX && <TitleBar />}
+      {IS_LINUX && useCustomTitlebar && <TitleBar />}
       {!isMobile && (
         <Sidebar
           isCollapsed={isSidebarCollapsed}

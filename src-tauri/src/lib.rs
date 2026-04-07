@@ -36,6 +36,14 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+/// Toggle native window decorations at runtime (Linux custom title bar opt-out).
+#[tauri::command]
+fn set_window_decorations(enabled: bool, app_handle: tauri::AppHandle) {
+    if let Some(win) = app_handle.get_webview_window("main") {
+        let _ = win.set_decorations(enabled);
+    }
+}
+
 
 /// Authenticate with Navidrome's own REST API and return a Bearer token.
 async fn navidrome_token(server_url: &str, username: &str, password: &str) -> Result<String, String> {
@@ -962,6 +970,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             exit_app,
+            set_window_decorations,
             register_global_shortcut,
             unregister_global_shortcut,
             mpris_set_metadata,
