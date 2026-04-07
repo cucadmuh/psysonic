@@ -76,6 +76,16 @@ function AppShell() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!IS_LINUX) return;
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    win.onResized(() => {
+      win.isFullscreen().then(setIsWindowFullscreen).catch(() => {});
+    }).then(u => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
   const isFullscreenOpen = usePlayerStore(s => s.isFullscreenOpen);
   const toggleFullscreen = usePlayerStore(s => s.toggleFullscreen);
   const isQueueVisible = usePlayerStore(s => s.isQueueVisible);
@@ -407,10 +417,7 @@ function TauriEventBridge() {
         case 'fullscreen-player': toggleFullscreen(); break;
         case 'native-fullscreen': {
           const win = getCurrentWindow();
-          win.isFullscreen().then(fs => {
-            win.setFullscreen(!fs);
-            setIsWindowFullscreen(!fs);
-          });
+          win.isFullscreen().then(fs => win.setFullscreen(!fs));
           break;
         }
       }
