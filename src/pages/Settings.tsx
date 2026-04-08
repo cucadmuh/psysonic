@@ -91,8 +91,11 @@ const CONTRIBUTORS = [
     since: '1.33.0',
     contributions: [
       'Russian translation & i18n locale split (PR #106)',
+      'Russian locale refinements using phrasing from ru2 (PR #113)',
       'Gapless manual skip: honor user-initiated play over pre-chained track (PR #119)',
-      'Per-server music folder filter and sidebar library picker (PR #125)',
+      'Hot playback cache — queue prefetch (PR #123)',
+      'Per-server music folder filter and sidebar library picker (PR #124, PR #125)',
+      'Richer star ratings, skip threshold, and library filtering (PR #130)',
     ],
   },
   {
@@ -101,6 +104,8 @@ const CONTRIBUTORS = [
     contributions: [
       'Russian locale improvements (PR #107, PR #120)',
       'Auto-install script for Debian / RHEL (PR #121)',
+      'Album cover art in Discord Rich Presence via iTunes API (PR #111)',
+      'Tiling WM detection: hide custom TitleBar on Hyprland/Sway/i3/etc. (PR #134)',
     ],
   },
   {
