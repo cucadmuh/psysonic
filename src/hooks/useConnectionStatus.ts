@@ -49,7 +49,7 @@ export function useConnectionStatus() {
 
   useEffect(() => {
     check();
-    intervalRef.current = setInterval(check, 30_000);
+    intervalRef.current = setInterval(check, 120_000);
 
     const handleOnline = () => check();
     const handleOffline = () => setStatus('disconnected');

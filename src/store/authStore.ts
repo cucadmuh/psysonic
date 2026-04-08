@@ -227,7 +227,7 @@ export const useAuthStore = create<AuthState>()(
       minimizeToTray: false,
       discordRichPresence: false,
       enableAppleMusicCoversDiscord: false,
-      useCustomTitlebar: true,
+      useCustomTitlebar: false,
       nowPlayingEnabled: false,
       lyricsServerFirst: true,
       showFullscreenLyrics: true,

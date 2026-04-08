@@ -332,6 +332,19 @@ export async function getAlbum(id: string): Promise<{ album: SubsonicAlbum; song
 }
 
 const MIX_RATING_PREFETCH_CONCURRENCY = 8;
+const RATING_CACHE_TTL = 7 * 60 * 1000; // 7 minutes
+const ratingCache = new Map<string, { value: number | undefined; expiresAt: number }>();
+
+function getCachedRating(key: string): number | undefined | null {
+  const entry = ratingCache.get(key);
+  if (!entry) return null; // cache miss
+  if (Date.now() > entry.expiresAt) { ratingCache.delete(key); return null; }
+  return entry.value;
+}
+
+function setCachedRating(key: string, value: number | undefined): void {
+  ratingCache.set(key, { value, expiresAt: Date.now() + RATING_CACHE_TTL });
+}
 
 function parseEntityUserRating(v: unknown): number | undefined {
   if (v === null || v === undefined) return undefined;
@@ -348,22 +361,30 @@ export async function prefetchArtistUserRatings(
   const unique = [...new Set(ids.filter(Boolean))];
   const out = new Map<string, number>();
   if (!unique.length) return out;
+  const uncached: string[] = [];
+  for (const id of unique) {
+    const cached = getCachedRating(`artist:${id}`);
+    if (cached !== null) { if (cached !== undefined) out.set(id, cached); }
+    else uncached.push(id);
+  }
+  if (!uncached.length) return out;
   let next = 0;
   async function worker() {
     for (;;) {
       const i = next++;
-      if (i >= unique.length) return;
-      const id = unique[i];
+      if (i >= uncached.length) return;
+      const id = uncached[i];
       try {
         const { artist } = await getArtist(id);
         const r = parseEntityUserRating(artist.userRating);
+        setCachedRating(`artist:${id}`, r);
         if (r !== undefined) out.set(id, r);
       } catch {
         /* ignore */
       }
     }
   }
-  const nWorkers = Math.min(concurrency, unique.length);
+  const nWorkers = Math.min(concurrency, uncached.length);
   await Promise.all(Array.from({ length: nWorkers }, () => worker()));
   return out;
 }
@@ -376,22 +397,30 @@ export async function prefetchAlbumUserRatings(
   const unique = [...new Set(ids.filter(Boolean))];
   const out = new Map<string, number>();
   if (!unique.length) return out;
+  const uncached: string[] = [];
+  for (const id of unique) {
+    const cached = getCachedRating(`album:${id}`);
+    if (cached !== null) { if (cached !== undefined) out.set(id, cached); }
+    else uncached.push(id);
+  }
+  if (!uncached.length) return out;
   let next = 0;
   async function worker() {
     for (;;) {
       const i = next++;
-      if (i >= unique.length) return;
-      const id = unique[i];
+      if (i >= uncached.length) return;
+      const id = uncached[i];
       try {
         const { album } = await getAlbum(id);
         const r = parseEntityUserRating(album.userRating);
+        setCachedRating(`album:${id}`, r);
         if (r !== undefined) out.set(id, r);
       } catch {
         /* ignore */
       }
     }
   }
-  const nWorkers = Math.min(concurrency, unique.length);
+  const nWorkers = Math.min(concurrency, uncached.length);
   await Promise.all(Array.from({ length: nWorkers }, () => worker()));
   return out;
 }

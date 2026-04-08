@@ -264,7 +264,7 @@ function syncQueueToServer(queue: Track[], currentTrack: Track | null, currentTi
     savePlayQueue(ids, currentTrack?.id, pos).catch(err => {
       console.error('Failed to sync play queue to server', err);
     });
-  }, 1500);
+  }, 5000);
 }
 
 // ─── Audio event handlers (called from initAudioListeners) ───────────────────

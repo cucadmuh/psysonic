@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "psysonic"
-version = "1.34.4"
+version = "1.34.5"
 dependencies = [
  "biquad",
  "discord-rich-presence",
