@@ -890,7 +890,13 @@ impl MediaSource for SizedCursorSource {
 // Implements Iterator<Item = i16> + Source — identical interface to
 // rodio::Decoder, so the rest of the source chain is unchanged.
 
+/// Max retries for IO/packet-read errors (fatal — network drop, truncated file).
 const DECODE_MAX_RETRIES: usize = 3;
+/// Max *consecutive* DecodeErrors before giving up on a file.
+/// Non-fatal errors like "invalid main_data offset" are silently dropped up to
+/// this limit so a handful of corrupt MP3 frames never aborts an otherwise
+/// playable track (VLC-style frame dropping).
+const MAX_CONSECUTIVE_DECODE_ERRORS: usize = 100;
 
 struct SizedDecoder {
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
@@ -899,6 +905,9 @@ struct SizedDecoder {
     total_duration: Option<Time>,
     buffer: SampleBuffer<i16>,
     spec: SignalSpec,
+    /// Counts consecutive DecodeErrors in the hot-path. Reset to 0 on every
+    /// successfully decoded frame. Used to detect fully undecodable streams.
+    consecutive_decode_errors: usize,
 }
 
 impl SizedDecoder {
@@ -983,6 +992,8 @@ impl SizedDecoder {
         let mut format = probed.format;
 
         // Decode the first packet to initialise spec + buffer.
+        // DecodeErrors (e.g. "invalid main_data offset") are non-fatal: drop the
+        // frame and try the next packet up to MAX_CONSECUTIVE_DECODE_ERRORS times.
         let mut decode_errors: usize = 0;
         let decoded = loop {
             let packet = match format.next_packet() {
@@ -1002,10 +1013,10 @@ impl SizedDecoder {
             match decoder.decode(&packet) {
                 Ok(decoded) => break decoded,
                 Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
-                    eprintln!("[psysonic] decode error (retry {decode_errors}): {msg}");
                     decode_errors += 1;
-                    if decode_errors > DECODE_MAX_RETRIES {
-                        return Err("too many decode errors — file may be corrupt".into());
+                    eprintln!("[psysonic] init: dropped corrupt frame #{decode_errors}: {msg}");
+                    if decode_errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                        return Err("too many consecutive decode errors during init — file may be corrupt".into());
                     }
                 }
                 Err(e) => {
@@ -1025,6 +1036,7 @@ impl SizedDecoder {
             total_duration,
             buffer,
             spec,
+            consecutive_decode_errors: 0,
         })
     }
 
@@ -1061,16 +1073,19 @@ impl SizedDecoder {
             if packet.track_id() != track_id { continue; }
             match decoder.decode(&packet) {
                 Ok(d) => break d,
-                Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
                     errors += 1;
-                    if errors > DECODE_MAX_RETRIES { return Err("radio: too many decode errors".into()); }
+                    eprintln!("[psysonic] radio init: dropped corrupt frame #{errors}: {msg}");
+                    if errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                        return Err("radio: too many consecutive decode errors".into());
+                    }
                 }
                 Err(e) => return Err(format!("radio: decode error: {e}")),
             }
         };
         let spec = decoded.spec().to_owned();
         let buffer = Self::make_buffer(decoded, &spec);
-        Ok(SizedDecoder { decoder, current_frame_offset: 0, format, total_duration, buffer, spec })
+        Ok(SizedDecoder { decoder, current_frame_offset: 0, format, total_duration, buffer, spec, consecutive_decode_errors: 0 })
     }
 
     #[inline]
@@ -1120,18 +1135,45 @@ impl Iterator for SizedDecoder {
     #[inline]
     fn next(&mut self) -> Option<i16> {
         if self.current_frame_offset >= self.buffer.len() {
-            let packet = self.format.next_packet().ok()?;
-            let mut decoded = self.decoder.decode(&packet);
-            for _ in 0..DECODE_MAX_RETRIES {
-                if decoded.is_err() {
-                    let p = self.format.next_packet().ok()?;
-                    decoded = self.decoder.decode(&p);
+            // Loop until a decodable packet is found or the stream ends.
+            // DecodeErrors (e.g. MP3 "invalid main_data offset") are non-fatal:
+            // drop the frame and advance to the next packet. IO errors and a
+            // clean end-of-stream both terminate the iterator normally.
+            loop {
+                let packet = self.format.next_packet().ok()?;
+                match self.decoder.decode(&packet) {
+                    Ok(decoded) => {
+                        self.consecutive_decode_errors = 0;
+                        decoded.spec().clone_into(&mut self.spec);
+                        self.buffer = Self::make_buffer(decoded, &self.spec);
+                        self.current_frame_offset = 0;
+                        break;
+                    }
+                    Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
+                        self.consecutive_decode_errors += 1;
+                        // Log sparingly: first drop, then every 10th to avoid spam.
+                        #[cfg(debug_assertions)]
+                        if self.consecutive_decode_errors == 1
+                            || self.consecutive_decode_errors % 10 == 0
+                        {
+                            eprintln!(
+                                "[psysonic] dropped corrupt frame #{}: {msg}",
+                                self.consecutive_decode_errors
+                            );
+                        }
+                        if self.consecutive_decode_errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "[psysonic] {MAX_CONSECUTIVE_DECODE_ERRORS} consecutive decode \
+                                 failures — stream appears unrecoverable, stopping"
+                            );
+                            return None;
+                        }
+                        // continue → fetch next packet
+                    }
+                    Err(_) => return None, // IO error or fatal codec error → end of stream
                 }
             }
-            let decoded = decoded.ok()?;
-            decoded.spec().clone_into(&mut self.spec);
-            self.buffer = Self::make_buffer(decoded, &self.spec);
-            self.current_frame_offset = 0;
         }
 
         let sample = *self.buffer.samples().get(self.current_frame_offset)?;
