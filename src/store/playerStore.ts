@@ -543,6 +543,7 @@ export function initAudioListeners(): () => void {
         playing: isPlaying,
         positionSecs: currentTime > 0 ? currentTime : null,
       }).catch(() => {});
+      invoke('update_taskbar_icon', { isPlaying }).catch(() => {});
       return;
     }
 

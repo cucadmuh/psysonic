@@ -3,6 +3,8 @@
 
 mod audio;
 mod discord;
+#[cfg(target_os = "windows")]
+mod taskbar_win;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -1373,6 +1375,17 @@ pub fn run() {
                 app.manage(MprisControls::new(maybe_controls));
             }
 
+            // ── Windows Taskbar Thumbnail Toolbar ────────────────────────
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                if let Some(w) = app.get_webview_window("main") {
+                    if let Ok(hwnd) = w.hwnd() {
+                        taskbar_win::init(app.handle(), hwnd.0 as isize);
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1445,6 +1458,8 @@ pub fn run() {
             download_update,
             open_folder,
             get_embedded_lyrics,
+            #[cfg(target_os = "windows")]
+            taskbar_win::update_taskbar_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Psysonic");

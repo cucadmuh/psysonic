@@ -47,6 +47,15 @@ thread-priority = "1"
 lofty = "0.22"
 id3 = "1.16.4"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [patch.crates-io]
 # Local patch for Symphonia's isomp4 demuxer:
 # - Fixes descriptor.unwrap() panic on malformed esds atoms (older iTunes M4A)
