@@ -70,19 +70,24 @@ export default function Statistics() {
       setFrequent(fr);
       setHighest(hi);
       setArtistCount(a.length);
-      setTotalSongs(g.reduce((acc: number, genre: SubsonicGenre) => acc + genre.songCount, 0));
-      setTotalAlbums(g.reduce((acc: number, genre: SubsonicGenre) => acc + genre.albumCount, 0));
+      // Album/song totals come from paginated getAlbumList (see playtime effect) — getGenres is not musicFolder-scoped.
       const sorted = [...g].sort((a, b) => b.songCount - a.songCount);
       setGenres(sorted);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [musicLibraryFilterVersion]);
 
-  // Background fetch: total playtime (paginate getAlbumList up to 10 pages of 500)
+  // Background: playtime + album/song counts (same paginated list as library filter; caps at 5000 albums)
   useEffect(() => {
     let cancelled = false;
+    setTotalPlaytime(null);
+    setTotalAlbums(null);
+    setTotalSongs(null);
+    setPlaytimeCapped(false);
     (async () => {
-      let total = 0;
+      let playtimeSec = 0;
+      let albumsCounted = 0;
+      let songsCounted = 0;
       let offset = 0;
       const pageSize = 500;
       const maxPages = 10;
@@ -91,7 +96,11 @@ export default function Statistics() {
         try {
           const albums = await getAlbumList('newest', pageSize, offset);
           if (cancelled) return;
-          for (const a of albums) total += (a.duration ?? 0);
+          for (const a of albums) {
+            playtimeSec += a.duration ?? 0;
+            albumsCounted += 1;
+            songsCounted += a.songCount ?? 0;
+          }
           if (albums.length < pageSize) break;
           if (page === maxPages - 1) capped = true;
           offset += pageSize;
@@ -100,7 +109,9 @@ export default function Statistics() {
         }
       }
       if (!cancelled) {
-        setTotalPlaytime(total);
+        setTotalPlaytime(playtimeSec);
+        setTotalAlbums(albumsCounted);
+        setTotalSongs(songsCounted);
         setPlaytimeCapped(capped);
       }
     })();
@@ -167,10 +178,13 @@ export default function Statistics() {
     ? t('statistics.computing')
     : (playtimeCapped ? '≥ ' : '') + formatPlaytime(totalPlaytime);
 
+  const countDisplay = (n: number | null) =>
+    n === null ? t('statistics.computing') : (playtimeCapped ? '≥ ' : '') + n.toLocaleString();
+
   const stats = [
     { label: t('statistics.statArtists'), value: artistCount?.toLocaleString() ?? '—' },
-    { label: t('statistics.statAlbums'), value: totalAlbums?.toLocaleString() ?? '—' },
-    { label: t('statistics.statSongs'), value: totalSongs?.toLocaleString() ?? '—' },
+    { label: t('statistics.statAlbums'), value: countDisplay(totalAlbums) },
+    { label: t('statistics.statSongs'), value: countDisplay(totalSongs) },
     { label: t('statistics.statPlaytime'), value: playtimeDisplay },
   ];
 
