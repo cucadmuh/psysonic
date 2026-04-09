@@ -1684,6 +1684,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
         http_client: reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .use_rustls_tls()
+            .user_agent(format!("psysonic/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_default(),
         eq_gains: Arc::new(std::array::from_fn(|_| AtomicU32::new(0f32.to_bits()))),
@@ -1769,6 +1770,24 @@ async fn fetch_data(
     }
 
     let response = state.http_client.get(url).send().await.map_err(|e| e.to_string())?;
+    #[cfg(debug_assertions)]
+    {
+        let status = response.status();
+        let ct = response.headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-");
+        let server_hdr = response.headers()
+            .get("server")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-");
+        // Strip auth params from URL before logging.
+        let safe_url = url.split('?').next().unwrap_or(url);
+        eprintln!(
+            "[audio] fetch {} → {} | content-type: {} | server: {}",
+            safe_url, status, ct, server_hdr
+        );
+    }
     if !response.status().is_success() {
         if state.generation.load(Ordering::SeqCst) != gen {
             return Ok(None); // superseded
