@@ -1822,11 +1822,13 @@ const MASTER_HEADROOM: f32 = 0.891_254;
 fn compute_gain(
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     volume: f32,
 ) -> (f32, f32) {
     let gain_linear = replay_gain_db
-        .map(|db| 10f32.powf(db / 20.0))
-        .unwrap_or(1.0);
+        .map(|db| 10f32.powf((db + pre_gain_db) / 20.0))
+        .unwrap_or_else(|| 10f32.powf(fallback_db / 20.0));
     let peak = replay_gain_peak.unwrap_or(1.0).max(0.001);
     let gain_linear = gain_linear.min(1.0 / peak);
     let effective = (volume.clamp(0.0, 1.0) * gain_linear * MASTER_HEADROOM).clamp(0.0, 1.0);
@@ -1842,6 +1844,8 @@ pub async fn audio_play(
     duration_hint: f64,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     manual: bool, // true = user-initiated skip → bypass crossfade, start immediately
     hi_res_enabled: bool, // false = safe 44.1 kHz mode; true = native rate (alpha)
     app: AppHandle,
@@ -1931,7 +1935,7 @@ pub async fn audio_play(
         return Ok(());
     }
 
-    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
 
     // Manual skips (user-initiated) bypass crossfade — the track should start immediately.
     let crossfade_enabled = state.crossfade_enabled.load(Ordering::Relaxed) && !manual;
@@ -2176,6 +2180,8 @@ pub async fn audio_chain_preload(
     duration_hint: f64,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     hi_res_enabled: bool,
     state: State<'_, AudioEngine>,
 ) -> Result<(), String> {
@@ -2236,7 +2242,7 @@ pub async fn audio_chain_preload(
 
     let raw_bytes = Arc::new(data);
 
-    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
 
     let done_next = Arc::new(AtomicBool::new(false));
     // Use a dedicated counter for the chained source — it will be swapped into
@@ -2616,9 +2622,11 @@ pub fn audio_update_replay_gain(
     volume: f32,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     state: State<'_, AudioEngine>,
 ) {
-    let (gain_linear, effective) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
     let mut cur = state.current.lock().unwrap();
     cur.replay_gain_linear = gain_linear;
     cur.base_volume = volume.clamp(0.0, 1.0);

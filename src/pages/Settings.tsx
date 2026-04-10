@@ -18,7 +18,8 @@ import { lastfmGetToken, lastfmAuthUrl, lastfmGetSession, lastfmGetUserInfo, Las
 import LastfmIcon from '../components/LastfmIcon';
 import CustomSelect from '../components/CustomSelect';
 import ThemePicker, { THEME_GROUPS } from '../components/ThemePicker';
-import { useAuthStore, ServerProfile, MIX_MIN_RATING_FILTER_MAX_STARS, type SeekbarStyle } from '../store/authStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useAuthStore, ServerProfile, MIX_MIN_RATING_FILTER_MAX_STARS, type SeekbarStyle, type LyricsSourceId, type LyricsSourceConfig } from '../store/authStore';
 import { SeekbarPreview } from '../components/WaveformSeek';
 import { IS_LINUX } from '../utils/platform';
 import { useThemeStore } from '../store/themeStore';
@@ -500,6 +501,38 @@ export default function Settings() {
                   </button>
                 </div>
               )}
+              {auth.replayGainEnabled && (
+                <div style={{ paddingLeft: '1rem', marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 160 }}>
+                      {t('settings.replayGainPreGain')}
+                    </span>
+                    <input
+                      type="range" min={0} max={6} step={0.5}
+                      value={auth.replayGainPreGainDb}
+                      onChange={e => auth.setReplayGainPreGainDb(Number(e.target.value))}
+                      style={{ flex: 1, maxWidth: 160 }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'right' }}>
+                      {auth.replayGainPreGainDb > 0 ? `+${auth.replayGainPreGainDb}` : auth.replayGainPreGainDb} dB
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 160 }}>
+                      {t('settings.replayGainFallback')}
+                    </span>
+                    <input
+                      type="range" min={-6} max={0} step={0.5}
+                      value={auth.replayGainFallbackDb}
+                      onChange={e => auth.setReplayGainFallbackDb(Number(e.target.value))}
+                      style={{ flex: 1, maxWidth: 160 }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'right' }}>
+                      {auth.replayGainFallbackDb > 0 ? `+${auth.replayGainFallbackDb}` : auth.replayGainFallbackDb} dB
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="divider" />
 
@@ -862,30 +895,11 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
-              <div className="settings-section-divider" />
-              <div className="settings-toggle-row">
-                <div>
-                  <div style={{ fontWeight: 500 }}>{t('settings.lyricsServerFirst')}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.lyricsServerFirstDesc')}</div>
-                </div>
-                <label className="toggle-switch" aria-label={t('settings.lyricsServerFirst')}>
-                  <input type="checkbox" checked={auth.lyricsServerFirst} onChange={e => auth.setLyricsServerFirst(e.target.checked)} />
-                  <span className="toggle-track" />
-                </label>
-              </div>
-              <div className="settings-section-divider" />
-              <div className="settings-toggle-row">
-                <div>
-                  <div style={{ fontWeight: 500 }}>{t('settings.enableNeteaselyrics')}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.enableNeteaselyricsDesc')}</div>
-                </div>
-                <label className="toggle-switch" aria-label={t('settings.enableNeteaselyrics')}>
-                  <input type="checkbox" checked={auth.enableNeteaselyrics} onChange={e => auth.setEnableNeteaselyrics(e.target.checked)} />
-                  <span className="toggle-track" />
-                </label>
-              </div>
             </div>
           </section>
+
+          {/* Lyrics Sources */}
+          <LyricsSourcesCustomizer />
 
           {/* Random Mix */}
           <section className="settings-section">
@@ -2048,6 +2062,134 @@ function SidebarGripHandle({ idx, section, label }: { idx: number; section: 'lib
     </span>
   );
 }
+
+// ── Lyrics Sources Customizer ──────────────────────────────────────────────
+
+const LYRICS_SOURCE_LABEL_KEYS: Record<LyricsSourceId, string> = {
+  server:  'settings.lyricsSourceServer',
+  lrclib:  'settings.lyricsSourceLrclib',
+  netease: 'settings.lyricsSourceNetease',
+};
+
+type LyricsDropTarget = { idx: number; before: boolean } | null;
+
+function LyricsSourceGripHandle({ idx, label }: { idx: number; label: string }) {
+  const { t } = useTranslation();
+  const { onMouseDown } = useDragSource(() => ({
+    data: JSON.stringify({ type: 'lyrics_source_reorder', index: idx }),
+    label,
+  }));
+  return (
+    <span
+      className="sidebar-customizer-grip"
+      data-tooltip={t('settings.sidebarDrag')}
+      data-tooltip-pos="right"
+      onMouseDown={onMouseDown}
+    >
+      <GripVertical size={16} />
+    </span>
+  );
+}
+
+function LyricsSourcesCustomizer() {
+  const { t } = useTranslation();
+  const lyricsSources = useAuthStore(useShallow(s => s.lyricsSources));
+  const setLyricsSources = useAuthStore(s => s.setLyricsSources);
+  const { isDragging: isPsyDragging } = useDragDrop();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dropTarget, setDropTarget] = useState<LyricsDropTarget>(null);
+  const dropTargetRef = useRef<LyricsDropTarget>(null);
+  const sourcesRef = useRef(lyricsSources);
+  sourcesRef.current = lyricsSources;
+
+  useEffect(() => {
+    if (!isPsyDragging) { dropTargetRef.current = null; setDropTarget(null); }
+  }, [isPsyDragging]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onPsyDrop = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.data) return;
+      let parsed: { type?: string; index?: number };
+      try { parsed = JSON.parse(detail.data as string); } catch { return; }
+      if (parsed.type !== 'lyrics_source_reorder' || parsed.index == null) return;
+
+      const fromIdx = parsed.index;
+      const target = dropTargetRef.current;
+      dropTargetRef.current = null; setDropTarget(null);
+      if (!target) return;
+
+      const insertBefore = target.before ? target.idx : target.idx + 1;
+      if (insertBefore === fromIdx || insertBefore === fromIdx + 1) return;
+
+      const next = [...sourcesRef.current];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(insertBefore > fromIdx ? insertBefore - 1 : insertBefore, 0, moved);
+      setLyricsSources(next);
+    };
+    el.addEventListener('psy-drop', onPsyDrop);
+    return () => el.removeEventListener('psy-drop', onPsyDrop);
+  }, [setLyricsSources]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPsyDragging || !containerRef.current) return;
+    const rows = containerRef.current.querySelectorAll<HTMLElement>('[data-lyrics-idx]');
+    let target: LyricsDropTarget = null;
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect();
+      const idx = Number(row.dataset.lyricsIdx);
+      if (e.clientY < rect.top + rect.height / 2) { target = { idx, before: true }; break; }
+      target = { idx, before: false };
+    }
+    dropTargetRef.current = target;
+    setDropTarget(target);
+  };
+
+  const toggleSource = (id: LyricsSourceId) => {
+    setLyricsSources(sourcesRef.current.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+  };
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-header">
+        <Music2 size={18} />
+        <h2>{t('settings.lyricsSourcesTitle')}</h2>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+        {t('settings.lyricsSourcesDesc')}
+      </p>
+      <div className="settings-card" style={{ padding: '4px 0' }} ref={containerRef} onMouseMove={handleMouseMove}>
+        {lyricsSources.map((src, i) => {
+          const label = t(LYRICS_SOURCE_LABEL_KEYS[src.id]);
+          const isBefore = isPsyDragging && dropTarget?.idx === i && dropTarget.before;
+          const isAfter  = isPsyDragging && dropTarget?.idx === i && !dropTarget.before;
+          return (
+            <div
+              key={src.id}
+              data-lyrics-idx={i}
+              className="sidebar-customizer-row"
+              style={{
+                borderTop:    isBefore ? '2px solid var(--accent)' : undefined,
+                borderBottom: isAfter  ? '2px solid var(--accent)' : undefined,
+              }}
+            >
+              <LyricsSourceGripHandle idx={i} label={label} />
+              <span style={{ flex: 1, fontSize: 14, opacity: src.enabled ? 1 : 0.45 }}>{label}</span>
+              <label className="toggle-switch" aria-label={label}>
+                <input type="checkbox" checked={src.enabled} onChange={() => toggleSource(src.id)} />
+                <span className="toggle-track" />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── Sidebar Customizer ──────────────────────────────────────────────────────
 
 type DropTarget = { idx: number; before: boolean; section: 'library' | 'system' } | null;
 

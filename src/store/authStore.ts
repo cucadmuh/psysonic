@@ -19,6 +19,15 @@ export interface ServerProfile {
 
 export type SeekbarStyle = 'waveform' | 'linedot' | 'bar' | 'thick' | 'segmented' | 'neon' | 'pulsewave' | 'particletrail' | 'liquidfill' | 'retrotape';
 
+export type LyricsSourceId = 'server' | 'lrclib' | 'netease';
+export interface LyricsSourceConfig { id: LyricsSourceId; enabled: boolean; }
+
+const DEFAULT_LYRICS_SOURCES: LyricsSourceConfig[] = [
+  { id: 'server',  enabled: true  },
+  { id: 'lrclib',  enabled: true  },
+  { id: 'netease', enabled: false },
+];
+
 interface AuthState {
   // Multi-server
   servers: ServerProfile[];
@@ -39,6 +48,8 @@ interface AuthState {
   customGenreBlacklist: string[];
   replayGainEnabled: boolean;
   replayGainMode: 'track' | 'album';
+  replayGainPreGainDb: number;   // added to RG gain for tagged files (0…+6 dB)
+  replayGainFallbackDb: number;  // gain for untagged files / radio (-6…0 dB)
   crossfadeEnabled: boolean;
   crossfadeSecs: number;
   gaplessEnabled: boolean;
@@ -54,6 +65,7 @@ interface AuthState {
   nowPlayingEnabled: boolean;
   lyricsServerFirst: boolean;
   enableNeteaselyrics: boolean;
+  lyricsSources: LyricsSourceConfig[];
   showFullscreenLyrics: boolean;
   showChangelogOnUpdate: boolean;
   lastSeenChangelogVersion: string;
@@ -157,6 +169,8 @@ interface AuthState {
   setCustomGenreBlacklist: (v: string[]) => void;
   setReplayGainEnabled: (v: boolean) => void;
   setReplayGainMode: (v: 'track' | 'album') => void;
+  setReplayGainPreGainDb: (v: number) => void;
+  setReplayGainFallbackDb: (v: number) => void;
   setCrossfadeEnabled: (v: boolean) => void;
   setCrossfadeSecs: (v: number) => void;
   setGaplessEnabled: (v: boolean) => void;
@@ -172,6 +186,7 @@ interface AuthState {
   setNowPlayingEnabled: (v: boolean) => void;
   setLyricsServerFirst: (v: boolean) => void;
   setEnableNeteaselyrics: (v: boolean) => void;
+  setLyricsSources: (sources: LyricsSourceConfig[]) => void;
   setShowFullscreenLyrics: (v: boolean) => void;
   setShowChangelogOnUpdate: (v: boolean) => void;
   setLastSeenChangelogVersion: (v: string) => void;
@@ -244,6 +259,8 @@ export const useAuthStore = create<AuthState>()(
       customGenreBlacklist: [],
       replayGainEnabled: false,
       replayGainMode: 'track',
+      replayGainPreGainDb: 0,
+      replayGainFallbackDb: 0,
       crossfadeEnabled: false,
       crossfadeSecs: 3,
       gaplessEnabled: false,
@@ -259,6 +276,7 @@ export const useAuthStore = create<AuthState>()(
       nowPlayingEnabled: false,
       lyricsServerFirst: true,
       enableNeteaselyrics: false,
+      lyricsSources: DEFAULT_LYRICS_SOURCES,
       showFullscreenLyrics: true,
       showChangelogOnUpdate: true,
       lastSeenChangelogVersion: '',
@@ -353,6 +371,14 @@ export const useAuthStore = create<AuthState>()(
         set({ replayGainMode: v });
         usePlayerStore.getState().updateReplayGainForCurrentTrack();
       },
+      setReplayGainPreGainDb: (v) => {
+        set({ replayGainPreGainDb: v });
+        usePlayerStore.getState().updateReplayGainForCurrentTrack();
+      },
+      setReplayGainFallbackDb: (v) => {
+        set({ replayGainFallbackDb: v });
+        usePlayerStore.getState().updateReplayGainForCurrentTrack();
+      },
       setCrossfadeEnabled: (v) => set({ crossfadeEnabled: v }),
       setCrossfadeSecs: (v) => set({ crossfadeSecs: v }),
       setGaplessEnabled: (v) => set({ gaplessEnabled: v }),
@@ -368,6 +394,7 @@ export const useAuthStore = create<AuthState>()(
       setNowPlayingEnabled: (v) => set({ nowPlayingEnabled: v }),
       setLyricsServerFirst: (v: boolean) => set({ lyricsServerFirst: v }),
       setEnableNeteaselyrics: (v: boolean) => set({ enableNeteaselyrics: v }),
+      setLyricsSources: (sources) => set({ lyricsSources: sources }),
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),
       setShowChangelogOnUpdate: (v) => set({ showChangelogOnUpdate: v }),
       setLastSeenChangelogVersion: (v) => set({ lastSeenChangelogVersion: v }),
@@ -527,6 +554,21 @@ export const useAuthStore = create<AuthState>()(
           state.hotCacheEnabled && state.preloadMode !== 'off'
             ? { hotCacheEnabled: false, preloadMode: 'off' as const }
             : {};
+
+        // Migrate lyricsServerFirst + enableNeteaselyrics → lyricsSources (one-time).
+        let lyricsSourcesMigrated: { lyricsSources?: LyricsSourceConfig[] } = {};
+        try {
+          const raw = JSON.parse(localStorage.getItem('psysonic-auth') ?? '{}') as { state?: Record<string, unknown> };
+          if (!raw?.state?.lyricsSources) {
+            const serverFirst = (raw?.state?.lyricsServerFirst as boolean | undefined) ?? true;
+            const neteaseOn   = (raw?.state?.enableNeteaselyrics as boolean | undefined) ?? false;
+            const migrated: LyricsSourceConfig[] = serverFirst
+              ? [{ id: 'server', enabled: true }, { id: 'lrclib', enabled: true }, { id: 'netease', enabled: neteaseOn }]
+              : [{ id: 'lrclib', enabled: true }, { id: 'server', enabled: true }, { id: 'netease', enabled: neteaseOn }];
+            lyricsSourcesMigrated = { lyricsSources: migrated };
+          }
+        } catch { /* ignore */ }
+
         useAuthStore.setState({
           mixMinRatingSong: clampMixFilterMinStars(state.mixMinRatingSong as number),
           mixMinRatingAlbum: clampMixFilterMinStars(state.mixMinRatingAlbum as number),
@@ -535,6 +577,7 @@ export const useAuthStore = create<AuthState>()(
             (state as { skipStarManualSkipCountsByKey?: unknown }).skipStarManualSkipCountsByKey,
           ),
           ...conflictingLegacyState,
+          ...lyricsSourcesMigrated,
         });
       },
     }

@@ -378,6 +378,8 @@ function handleAudioProgress(current_time: number, duration: number) {
         durationHint: nextTrack.duration,
         replayGainDb,
         replayGainPeak,
+        preGainDb: authState.replayGainPreGainDb,
+        fallbackDb: authState.replayGainFallbackDb,
         hiResEnabled: authState.enableHiRes,
       }).catch(() => {});
     }
@@ -780,7 +782,9 @@ export const usePlayerStore = create<PlayerState>()(
           .catch(() => station.streamUrl);
         // Play via HTML5 audio — browser handles reconnects, codec negotiation, buffering.
         radioAudio.src = streamUrl;
-        radioAudio.volume = volume;
+        const { replayGainFallbackDb } = useAuthStore.getState();
+        const fallbackFactor = replayGainFallbackDb !== 0 ? Math.pow(10, replayGainFallbackDb / 20) : 1;
+        radioAudio.volume = Math.min(1, volume * fallbackFactor);
         radioAudio.play().catch((err: unknown) => {
           console.error('[psysonic] radio HTML5 play failed:', err);
           showToast('Radio stream error', 3000, 'error');
@@ -853,6 +857,8 @@ export const usePlayerStore = create<PlayerState>()(
           durationHint: track.duration,
           replayGainDb,
           replayGainPeak,
+          preGainDb: authState.replayGainPreGainDb,
+          fallbackDb: authState.replayGainFallbackDb,
           manual,
           hiResEnabled: authState.enableHiRes,
         }).catch((err: unknown) => {
@@ -938,8 +944,10 @@ export const usePlayerStore = create<PlayerState>()(
               volume: vol,
               durationHint: trackToPlay.duration,
               replayGainDb: replayGainDbCold,
-              manual: false,
               replayGainPeak: replayGainPeakCold,
+              preGainDb: authStateCold.replayGainPreGainDb,
+              fallbackDb: authStateCold.replayGainFallbackDb,
+              manual: false,
               hiResEnabled: useAuthStore.getState().enableHiRes,
             }).then(() => {
               if (playGeneration === gen && currentTime > 1) {
@@ -970,6 +978,8 @@ export const usePlayerStore = create<PlayerState>()(
                durationHint: currentTrack.duration,
                replayGainDb: replayGainDbCold,
                replayGainPeak: replayGainPeakCold,
+               preGainDb: authStateCold.replayGainPreGainDb,
+               fallbackDb: authStateCold.replayGainFallbackDb,
                manual: false,
                hiResEnabled: useAuthStore.getState().enableHiRes,
              }).catch((err: unknown) => {
@@ -1309,10 +1319,12 @@ export const usePlayerStore = create<PlayerState>()(
            ? (currentTrack.replayGainPeak ?? null) 
            : null;
          
-         invoke('audio_update_replay_gain', { 
-           volume, 
-           replayGainDb, 
-           replayGainPeak 
+         invoke('audio_update_replay_gain', {
+           volume,
+           replayGainDb,
+           replayGainPeak,
+           preGainDb: authState.replayGainPreGainDb,
+           fallbackDb: authState.replayGainFallbackDb,
          }).catch(console.error);
        },
     }),

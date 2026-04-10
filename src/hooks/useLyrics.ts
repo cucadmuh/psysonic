@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchLyrics, parseLrc, LrcLine } from '../api/lrclib';
 import { fetchNeteaselyrics } from '../api/netease';
@@ -47,8 +48,7 @@ export interface UseLyricsResult {
 
 export function useLyrics(currentTrack: Track | null): UseLyricsResult {
   const cached = currentTrack ? lyricsCache.get(currentTrack.id) : undefined;
-  const lyricsServerFirst    = useAuthStore(s => s.lyricsServerFirst);
-  const enableNeteaselyrics  = useAuthStore(s => s.enableNeteaselyrics);
+  const lyricsSources = useAuthStore(useShallow(s => s.lyricsSources));
 
   const [loading, setLoading]         = useState(!cached && !!currentTrack);
   const [syncedLines, setSyncedLines] = useState<LrcLine[] | null>(cached?.syncedLines ?? null);
@@ -159,29 +159,30 @@ export function useLyrics(currentTrack: Track | null): UseLyricsResult {
       }
     };
 
+    const fetchFns: Record<string, () => Promise<boolean>> = {
+      server: fetchServer,
+      lrclib: fetchLrclibFn,
+      netease: fetchNetease,
+    };
+
     (async () => {
       // Embedded lyrics from local file always win (most accurate SYLT data).
       if (cancelled) return;
       if (await fetchEmbedded()) return;
 
-      const [first, second] = lyricsServerFirst
-        ? [fetchServer, fetchLrclibFn]
-        : [fetchLrclibFn, fetchServer];
-
-      if (cancelled) return;
-      if (await first()) return;
-      if (cancelled) return;
-      if (await second()) return;
-      // Netease as last fallback — only when explicitly enabled
-      if (enableNeteaselyrics) {
+      // Try enabled sources in user-defined order.
+      for (const src of lyricsSources) {
+        if (!src.enabled) continue;
+        const fn = fetchFns[src.id];
+        if (!fn) continue;
         if (cancelled) return;
-        if (await fetchNetease()) return;
+        if (await fn()) return;
       }
       if (!cancelled) store({ syncedLines: null, plainLyrics: null, source: null, notFound: true });
     })();
 
     return () => { cancelled = true; };
-  }, [currentTrack?.id, enableNeteaselyrics]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, lyricsSources]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { syncedLines, plainLyrics, source, loading, notFound };
 }
