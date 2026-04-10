@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.8] - 2026-04-10
+
+### Added
+
+- **Netease Cloud Music Lyrics** *(opt-in)*: Netease Cloud Music can now be enabled in Settings → General as a last-resort lyrics fallback. It only fires when neither the server nor LRCLIB return results — the existing lyrics chain is completely unaffected. Particularly useful for Asian and international music. Chinese metadata lines (作词/作曲/编曲 etc.) are automatically stripped from the LRC output.
+
+- **Navidrome AudioMuse-AI Integration** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#147](https://github.com/Psychotoxical/psysonic/pull/147))*: Psysonic now automatically detects whether [AudioMuse-AI](https://github.com/cucadmuh/audiomuse-ai) is active on the Navidrome server and uses it for Random Mix, Similar Artists, and Instant Mix. No configuration required — Psysonic falls back to its existing behavior when AudioMuse is unavailable. Also includes an Instant Mix probe, ping identity, and improved UX for AudioMuse-specific actions.
+
+- **ICY metadata & AzuraCast radio** *(contributed by [@sorensiimSalling](https://github.com/sorensiimSalling), PR [#146](https://github.com/Psychotoxical/psysonic/pull/146))*: Internet radio now displays live track metadata from ICY streams. AzuraCast stations are supported with extended now-playing information.
+
+- **Automatic audio device switching**: Psysonic now detects newly connected or changed audio output devices and switches to them automatically — no app restart required.
+
+### Fixed
+
+- **Multi-artist tracks**: Tracks with multiple artists (OpenSubsonic `artists[]` field, e.g. semicolon-separated entries) now display each artist individually. Artists with their own profile page are clickable links; artists without one appear as plain text. Separated by `·`.
+
+- **Gapless + Preload Gate**: The gapless chain and the preload gate now run on separate paths. Previously both could fire simultaneously, causing a brief black flash on track change.
+
+- **Replay Gain — missing album gain**: When no album gain tag is present, Psysonic now correctly falls back to track gain instead of skipping gain correction entirely.
+
+- **Statistics — music library scope**: Genre insights now respect the currently selected music library. Fetch results are cached to avoid redundant server requests. Playback durations are displayed in localized units.
+
+- **Russian locale**: "Most Played" in the sidebar, home page, and page title now uses «Популярное».
+
+### Changed
+
+- **"Reset to defaults" buttons** in Settings → Input are now styled as warning buttons (red border).
+- **Lyrics button** removed from the player bar (redundant with the queue panel tab).
+- **Icons**: Advanced search now uses the `TextSearch` icon; artist bio button now uses `Highlighter`.
+- **Album chip** in the album detail header is now opaque across all themes.
+- **Hot Cache and Hi-Res Audio**: Alpha badges removed — both features are production-ready.
+- **CPU optimisations**: Next-track buffering and preload settings have been consolidated into a unified control.
+
+### Theme Fixes
+
+- **Middle Earth**: Removed vertical stripe pattern from sidebar; improved queue artist contrast on hover; fixed album detail artist colour, bio text, and "Read more" link readability; "Next Tracks" divider label is now lighter.
+- **Toy Tale**: Fixed sidebar section labels (System/Library), queue tab buttons (Lyrics/Queue), inactive artist text, and "Next Tracks" divider label — all were too dark to read.
+- **Tetrastack**: Raised all purple and blue palette values (`#a020f0` → `#c070ff`, `#0060f0` → `#4090ff`); raised `--text-muted` from `#3a3a6a` to `#7878b8` — affected settings descriptions, artist names in tracklists, and queue labels.
+- **Horde & Alliance**: Removed repeating horizontal line pattern from sidebar.
+
+### Contributors
+
+Thank you to everyone who contributed to this release:
+
+- [@cucadmuh](https://github.com/cucadmuh) — AudioMuse-AI Navidrome integration (PR [#147](https://github.com/Psychotoxical/psysonic/pull/147))
+- [@sorensiimSalling](https://github.com/sorensiimSalling) — ICY metadata & AzuraCast radio support (PR [#146](https://github.com/Psychotoxical/psysonic/pull/146))
+
+You make Psysonic better. 🙌
+
+---
+
 ## [1.34.7] - 2026-04-09
 
 ### Added
