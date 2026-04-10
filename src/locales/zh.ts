@@ -911,6 +911,10 @@ export const zhTranslation = {
     favorite: '添加到收藏',
     unfavorite: '从收藏移除',
     noFavorites: '没有收藏的电台。',
+    listenerCount_one: '{{count}} 位听众',
+    listenerCount_other: '{{count}} 位听众',
+    recentlyPlayed: '最近播放',
+    upNext: '即将播放',
   },
   folderBrowser: {
     empty: '空文件夹',

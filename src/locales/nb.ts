@@ -914,6 +914,10 @@ export const nbTranslation = {
     favorite: 'Legg til i favoritter',
     unfavorite: 'Fjern fra favoritter',
     noFavorites: 'Ingen favorittstasjoner.',
+    listenerCount_one: '{{count}} lytter',
+    listenerCount_other: '{{count}} lyttere',
+    recentlyPlayed: 'Nylig spilt',
+    upNext: 'Neste ut',
   },
   folderBrowser: {
     empty: 'Tom mappe',

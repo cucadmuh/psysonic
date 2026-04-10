@@ -921,6 +921,10 @@ export const enTranslation = {
     favorite: 'Add to favorites',
     unfavorite: 'Remove from favorites',
     noFavorites: 'No favorite stations.',
+    listenerCount_one: '{{count}} listener',
+    listenerCount_other: '{{count}} listeners',
+    recentlyPlayed: 'Recently Played',
+    upNext: 'Up Next',
   },
   folderBrowser: {
     empty: 'Empty folder',

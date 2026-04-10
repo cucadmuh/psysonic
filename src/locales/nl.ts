@@ -915,6 +915,10 @@ export const nlTranslation = {
     favorite: 'Toevoegen aan favorieten',
     unfavorite: 'Verwijderen uit favorieten',
     noFavorites: 'Geen favoriete stations.',
+    listenerCount_one: '{{count}} luisteraar',
+    listenerCount_other: '{{count}} luisteraars',
+    recentlyPlayed: 'Recent gespeeld',
+    upNext: 'Volgende',
   },
   folderBrowser: {
     empty: 'Lege map',

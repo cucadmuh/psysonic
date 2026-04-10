@@ -915,6 +915,10 @@ export const frTranslation = {
     favorite: 'Ajouter aux favoris',
     unfavorite: 'Retirer des favoris',
     noFavorites: 'Aucune station favorite.',
+    listenerCount_one: '{{count}} auditeur',
+    listenerCount_other: '{{count}} auditeurs',
+    recentlyPlayed: 'Récemment joués',
+    upNext: 'À suivre',
   },
   folderBrowser: {
     empty: 'Dossier vide',
