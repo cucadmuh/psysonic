@@ -116,6 +116,7 @@ const CONTRIBUTORS = [
     contributions: [
       'Nightfox.nvim theme group in Open Source Classics (PR #114)',
       'Switch reqwest to rustls-tls for cross-platform TLS (PR #112)',
+      'ICY stream metadata & AzuraCast Now Playing support (PR #146)',
     ],
   },
 ] as const;

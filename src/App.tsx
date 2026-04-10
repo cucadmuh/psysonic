@@ -557,6 +557,7 @@ export default function App() {
   const effectiveTheme = useThemeScheduler();
   const font = useFontStore(s => s.font);
   const uiScale = useFontStore(s => s.uiScale);
+  const setUiScale = useFontStore(s => s.setUiScale);
   const [exportPickerOpen, setExportPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -566,6 +567,14 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-font', font);
   }, [font]);
+
+  // TODO(ui-scale): UI scaling is disabled pending a cross-platform rework.
+  // Reset any stored non-100% value so users aren't stuck at a broken scale.
+  // When re-enabling: remove this effect AND re-enable the slider in Settings.tsx.
+  useEffect(() => {
+    if (uiScale !== 1.0) setUiScale(1.0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.zoom = String(uiScale);
