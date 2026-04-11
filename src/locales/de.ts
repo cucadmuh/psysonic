@@ -554,7 +554,7 @@ export const deTranslation = {
     shortcutSeekForward: '10s vorspulen',
     shortcutSeekBackward: '10s zurückspulen',
     shortcutToggleQueue: 'Warteschlange ein-/ausblenden',
-    shortcutOpenFolderBrowser: 'Folder Browser öffnen',
+    shortcutOpenFolderBrowser: '{{folderBrowser}} öffnen',
     shortcutFullscreenPlayer: 'Vollbild-Player',
     shortcutNativeFullscreen: 'Nativer Vollbildmodus',
     tabSystem: 'System',

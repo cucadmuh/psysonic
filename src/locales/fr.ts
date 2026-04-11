@@ -552,7 +552,7 @@ export const frTranslation = {
     shortcutSeekForward: 'Avancer de 10s',
     shortcutSeekBackward: 'Reculer de 10s',
     shortcutToggleQueue: 'Afficher/masquer la file',
-    shortcutOpenFolderBrowser: 'Ouvrir le Folder Browser',
+    shortcutOpenFolderBrowser: 'Ouvrir {{folderBrowser}}',
     shortcutFullscreenPlayer: 'Lecteur plein écran',
     shortcutNativeFullscreen: 'Plein écran natif',
     tabSystem: 'Système',
