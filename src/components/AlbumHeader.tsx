@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Heart, ExternalLink, X, ChevronLeft, Download, ListPlus, HardDriveDownload, Loader2 } from 'lucide-react';
+import { Play, Heart, ExternalLink, X, ChevronLeft, Download, ListPlus, HardDriveDownload, Loader2, Highlighter } from 'lucide-react';
 import { SubsonicSong, buildCoverArtUrl } from '../api/subsonic';
 import CachedImage from './CachedImage';
 import CoverLightbox from './CoverLightbox';
@@ -243,7 +243,7 @@ export default function AlbumHeader({
                       aria-label={t('albumDetail.artistBio')}
                       data-tooltip={t('albumDetail.artistBio')}
                     >
-                      <ExternalLink size={16} />
+                      <Highlighter size={16} />
                     </button>
 
                     {downloadProgress !== null ? (
@@ -313,7 +313,7 @@ export default function AlbumHeader({
                   </button>
 
                   <button className="btn btn-ghost" id="album-bio-btn" onClick={onBio}>
-                    <ExternalLink size={16} /> {t('albumDetail.artistBio')}
+                    <Highlighter size={16} /> {t('albumDetail.artistBio')}
                   </button>
 
                   {downloadProgress !== null ? (

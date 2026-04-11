@@ -9,7 +9,7 @@ interface ThemeDef {
   accent: string;
 }
 
-const THEME_GROUPS: { group: string; themes: ThemeDef[] }[] = [
+export const THEME_GROUPS: { group: string; themes: ThemeDef[] }[] = [
   {
     group: 'Games',
     themes: [

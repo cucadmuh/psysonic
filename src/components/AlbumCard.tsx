@@ -14,9 +14,10 @@ interface AlbumCardProps {
   selected?: boolean;
   selectionMode?: boolean;
   onToggleSelect?: (id: string) => void;
+  showRating?: boolean;
 }
 
-function AlbumCard({ album, selected, selectionMode, onToggleSelect }: AlbumCardProps) {
+function AlbumCard({ album, selected, selectionMode, onToggleSelect, showRating = false }: AlbumCardProps) {
   const navigate = useNavigate();
   const openContextMenu = usePlayerStore(s => s.openContextMenu);
   const serverId = useAuthStore(s => s.activeServerId ?? '');
@@ -42,7 +43,6 @@ function AlbumCard({ album, selected, selectionMode, onToggleSelect }: AlbumCard
       aria-label={`${album.name} von ${album.artist}`}
       onKeyDown={e => e.key === 'Enter' && handleClick()}
       onContextMenu={(e) => {
-        if (selectionMode) { e.preventDefault(); return; }
         e.preventDefault();
         openContextMenu(e.clientX, e.clientY, album, 'album');
       }}
@@ -103,6 +103,13 @@ function AlbumCard({ album, selected, selectionMode, onToggleSelect }: AlbumCard
           onClick={e => { if (album.artistId) { e.stopPropagation(); navigate(`/artist/${album.artistId}`); } }}
         >{album.artist}</p>
         {album.year && <p className="album-card-year">{album.year}</p>}
+        {showRating && (album.userRating ?? 0) > 0 && (
+          <div className="album-card-rating-row">
+            <span className="album-card-rating-stars">
+              {'★'.repeat(album.userRating!)}{'☆'.repeat(5 - album.userRating!)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

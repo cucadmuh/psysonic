@@ -1,20 +1,23 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Music,
-  Square, Repeat, Repeat1, Maximize2, SlidersHorizontal, X, Heart, MicVocal, Cast
+  Square, Repeat, Repeat1, Maximize2, SlidersVertical, X, Heart, Cast
 } from 'lucide-react';
 import { usePlayerStore } from '../store/playerStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../store/authStore';
-import { buildCoverArtUrl, coverArtCacheKey, star, unstar } from '../api/subsonic';
+import { buildCoverArtUrl, coverArtCacheKey, star, unstar, setRating } from '../api/subsonic';
 import CachedImage from './CachedImage';
 import WaveformSeek from './WaveformSeek';
 import Equalizer from './Equalizer';
+import StarRating from './StarRating';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useLyricsStore } from '../store/lyricsStore';
 import MarqueeText from './MarqueeText';
 import LastfmIcon from './LastfmIcon';
+import { useRadioMetadata } from '../hooks/useRadioMetadata';
 
 function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -23,24 +26,67 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// Renders the playback clock without ever causing PlayerBar to re-render.
+// Updates the DOM directly via an imperative store subscription.
+const PlaybackTime = memo(function PlaybackTime({ className }: { className?: string }) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (spanRef.current) {
+      spanRef.current.textContent = formatTime(usePlayerStore.getState().currentTime);
+    }
+    return usePlayerStore.subscribe(state => {
+      if (spanRef.current) spanRef.current.textContent = formatTime(state.currentTime);
+    });
+  }, []);
+  return <span className={className} ref={spanRef} />;
+});
+
 export default function PlayerBar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(false);
   const [showVolPct, setShowVolPct] = useState(false);
+  const premuteVolumeRef = useRef(1);
   const showLyrics   = useLyricsStore(s => s.showLyrics);
   const activeTab    = useLyricsStore(s => s.activeTab);
+  // currentTime is intentionally excluded — PlaybackTime handles it via direct DOM update.
   const {
-    currentTrack, currentRadio, isPlaying, currentTime, volume,
+    currentTrack, currentRadio, isPlaying, volume,
     togglePlay, next, previous, setVolume,
     stop, toggleRepeat, repeatMode, toggleFullscreen,
     lastfmLoved, toggleLastfmLove,
     isQueueVisible, toggleQueue,
     starredOverrides, setStarredOverride,
-  } = usePlayerStore();
+    userRatingOverrides, setUserRatingOverride,
+  } = usePlayerStore(useShallow(s => ({
+    currentTrack: s.currentTrack,
+    currentRadio: s.currentRadio,
+    isPlaying: s.isPlaying,
+    volume: s.volume,
+    togglePlay: s.togglePlay,
+    next: s.next,
+    previous: s.previous,
+    setVolume: s.setVolume,
+    stop: s.stop,
+    toggleRepeat: s.toggleRepeat,
+    repeatMode: s.repeatMode,
+    toggleFullscreen: s.toggleFullscreen,
+    lastfmLoved: s.lastfmLoved,
+    toggleLastfmLove: s.toggleLastfmLove,
+    isQueueVisible: s.isQueueVisible,
+    toggleQueue: s.toggleQueue,
+    starredOverrides: s.starredOverrides,
+    setStarredOverride: s.setStarredOverride,
+    userRatingOverrides: s.userRatingOverrides,
+    setUserRatingOverride: s.setUserRatingOverride,
+  })));
   const { lastfmSessionKey } = useAuthStore();
 
   const isRadio = !!currentRadio;
+
+  // Radio metadata (ICY or AzuraCast) — only active while a radio station is playing.
+  const radioMeta = useRadioMetadata(currentRadio ?? null);
+
 
   const isStarred = currentTrack
     ? (currentTrack.id in starredOverrides ? starredOverrides[currentTrack.id] : !!currentTrack.starred)
@@ -127,17 +173,40 @@ export default function PlayerBar() {
         </div>
         <div className="player-track-meta">
           <MarqueeText
-            text={isRadio ? (currentRadio?.name ?? '—') : (currentTrack?.title ?? t('player.noTitle'))}
+            text={isRadio
+              ? (radioMeta.currentTitle
+                  ? (radioMeta.currentArtist
+                      ? `${radioMeta.currentArtist} — ${radioMeta.currentTitle}`
+                      : radioMeta.currentTitle)
+                  : (currentRadio?.name ?? '—'))
+              : (currentTrack?.title ?? t('player.noTitle'))}
             className="player-track-name"
             style={{ cursor: !isRadio && currentTrack?.albumId ? 'pointer' : 'default' }}
             onClick={() => !isRadio && currentTrack?.albumId && navigate(`/album/${currentTrack.albumId}`)}
           />
           <MarqueeText
-            text={isRadio ? t('radio.liveStream') : (currentTrack?.artist ?? '—')}
+            text={isRadio
+              ? (radioMeta.currentTitle && currentRadio?.name
+                  ? currentRadio.name
+                  : t('radio.liveStream'))
+              : (currentTrack?.artist ?? '—')}
             className="player-track-artist"
             style={{ cursor: !isRadio && currentTrack?.artistId ? 'pointer' : 'default' }}
             onClick={() => !isRadio && currentTrack?.artistId && navigate(`/artist/${currentTrack.artistId}`)}
           />
+          {currentTrack && !isRadio && (
+            <StarRating
+              value={userRatingOverrides[currentTrack.id] ?? currentTrack.userRating ?? 0}
+              onChange={r => { setUserRatingOverride(currentTrack.id, r); setRating(currentTrack.id, r).catch(() => {}); }}
+              className="player-track-rating"
+              ariaLabel={t('albumDetail.ratingLabel')}
+            />
+          )}
+          {isRadio && radioMeta.listeners != null && (
+            <span className="player-radio-listeners">
+              {t('radio.listenerCount', { count: radioMeta.listeners })}
+            </span>
+          )}
         </div>
         {currentTrack && !isRadio && (
           <button
@@ -197,15 +266,32 @@ export default function PlayerBar() {
       <div className="player-waveform-section">
         {isRadio ? (
           <>
-            <span className="player-time">{formatTime(currentTime)}</span>
-            <div className="player-waveform-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="radio-live-badge">{t('radio.live')}</span>
-            </div>
-            <span className="player-time" style={{ opacity: 0 }}>0:00</span>
+            {radioMeta.source === 'azuracast' && radioMeta.elapsed != null && radioMeta.duration != null && radioMeta.duration > 0 ? (
+              <>
+                <span className="player-time">{formatTime(radioMeta.elapsed)}</span>
+                <div className="player-waveform-wrap">
+                  <div className="radio-progress-bar">
+                    <div
+                      className="radio-progress-fill"
+                      style={{ width: `${Math.min(100, (radioMeta.elapsed / radioMeta.duration) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <span className="player-time">{formatTime(radioMeta.duration)}</span>
+              </>
+            ) : (
+              <>
+                <PlaybackTime className="player-time" />
+                <div className="player-waveform-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="radio-live-badge">{t('radio.live')}</span>
+                </div>
+                <span className="player-time" style={{ opacity: 0 }}>0:00</span>
+              </>
+            )}
           </>
         ) : (
           <>
-            <span className="player-time">{formatTime(currentTime)}</span>
+            <PlaybackTime className="player-time" />
             <div className="player-waveform-wrap">
               <WaveformSeek trackId={currentTrack?.id} />
             </div>
@@ -214,16 +300,6 @@ export default function PlayerBar() {
         )}
       </div>
 
-      {/* Lyrics Button */}
-      <button
-        className={`player-btn player-btn-sm ${activeTab === 'lyrics' && isQueueVisible ? 'active' : ''}`}
-        onClick={() => { if (!isQueueVisible) toggleQueue(); showLyrics(); }}
-        aria-label={t('player.lyrics')}
-        data-tooltip={t('player.lyrics')}
-      >
-        <MicVocal size={15} />
-      </button>
-
       {/* EQ Button */}
       <button
         className={`player-btn player-btn-sm player-eq-btn ${eqOpen ? 'active' : ''}`}
@@ -231,14 +307,21 @@ export default function PlayerBar() {
         aria-label="Equalizer"
         data-tooltip="Equalizer"
       >
-        <SlidersHorizontal size={15} />
+        <SlidersVertical size={15} />
       </button>
 
       {/* Volume */}
       <div className="player-volume-section">
         <button
           className="player-btn player-btn-sm"
-          onClick={() => setVolume(volume === 0 ? 0.7 : 0)}
+          onClick={() => {
+            if (volume === 0) {
+              setVolume(premuteVolumeRef.current);
+            } else {
+              premuteVolumeRef.current = volume;
+              setVolume(0);
+            }
+          }}
           aria-label={t('player.volume')}
           style={{ color: 'var(--text-muted)', flexShrink: 0 }}
         >

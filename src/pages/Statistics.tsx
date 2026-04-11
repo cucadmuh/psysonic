@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { getAlbumList, getArtists, getGenres, getRandomSongs, SubsonicAlbum, SubsonicGenre } from '../api/subsonic';
+import {
+  fetchStatisticsFormatSample,
+  fetchStatisticsLibraryAggregates,
+  fetchStatisticsOverview,
+  getAlbumList,
+  SubsonicAlbum,
+  SubsonicGenre,
+} from '../api/subsonic';
+import { formatHumanHoursMinutes } from '../utils/formatHumanDuration';
 import AlbumRow from '../components/AlbumRow';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/authStore';
+import { useNavigate } from 'react-router-dom';
 import { lastfmIsConfigured, lastfmGetTopArtists, lastfmGetTopAlbums, lastfmGetTopTracks, lastfmGetRecentTracks, LastfmPeriod, LastfmTopArtist, LastfmTopAlbum, LastfmTopTrack, LastfmRecentTrack } from '../api/lastfm';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -12,13 +21,6 @@ function relativeTime(timestamp: number, t: (key: string, opts?: any) => string)
   if (diff < 3600) return t('statistics.lfmMinutesAgo', { n: Math.floor(diff / 60) });
   if (diff < 86400) return t('statistics.lfmHoursAgo', { n: Math.floor(diff / 3600) });
   return t('statistics.lfmDaysAgo', { n: Math.floor(diff / 86400) });
-}
-
-function formatPlaytime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h.toLocaleString()}h ${m}m`;
-  return `${m}m`;
 }
 
 const PERIODS: { key: LastfmPeriod; label: string }[] = [
@@ -32,6 +34,7 @@ const PERIODS: { key: LastfmPeriod; label: string }[] = [
 
 export default function Statistics() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { lastfmSessionKey, lastfmUsername } = useAuthStore();
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
   const [recent, setRecent] = useState<SubsonicAlbum[]>([]);
@@ -57,70 +60,59 @@ export default function Statistics() {
   const [lfmRecentLoading, setLfmRecentLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      getAlbumList('recent', 20).catch(() => []),
-      getAlbumList('frequent', 12).catch(() => []),
-      getAlbumList('highest', 12).catch(() => []),
-      getArtists().catch(() => []),
-      getGenres().catch(() => []),
-    ]).then(([rc, fr, hi, a, g]) => {
-      setRecent(rc);
-      setFrequent(fr);
-      setHighest(hi);
-      setArtistCount(a.length);
-      setTotalSongs(g.reduce((acc: number, genre: SubsonicGenre) => acc + genre.songCount, 0));
-      setTotalAlbums(g.reduce((acc: number, genre: SubsonicGenre) => acc + genre.albumCount, 0));
-      const sorted = [...g].sort((a, b) => b.songCount - a.songCount);
-      setGenres(sorted);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    fetchStatisticsOverview()
+      .then(d => {
+        setRecent(d.recent);
+        setFrequent(d.frequent);
+        setHighest(d.highest);
+        setArtistCount(d.artistCount);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [musicLibraryFilterVersion]);
 
-  // Background fetch: total playtime (paginate getAlbumList up to 10 pages of 500)
+  // Background: playtime, album/song counts, genre insights (cached per server+library like rating prefetch)
   useEffect(() => {
     let cancelled = false;
+    setTotalPlaytime(null);
+    setTotalAlbums(null);
+    setTotalSongs(null);
+    setPlaytimeCapped(false);
+    setGenres([]);
     (async () => {
-      let total = 0;
-      let offset = 0;
-      const pageSize = 500;
-      const maxPages = 10;
-      let capped = false;
-      for (let page = 0; page < maxPages; page++) {
-        try {
-          const albums = await getAlbumList('newest', pageSize, offset);
-          if (cancelled) return;
-          for (const a of albums) total += (a.duration ?? 0);
-          if (albums.length < pageSize) break;
-          if (page === maxPages - 1) capped = true;
-          offset += pageSize;
-        } catch {
-          break;
+      try {
+        const agg = await fetchStatisticsLibraryAggregates();
+        if (cancelled) return;
+        setTotalPlaytime(agg.playtimeSec);
+        setTotalAlbums(agg.albumsCounted);
+        setTotalSongs(agg.songsCounted);
+        setPlaytimeCapped(agg.capped);
+        setGenres(agg.genres);
+      } catch {
+        if (!cancelled) {
+          setTotalPlaytime(0);
+          setTotalAlbums(0);
+          setTotalSongs(0);
+          setPlaytimeCapped(false);
+          setGenres([]);
         }
-      }
-      if (!cancelled) {
-        setTotalPlaytime(total);
-        setPlaytimeCapped(capped);
       }
     })();
     return () => { cancelled = true; };
   }, [musicLibraryFilterVersion]);
 
-  // Background fetch: format distribution (sample of 500 random songs)
+  // Background: format distribution (cached random sample, same TTL as other Statistics fetches)
   useEffect(() => {
     let cancelled = false;
-    getRandomSongs(500).then(songs => {
-      if (cancelled) return;
-      const counts: Record<string, number> = {};
-      for (const song of songs) {
-        const fmt = song.suffix?.toUpperCase() ?? 'Unknown';
-        counts[fmt] = (counts[fmt] ?? 0) + 1;
-      }
-      const sorted = Object.entries(counts)
-        .map(([format, count]) => ({ format, count }))
-        .sort((a, b) => b.count - a.count);
-      setFormatData(sorted);
-      setFormatSampleSize(songs.length);
-    }).catch(() => {});
+    setFormatData(null);
+    setFormatSampleSize(0);
+    fetchStatisticsFormatSample()
+      .then(s => {
+        if (cancelled) return;
+        setFormatData(s.rows);
+        setFormatSampleSize(s.sampleSize);
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [musicLibraryFilterVersion]);
 
@@ -163,12 +155,15 @@ export default function Statistics() {
 
   const playtimeDisplay = totalPlaytime === null
     ? t('statistics.computing')
-    : (playtimeCapped ? '≥ ' : '') + formatPlaytime(totalPlaytime);
+    : (playtimeCapped ? '≥ ' : '') + formatHumanHoursMinutes(totalPlaytime);
+
+  const countDisplay = (n: number | null) =>
+    n === null ? t('statistics.computing') : (playtimeCapped ? '≥ ' : '') + n.toLocaleString();
 
   const stats = [
     { label: t('statistics.statArtists'), value: artistCount?.toLocaleString() ?? '—' },
-    { label: t('statistics.statAlbums'), value: totalAlbums?.toLocaleString() ?? '—' },
-    { label: t('statistics.statSongs'), value: totalSongs?.toLocaleString() ?? '—' },
+    { label: t('statistics.statAlbums'), value: countDisplay(totalAlbums) },
+    { label: t('statistics.statSongs'), value: countDisplay(totalSongs) },
     { label: t('statistics.statPlaytime'), value: playtimeDisplay },
   ];
 
@@ -204,10 +199,10 @@ export default function Statistics() {
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                     {topGenres.map(g => (
-                      <div key={g.value}>
+                      <div key={g.value || '__genre_unknown__'}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.2rem' }}>
                           <span style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
-                            {g.value}
+                            {g.value.trim() ? g.value : t('statistics.decadeUnknown')}
                           </span>
                           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0, marginLeft: '0.5rem' }}>
                             {g.songCount.toLocaleString()}
@@ -282,6 +277,7 @@ export default function Statistics() {
             albums={highest}
             onLoadMore={() => loadMore('highest', highest, setHighest)}
             moreText={t('statistics.loadMore')}
+            showRating
           />
 
           {/* Last.fm Stats */}
@@ -363,7 +359,7 @@ export default function Statistics() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                  {lfmRecentTracks.map((track, i) => (
+                  {lfmRecentTracks.slice(0, 3).map((track, i) => (
                     <div key={`${track.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem 0.75rem', borderRadius: '8px', background: track.nowPlaying ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent', border: track.nowPlaying ? '1px solid color-mix(in srgb, var(--accent) 20%, transparent)' : '1px solid transparent' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

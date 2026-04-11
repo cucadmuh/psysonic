@@ -36,16 +36,14 @@ export default function NowPlayingDropdown() {
     });
   };
 
-  // Poll in background so the badge stays current without opening the dropdown
+  // Poll only while the dropdown is open AND the page is visible.
   useEffect(() => {
+    if (!isOpen) return;
     fetchNowPlaying();
-    const id = setInterval(fetchNowPlaying, 10000);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchNowPlaying();
+    }, 10000);
     return () => clearInterval(id);
-  }, []);
-
-  // Refresh immediately when dropdown is opened
-  useEffect(() => {
-    if (isOpen) fetchNowPlaying();
   }, [isOpen]);
 
   // Click outside to close

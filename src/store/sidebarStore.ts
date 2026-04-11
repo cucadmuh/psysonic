@@ -20,6 +20,7 @@ export const DEFAULT_SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { id: 'playlists',     visible: true },
   { id: 'mostPlayed',    visible: true },
   { id: 'radio',         visible: true },
+  { id: 'folderBrowser', visible: false },
   { id: 'statistics',    visible: true },
   { id: 'help',          visible: true },
 ];

@@ -192,34 +192,50 @@ const FsPortrait = memo(function FsPortrait({ url }: { url: string }) {
   );
 });
 
-// ─── Full-width seekbar (isolated — re-renders every tick) ────────────────────
+// ─── Full-width seekbar — imperative DOM updates, zero React re-renders on tick ─
 const FsSeekbar = memo(function FsSeekbar({ duration }: { duration: number }) {
-  const progress    = usePlayerStore(s => s.progress);
-  const buffered    = usePlayerStore(s => s.buffered);
-  const currentTime = usePlayerStore(s => s.currentTime);
   const seek        = usePlayerStore(s => s.seek);
+  const timeRef     = useRef<HTMLSpanElement>(null);
+  const playedRef   = useRef<HTMLDivElement>(null);
+  const bufRef      = useRef<HTMLDivElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const s = usePlayerStore.getState();
+    const pct = s.progress * 100;
+    if (timeRef.current)   timeRef.current.textContent  = formatTime(s.currentTime);
+    if (playedRef.current) playedRef.current.style.width = `${pct}%`;
+    if (bufRef.current)    bufRef.current.style.width    = `${Math.max(pct, s.buffered * 100)}%`;
+    if (inputRef.current)  inputRef.current.value        = String(s.progress);
+
+    return usePlayerStore.subscribe(state => {
+      const p = state.progress * 100;
+      if (timeRef.current)   timeRef.current.textContent  = formatTime(state.currentTime);
+      if (playedRef.current) playedRef.current.style.width = `${p}%`;
+      if (bufRef.current)    bufRef.current.style.width    = `${Math.max(p, state.buffered * 100)}%`;
+      if (inputRef.current)  inputRef.current.value        = String(state.progress);
+    });
+  }, []);
 
   const handleSeek = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => seek(parseFloat(e.target.value)),
     [seek]
   );
 
-  const pct = progress * 100;
-  const buf = Math.max(pct, buffered * 100);
-
   return (
     <div className="fs-seekbar-wrap">
       <div className="fs-seekbar-times">
-        <span>{formatTime(currentTime)}</span>
+        <span ref={timeRef} />
         <span>{formatTime(duration)}</span>
       </div>
       <div className="fs-seekbar">
         <div className="fs-seekbar-bg" />
-        <div className="fs-seekbar-buf" style={{ width: `${buf}%` }} />
-        <div className="fs-seekbar-played" style={{ width: `${pct}%` }} />
+        <div className="fs-seekbar-buf" ref={bufRef} />
+        <div className="fs-seekbar-played" ref={playedRef} />
         <input
+          ref={inputRef}
           type="range" min={0} max={1} step={0.001}
-          value={progress}
+          defaultValue={0}
           onChange={handleSeek}
           aria-label="seek"
         />
@@ -244,6 +260,10 @@ const FsPlayBtn = memo(function FsPlayBtn() {
 interface FullscreenPlayerProps {
   onClose: () => void;
 }
+
+// Module-level cache: artKey → accent color string.
+// Survives track changes so same-album songs reuse the extracted color instantly.
+const coverAccentCache = new Map<string, string>();
 
 export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
   const { t } = useTranslation();
@@ -291,18 +311,35 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
   // Reset to null on track change so the previous color doesn't linger while
   // the new one is being extracted.
   const [dynamicAccent, setDynamicAccent] = useState<string | null>(null);
+
+  // On cover change: hit cache for instant result, or fetch → extract → cache.
+  // Cache hit avoids re-fetching for same-album tracks. Reset only when uncached.
   useEffect(() => {
-    setDynamicAccent(null);
-    if (!artUrl || !artKey) return;
+    if (!artKey || !artUrl) { setDynamicAccent(null); return; }
+    const cached = coverAccentCache.get(artKey);
+    if (cached) { setDynamicAccent(cached); return; }
+    // No cache hit — keep the previous color visible until extraction completes.
     let cancelled = false;
-    getCachedUrl(artUrl, artKey).then(blobUrl => {
-      if (cancelled || !blobUrl) return;
-      extractCoverColors(blobUrl).then(colors => {
-        if (!cancelled && colors.accent) setDynamicAccent(colors.accent);
-      });
-    });
+    let blobUrl = '';
+    (async () => {
+      try {
+        const resp = await fetch(artUrl);
+        if (cancelled) return;
+        const blob = await resp.blob();
+        if (cancelled) return;
+        blobUrl = URL.createObjectURL(blob);
+        const colors = await extractCoverColors(blobUrl);
+        if (cancelled) return;
+        if (colors.accent) {
+          coverAccentCache.set(artKey, colors.accent);
+          setDynamicAccent(colors.accent);
+        }
+      } catch { /* ignore */ } finally {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+      }
+    })();
     return () => { cancelled = true; };
-  }, [artKey]); // artKey is stable per track — artUrl would also work
+  }, [artKey]);
 
   // Artist image → portrait on right. Falls back to cover art.
   const [artistBgUrl, setArtistBgUrl] = useState<string>('');

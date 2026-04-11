@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen,
   Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard, ChevronDown,
-  GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow, HardDrive, Upload, Download, Waves, Star
+  GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow, HardDrive, Upload, Download, Waves, Star, Clock, ZoomIn, Sparkles, AlertTriangle
 } from 'lucide-react';
 import { exportBackup, importBackup } from '../utils/backup';
 import { showToast } from '../utils/toast';
@@ -17,8 +17,9 @@ import { useHotCacheStore } from '../store/hotCacheStore';
 import { lastfmGetToken, lastfmAuthUrl, lastfmGetSession, lastfmGetUserInfo, LastfmUserInfo } from '../api/lastfm';
 import LastfmIcon from '../components/LastfmIcon';
 import CustomSelect from '../components/CustomSelect';
-import ThemePicker from '../components/ThemePicker';
-import { useAuthStore, ServerProfile, MIX_MIN_RATING_FILTER_MAX_STARS, type SeekbarStyle } from '../store/authStore';
+import ThemePicker, { THEME_GROUPS } from '../components/ThemePicker';
+import { useShallow } from 'zustand/react/shallow';
+import { useAuthStore, ServerProfile, MIX_MIN_RATING_FILTER_MAX_STARS, type SeekbarStyle, type LyricsSourceId, type LyricsSourceConfig } from '../store/authStore';
 import { SeekbarPreview } from '../components/WaveformSeek';
 import { IS_LINUX } from '../utils/platform';
 import { useThemeStore } from '../store/themeStore';
@@ -29,13 +30,16 @@ import { useSidebarStore, DEFAULT_SIDEBAR_ITEMS, SidebarItemConfig } from '../st
 import { useHomeStore, HomeSectionId } from '../store/homeStore';
 import { useDragDrop, useDragSource } from '../contexts/DragDropContext';
 import { ALL_NAV_ITEMS } from '../components/Sidebar';
-import { pingWithCredentials } from '../api/subsonic';
+import { pingWithCredentials, scheduleInstantMixProbeForServer } from '../api/subsonic';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import Equalizer from '../components/Equalizer';
 import StarRating from '../components/StarRating';
+import { showAudiomuseNavidromeServerSetting } from '../utils/subsonicServerIdentity';
 
 const AUDIOBOOK_GENRES_DISPLAY = ['Hörbuch', 'Hoerbuch', 'Hörspiel', 'Hoerspiel', 'Audiobook', 'Audio Book', 'Spoken Word', 'Spokenword', 'Podcast', 'Kapitel', 'Thriller', 'Krimi', 'Speech', 'Fantasy', 'Comedy', 'Literature'];
+
+const AUDIOMUSE_NV_PLUGIN_URL = 'https://github.com/NeptuneHub/AudioMuse-AI-NV-plugin';
 
 const CONTRIBUTORS = [
   {
@@ -91,8 +95,14 @@ const CONTRIBUTORS = [
     since: '1.33.0',
     contributions: [
       'Russian translation & i18n locale split (PR #106)',
+      'Russian locale refinements using phrasing from ru2 (PR #113)',
       'Gapless manual skip: honor user-initiated play over pre-chained track (PR #119)',
-      'Per-server music folder filter and sidebar library picker (PR #125)',
+      'Hot playback cache — queue prefetch (PR #123)',
+      'Per-server music folder filter and sidebar library picker (PR #124, PR #125)',
+      'Richer star ratings, skip threshold, and library filtering (PR #130)',
+      'Statistics: scope album and song totals to selected music library (PR #138)',
+      'AudioMuse-AI discovery integration for Navidrome (PR #147)',
+      'Hot playback cache — eviction budgeting, grace period, and live Audio settings readout (PR #153)',
     ],
   },
   {
@@ -101,6 +111,9 @@ const CONTRIBUTORS = [
     contributions: [
       'Russian locale improvements (PR #107, PR #120)',
       'Auto-install script for Debian / RHEL (PR #121)',
+      'Album cover art in Discord Rich Presence via iTunes API (PR #111)',
+      'Tiling WM detection: hide custom TitleBar on Hyprland/Sway/i3/etc. (PR #134)',
+      'Russian translation: lyricsServerFirst settings strings (PR #140)',
     ],
   },
   {
@@ -109,6 +122,7 @@ const CONTRIBUTORS = [
     contributions: [
       'Nightfox.nvim theme group in Open Source Classics (PR #114)',
       'Switch reqwest to rustls-tls for cross-platform TLS (PR #112)',
+      'ICY stream metadata & AzuraCast Now Playing support (PR #146)',
     ],
   },
 ] as const;
@@ -202,6 +216,13 @@ export default function Settings() {
   const clearAllOffline = useOfflineStore(s => s.clearAll);
   const clearHotCacheDisk = useHotCacheStore(s => s.clearAllDisk);
   const hotCacheEntries = useHotCacheStore(s => s.entries);
+  const [isTilingWm, setIsTilingWm] = useState(false);
+
+  useEffect(() => {
+    if (!IS_LINUX) return;
+    invoke<boolean>('is_tiling_wm_cmd').then(setIsTilingWm).catch(() => {});
+  }, []);
+
   const hotCacheTrackCount = useMemo(() => {
     if (!serverId) return 0;
     const prefix = `${serverId}:`;
@@ -239,6 +260,31 @@ export default function Settings() {
     invoke<number>('get_offline_cache_size', { customDir: auth.offlineDownloadDir || null }).then(setOfflineCacheBytes).catch(() => setOfflineCacheBytes(0));
     invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null }).then(setHotCacheBytes).catch(() => setHotCacheBytes(0));
   }, [activeTab, auth.offlineDownloadDir, auth.hotCacheDownloadDir]);
+
+  /** Live disk usage for hot cache while Audio settings are open (interval + refresh when index changes). */
+  useEffect(() => {
+    if (activeTab !== 'audio') return;
+    const customDir = auth.hotCacheDownloadDir || null;
+    const refresh = () => {
+      invoke<number>('get_hot_cache_size', { customDir })
+        .then(setHotCacheBytes)
+        .catch(() => setHotCacheBytes(0));
+    };
+    refresh();
+    if (!auth.hotCacheEnabled) return;
+    const interval = window.setInterval(refresh, 2000);
+    return () => window.clearInterval(interval);
+  }, [activeTab, auth.hotCacheEnabled, auth.hotCacheDownloadDir]);
+
+  useEffect(() => {
+    if (activeTab !== 'audio' || !auth.hotCacheEnabled) return;
+    const t = window.setTimeout(() => {
+      invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null })
+        .then(setHotCacheBytes)
+        .catch(() => setHotCacheBytes(0));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [hotCacheEntries, activeTab, auth.hotCacheEnabled, auth.hotCacheDownloadDir]);
 
   const handleClearCache = useCallback(async () => {
     setClearing(true);
@@ -299,8 +345,17 @@ export default function Settings() {
   const testConnection = async (server: ServerProfile) => {
     setConnStatus(s => ({ ...s, [server.id]: 'testing' }));
     try {
-      const ok = await pingWithCredentials(server.url, server.username, server.password);
-      setConnStatus(s => ({ ...s, [server.id]: ok ? 'ok' : 'error' }));
+      const ping = await pingWithCredentials(server.url, server.username, server.password);
+      if (ping.ok) {
+        const identity = {
+          type: ping.type,
+          serverVersion: ping.serverVersion,
+          openSubsonic: ping.openSubsonic,
+        };
+        auth.setSubsonicServerIdentity(server.id, identity);
+        scheduleInstantMixProbeForServer(server.id, server.url, server.username, server.password, identity);
+      }
+      setConnStatus(s => ({ ...s, [server.id]: ping.ok ? 'ok' : 'error' }));
     } catch {
       setConnStatus(s => ({ ...s, [server.id]: 'error' }));
     }
@@ -309,8 +364,15 @@ export default function Settings() {
   const switchToServer = async (server: ServerProfile) => {
     setConnStatus(s => ({ ...s, [server.id]: 'testing' }));
     try {
-      const ok = await pingWithCredentials(server.url, server.username, server.password);
-      if (ok) {
+      const ping = await pingWithCredentials(server.url, server.username, server.password);
+      if (ping.ok) {
+        const identity = {
+          type: ping.type,
+          serverVersion: ping.serverVersion,
+          openSubsonic: ping.openSubsonic,
+        };
+        auth.setSubsonicServerIdentity(server.id, identity);
+        scheduleInstantMixProbeForServer(server.id, server.url, server.username, server.password, identity);
         auth.setActiveServer(server.id);
         auth.setLoggedIn(true);
         navigate('/');
@@ -333,9 +395,16 @@ export default function Settings() {
     const tempId = '_new';
     setConnStatus(s => ({ ...s, [tempId]: 'testing' }));
     try {
-      const ok = await pingWithCredentials(data.url, data.username, data.password);
-      if (ok) {
+      const ping = await pingWithCredentials(data.url, data.username, data.password);
+      if (ping.ok) {
         const id = auth.addServer(data);
+        const identity = {
+          type: ping.type,
+          serverVersion: ping.serverVersion,
+          openSubsonic: ping.openSubsonic,
+        };
+        auth.setSubsonicServerIdentity(id, identity);
+        scheduleInstantMixProbeForServer(id, data.url, data.username, data.password, identity);
         auth.setActiveServer(id);
         auth.setLoggedIn(true);
         setConnStatus(s => ({ ...s, [id]: 'ok' }));
@@ -454,6 +523,38 @@ export default function Settings() {
                   </button>
                 </div>
               )}
+              {auth.replayGainEnabled && (
+                <div style={{ paddingLeft: '1rem', marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 160 }}>
+                      {t('settings.replayGainPreGain')}
+                    </span>
+                    <input
+                      type="range" min={0} max={6} step={0.5}
+                      value={auth.replayGainPreGainDb}
+                      onChange={e => auth.setReplayGainPreGainDb(Number(e.target.value))}
+                      style={{ flex: 1, maxWidth: 160 }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'right' }}>
+                      {auth.replayGainPreGainDb > 0 ? `+${auth.replayGainPreGainDb}` : auth.replayGainPreGainDb} dB
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 160 }}>
+                      {t('settings.replayGainFallback')}
+                    </span>
+                    <input
+                      type="range" min={-6} max={0} step={0.5}
+                      value={auth.replayGainFallbackDb}
+                      onChange={e => auth.setReplayGainFallbackDb(Number(e.target.value))}
+                      style={{ flex: 1, maxWidth: 160 }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'right' }}>
+                      {auth.replayGainFallbackDb > 0 ? `+${auth.replayGainFallbackDb}` : auth.replayGainFallbackDb} dB
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="divider" />
 
@@ -509,8 +610,19 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
+            </div>
+          </section>
 
-              <div className="divider" />
+          {/* Next Track Buffering */}
+          <section className="settings-section">
+            <div className="settings-section-header">
+              <Download size={18} />
+              <h2>{t('settings.nextTrackBufferingTitle')}</h2>
+            </div>
+            <div className="settings-card">
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: '0.75rem' }}>
+                {t('settings.preloadHotCacheMutualExclusive')}
+              </div>
 
               {/* Preload mode */}
               <div className="settings-toggle-row">
@@ -518,31 +630,165 @@ export default function Settings() {
                   <div style={{ fontWeight: 500 }}>{t('settings.preloadMode')}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.preloadModeDesc')}</div>
                 </div>
-              </div>
-              <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                {(['balanced', 'early', 'custom'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    className={`btn ${auth.preloadMode === mode ? 'btn-primary' : 'btn-surface'}`}
-                    style={{ fontSize: 12, padding: '3px 12px' }}
-                    onClick={() => auth.setPreloadMode(mode)}
-                  >
-                    {t(`settings.preload${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any)}
-                  </button>
-                ))}
-              </div>
-              {auth.preloadMode === 'custom' && (
-                <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <label className="toggle-switch" aria-label={t('settings.preloadMode')}>
                   <input
-                    type="range"
-                    min={5} max={120} step={5}
-                    value={auth.preloadCustomSeconds}
-                    onChange={e => auth.setPreloadCustomSeconds(parseInt(e.target.value))}
-                    style={{ width: 120 }}
+                    type="checkbox"
+                    checked={auth.preloadMode !== 'off'}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        auth.setPreloadMode('balanced');
+                        if (auth.hotCacheEnabled) auth.setHotCacheEnabled(false);
+                      } else {
+                        auth.setPreloadMode('off');
+                      }
+                    }}
                   />
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 36 }}>
-                    {t('settings.preloadCustomSeconds', { n: auth.preloadCustomSeconds })}
-                  </span>
+                  <span className="toggle-track" />
+                </label>
+              </div>
+              {auth.preloadMode !== 'off' && (
+                <>
+                  <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {(['balanced', 'early', 'custom'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        className={`btn ${auth.preloadMode === mode ? 'btn-primary' : 'btn-surface'}`}
+                        style={{ fontSize: 12, padding: '3px 12px' }}
+                        onClick={() => auth.setPreloadMode(mode)}
+                      >
+                        {t(`settings.preload${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any)}
+                      </button>
+                    ))}
+                  </div>
+                  {auth.preloadMode === 'custom' && (
+                    <div style={{ paddingLeft: '1rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input
+                        type="range"
+                        min={5} max={120} step={5}
+                        value={auth.preloadCustomSeconds}
+                        onChange={e => auth.setPreloadCustomSeconds(parseInt(e.target.value))}
+                        style={{ width: 120 }}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 36 }}>
+                        {t('settings.preloadCustomSeconds', { n: auth.preloadCustomSeconds })}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="divider" />
+
+              {/* Hot Cache */}
+              <div className="settings-toggle-row">
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.hotCacheTitle')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.hotCacheDisclaimer')}</div>
+                </div>
+                <label className="toggle-switch" aria-label={t('settings.hotCacheEnabled')}>
+                  <input
+                    type="checkbox"
+                    checked={auth.hotCacheEnabled}
+                    onChange={async e => {
+                      const enabled = e.target.checked;
+                      if (!enabled) {
+                        await clearHotCacheDisk(auth.hotCacheDownloadDir || null);
+                        setHotCacheBytes(0);
+                        auth.setHotCacheEnabled(false);
+                      } else {
+                        auth.setHotCacheEnabled(true);
+                        if (auth.preloadMode !== 'off') auth.setPreloadMode('off');
+                        invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null })
+                          .then(setHotCacheBytes)
+                          .catch(() => setHotCacheBytes(0));
+                      }
+                    }}
+                    id="hot-cache-enabled-toggle"
+                  />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+
+              {auth.hotCacheEnabled && (
+                <div style={{ marginTop: '1.25rem' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      className="input"
+                      type="text"
+                      readOnly
+                      value={auth.hotCacheDownloadDir || t('settings.hotCacheDirDefault')}
+                      style={{ flex: 1, fontSize: 13, color: auth.hotCacheDownloadDir ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'default' }}
+                    />
+                    {auth.hotCacheDownloadDir && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => {
+                          auth.setHotCacheDownloadDir('');
+                          useHotCacheStore.setState({ entries: {} });
+                          invoke<number>('get_hot_cache_size', { customDir: null }).then(setHotCacheBytes).catch(() => setHotCacheBytes(0));
+                        }}
+                        data-tooltip={t('settings.hotCacheDirClear')}
+                        style={{ color: 'var(--text-muted)', flexShrink: 0 }}
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-surface" onClick={pickHotCacheDir} style={{ flexShrink: 0 }}>
+                      <FolderOpen size={16} /> {t('settings.hotCacheDirChange')}
+                    </button>
+                  </div>
+                  {auth.hotCacheDownloadDir && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.4 }}>
+                      {t('settings.hotCacheDirHint')}
+                    </div>
+                  )}
+
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+
+                  <div style={{ fontSize: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                      <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{t('settings.cacheUsedHot')}</span>
+                      {hotCacheBytes !== null ? formatBytes(hotCacheBytes) : '…'}
+                    </div>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                      <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{t('settings.hotCacheTrackCount')}</span>
+                      {hotCacheTrackCount}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 500, marginBottom: 6 }}>{t('settings.hotCacheMaxMb')}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input type="range" min={32} max={20000} step={32} value={snapHotCacheMb(auth.hotCacheMaxMb)} onChange={e => auth.setHotCacheMaxMb(parseInt(e.target.value, 10))} style={{ width: 140 }} id="hot-cache-max-mb-slider" />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 72 }}>{snapHotCacheMb(auth.hotCacheMaxMb)} MB</span>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <div style={{ fontWeight: 500, marginBottom: 6 }}>{t('settings.hotCacheDebounce')}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input type="range" min={0} max={600} step={1} value={Math.min(600, Math.max(0, auth.hotCacheDebounceSec))} onChange={e => auth.setHotCacheDebounceSec(parseInt(e.target.value, 10))} style={{ width: 140 }} id="hot-cache-debounce-slider" />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 100 }}>
+                        {Math.min(600, Math.max(0, auth.hotCacheDebounceSec)) === 0
+                          ? t('settings.hotCacheDebounceImmediate')
+                          : t('settings.hotCacheDebounceSeconds', { n: Math.min(600, Math.max(0, auth.hotCacheDebounceSec)) })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: 13 }}
+                    onClick={async () => {
+                      await clearHotCacheDisk(auth.hotCacheDownloadDir || null);
+                      const b = await invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null }).catch(() => 0);
+                      setHotCacheBytes(b);
+                    }}
+                  >
+                    <Trash2 size={14} /> {t('settings.hotCacheClearBtn')}
+                  </button>
                 </div>
               )}
 
@@ -553,17 +799,7 @@ export default function Settings() {
           <section className="settings-section">
             <div className="settings-section-header">
               <Waves size={18} />
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {t('settings.hiResTitle')}
-                <span style={{
-                  fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-                  letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 4,
-                  background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 22%, transparent)',
-                  color: 'var(--text-primary)',
-                }}>
-                  {t('settings.hotCacheAlphaBadge')}
-                </span>
-              </h2>
+              <h2>{t('settings.hiResTitle')}</h2>
             </div>
             <div className="settings-card">
               <div className="settings-toggle-row">
@@ -618,7 +854,7 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
-              {IS_LINUX && (
+              {IS_LINUX && !isTilingWm && (
                 <>
                   <div className="settings-section-divider" />
                   <div className="settings-toggle-row">
@@ -681,19 +917,11 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
-              <div className="settings-section-divider" />
-              <div className="settings-toggle-row">
-                <div>
-                  <div style={{ fontWeight: 500 }}>{t('settings.lyricsServerFirst')}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.lyricsServerFirstDesc')}</div>
-                </div>
-                <label className="toggle-switch" aria-label={t('settings.lyricsServerFirst')}>
-                  <input type="checkbox" checked={auth.lyricsServerFirst} onChange={e => auth.setLyricsServerFirst(e.target.checked)} />
-                  <span className="toggle-track" />
-                </label>
-              </div>
             </div>
           </section>
+
+          {/* Lyrics Sources */}
+          <LyricsSourcesCustomizer />
 
           {/* Random Mix */}
           <section className="settings-section">
@@ -987,164 +1215,6 @@ export default function Settings() {
             </div>
           </section>
 
-          <section className="settings-section">
-            <div className="settings-section-header">
-              <HardDrive size={18} />
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                {t('settings.hotCacheTitle')}
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 22%, transparent)',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  {t('settings.hotCacheAlphaBadge')}
-                </span>
-              </h2>
-            </div>
-            <div className="settings-card">
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-                {t('settings.hotCacheDisclaimer')}
-              </div>
-
-              <div className="settings-toggle-row">
-                <div>
-                  <div style={{ fontWeight: 500 }}>{t('settings.hotCacheEnabled')}</div>
-                </div>
-                <label className="toggle-switch" aria-label={t('settings.hotCacheEnabled')}>
-                  <input
-                    type="checkbox"
-                    checked={auth.hotCacheEnabled}
-                    onChange={async e => {
-                      const enabled = e.target.checked;
-                      if (!enabled) {
-                        await clearHotCacheDisk(auth.hotCacheDownloadDir || null);
-                        setHotCacheBytes(0);
-                        auth.setHotCacheEnabled(false);
-                      } else {
-                        auth.setHotCacheEnabled(true);
-                        invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null })
-                          .then(setHotCacheBytes)
-                          .catch(() => setHotCacheBytes(0));
-                      }
-                    }}
-                    id="hot-cache-enabled-toggle"
-                  />
-                  <span className="toggle-track" />
-                </label>
-              </div>
-
-              {auth.hotCacheEnabled && (
-                <div style={{ marginTop: '1.25rem' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      className="input"
-                      type="text"
-                      readOnly
-                      value={auth.hotCacheDownloadDir || t('settings.hotCacheDirDefault')}
-                      style={{ flex: 1, fontSize: 13, color: auth.hotCacheDownloadDir ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'default' }}
-                    />
-                    {auth.hotCacheDownloadDir && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => {
-                          auth.setHotCacheDownloadDir('');
-                          useHotCacheStore.setState({ entries: {} });
-                          invoke<number>('get_hot_cache_size', { customDir: null }).then(setHotCacheBytes).catch(() => setHotCacheBytes(0));
-                        }}
-                        data-tooltip={t('settings.hotCacheDirClear')}
-                        style={{ color: 'var(--text-muted)', flexShrink: 0 }}
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
-                    <button type="button" className="btn btn-surface" onClick={pickHotCacheDir} style={{ flexShrink: 0 }}>
-                      <FolderOpen size={16} /> {t('settings.hotCacheDirChange')}
-                    </button>
-                  </div>
-                  {auth.hotCacheDownloadDir && (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.4 }}>
-                      {t('settings.hotCacheDirHint')}
-                    </div>
-                  )}
-
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
-
-                  <div style={{ fontSize: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div style={{ color: 'var(--text-secondary)' }}>
-                      <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{t('settings.cacheUsedHot')}</span>
-                      {hotCacheBytes !== null ? formatBytes(hotCacheBytes) : '…'}
-                    </div>
-                    <div style={{ color: 'var(--text-secondary)' }}>
-                      <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{t('settings.hotCacheTrackCount')}</span>
-                      {hotCacheTrackCount}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontWeight: 500, marginBottom: 6 }}>{t('settings.hotCacheMaxMb')}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <input
-                        type="range"
-                        min={32}
-                        max={20000}
-                        step={32}
-                        value={snapHotCacheMb(auth.hotCacheMaxMb)}
-                        onChange={e => auth.setHotCacheMaxMb(parseInt(e.target.value, 10))}
-                        style={{ width: 140 }}
-                        id="hot-cache-max-mb-slider"
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 72 }}>
-                        {snapHotCacheMb(auth.hotCacheMaxMb)} MB
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: '0.75rem' }}>
-                    <div style={{ fontWeight: 500, marginBottom: 6 }}>{t('settings.hotCacheDebounce')}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <input
-                        type="range"
-                        min={0}
-                        max={600}
-                        step={1}
-                        value={Math.min(600, Math.max(0, auth.hotCacheDebounceSec))}
-                        onChange={e => auth.setHotCacheDebounceSec(parseInt(e.target.value, 10))}
-                        style={{ width: 140 }}
-                        id="hot-cache-debounce-slider"
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 100 }}>
-                        {Math.min(600, Math.max(0, auth.hotCacheDebounceSec)) === 0
-                          ? t('settings.hotCacheDebounceImmediate')
-                          : t('settings.hotCacheDebounceSeconds', { n: Math.min(600, Math.max(0, auth.hotCacheDebounceSec)) })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={{ fontSize: 13 }}
-                    onClick={async () => {
-                      await clearHotCacheDisk(auth.hotCacheDownloadDir || null);
-                      const b = await invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null }).catch(() => 0);
-                      setHotCacheBytes(b);
-                    }}
-                  >
-                    <Trash2 size={14} /> {t('settings.hotCacheClearBtn')}
-                  </button>
-                </div>
-              )}
-            </div>
-          </section>
-
           {/* ZIP Export & Archiving */}
           <section className="settings-section">
             <div className="settings-section-header">
@@ -1216,7 +1286,131 @@ export default function Settings() {
               <h2>{t('settings.theme')}</h2>
             </div>
             <div className="settings-card">
+              {theme.enableThemeScheduler && (
+                <div className="settings-hint settings-hint-info" style={{ marginBottom: '0.75rem' }}>
+                  {t('settings.themeSchedulerActiveHint')}
+                </div>
+              )}
               <ThemePicker value={theme.theme} onChange={v => theme.setTheme(v as any)} />
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-header">
+              <Clock size={18} />
+              <h2>{t('settings.themeSchedulerTitle')}</h2>
+            </div>
+            <div className="settings-card">
+              <div className="settings-toggle-row">
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.themeSchedulerEnable')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.themeSchedulerEnableSub')}</div>
+                </div>
+                <label className="toggle-switch" aria-label={t('settings.themeSchedulerEnable')}>
+                  <input type="checkbox" checked={theme.enableThemeScheduler} onChange={e => theme.setEnableThemeScheduler(e.target.checked)} />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+              {theme.enableThemeScheduler && (() => {
+                const themeOptions = THEME_GROUPS.flatMap(g =>
+                  g.themes.map(th => ({ value: th.id, label: th.label, group: g.group }))
+                );
+                const use12h = i18n.language === 'en';
+                const hourOptions = Array.from({ length: 24 }, (_, i) => {
+                  const value = String(i).padStart(2, '0');
+                  const label = use12h
+                    ? `${i % 12 === 0 ? 12 : i % 12} ${i < 12 ? 'AM' : 'PM'}`
+                    : value;
+                  return { value, label };
+                });
+                const minuteOptions = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => ({ value: m, label: m }));
+                const dayH = theme.timeDayStart.split(':')[0];
+                const dayM = theme.timeDayStart.split(':')[1];
+                const nightH = theme.timeNightStart.split(':')[0];
+                const nightM = theme.timeNightStart.split(':')[1];
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                    <div className="form-group">
+                      <label className="settings-label" style={{ marginBottom: 6 }}>{t('settings.themeSchedulerDayTheme')}</label>
+                      <CustomSelect value={theme.themeDay} onChange={theme.setThemeDay} options={themeOptions} />
+                    </div>
+                    <div className="form-group">
+                      <label className="settings-label" style={{ marginBottom: 6 }}>{t('settings.themeSchedulerDayStart')}</label>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <CustomSelect value={dayH} onChange={v => theme.setTimeDayStart(`${v}:${dayM}`)} options={hourOptions} />
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>:</span>
+                        <CustomSelect value={dayM} onChange={v => theme.setTimeDayStart(`${dayH}:${v}`)} options={minuteOptions} />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="settings-label" style={{ marginBottom: 6 }}>{t('settings.themeSchedulerNightTheme')}</label>
+                      <CustomSelect value={theme.themeNight} onChange={theme.setThemeNight} options={themeOptions} />
+                    </div>
+                    <div className="form-group">
+                      <label className="settings-label" style={{ marginBottom: 6 }}>{t('settings.themeSchedulerNightStart')}</label>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <CustomSelect value={nightH} onChange={v => theme.setTimeNightStart(`${v}:${nightM}`)} options={hourOptions} />
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>:</span>
+                        <CustomSelect value={nightM} onChange={v => theme.setTimeNightStart(`${nightH}:${v}`)} options={minuteOptions} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-header">
+              <ZoomIn size={18} />
+              <h2>{t('settings.uiScaleTitle')}</h2>
+            </div>
+            <div className="settings-card">
+              {/* TODO: UI scaling is being reworked — disabled until fixed */}
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                Interface scaling is currently being reworked and will be available in a future update.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.4, pointerEvents: 'none', marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('settings.uiScaleLabel')}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', minWidth: 40, textAlign: 'right' }}>
+                    {Math.round(fontStore.uiScale * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.8}
+                  max={1.5}
+                  step={0.05}
+                  value={fontStore.uiScale}
+                  onChange={e => fontStore.setUiScale(parseFloat(e.target.value))}
+                  className="ui-scale-slider"
+                />
+                <div style={{ position: 'relative', height: 24 }}>
+                  {[80, 90, 100, 110, 125, 150].map(p => {
+                    const pct = ((p / 100) - 0.8) / (1.5 - 0.8) * 100;
+                    const active = Math.round(fontStore.uiScale * 100) === p;
+                    return (
+                      <button
+                        key={p}
+                        className="btn btn-ghost"
+                        style={{
+                          position: 'absolute',
+                          left: `${pct}%`,
+                          transform: 'translateX(-50%)',
+                          fontSize: 11,
+                          padding: '2px 6px',
+                          opacity: active ? 1 : 0.5,
+                          color: active ? 'var(--accent)' : undefined,
+                        }}
+                        onClick={() => fontStore.setUiScale(p / 100)}
+                      >
+                        {p}%
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1264,7 +1458,7 @@ export default function Settings() {
                 {t('settings.seekbarStyleDesc')}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {(['waveform', 'linedot', 'bar', 'thick', 'segmented'] as SeekbarStyle[]).map(style => (
+                {(['waveform', 'linedot', 'bar', 'thick', 'segmented', 'neon', 'pulsewave', 'particletrail', 'liquidfill', 'retrotape'] as SeekbarStyle[]).map(style => (
                   <SeekbarPreview
                     key={style}
                     style={style}
@@ -1289,12 +1483,16 @@ export default function Settings() {
             <Keyboard size={18} />
             <h2>{t('settings.tabInput')}</h2>
           </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-ghost"
+              style={{ position: 'absolute', top: -22, right: 0, fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px' }}
+              onClick={() => { kb.resetToDefaults(); setListeningFor(null); }}
+              data-tooltip={t('settings.shortcutsReset')}
+            >
+              <RotateCcw size={14} />
+            </button>
           <div className="settings-card">
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-              <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { kb.resetToDefaults(); setListeningFor(null); }}>
-                {t('settings.shortcutsReset')}
-              </button>
-            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {([
                 ['play-pause',        t('settings.shortcutPlayPause')],
@@ -1365,6 +1563,7 @@ export default function Settings() {
               })}
             </div>
           </div>
+          </div>
         </section>
 
         <section className="settings-section">
@@ -1375,12 +1574,16 @@ export default function Settings() {
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.5 }}>
             {t('settings.globalShortcutsNote')}
           </p>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-ghost"
+              style={{ position: 'absolute', top: -22, right: 0, fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px' }}
+              onClick={() => { gs.resetAll(); setListeningForGlobal(null); }}
+              data-tooltip={t('settings.shortcutsReset')}
+            >
+              <RotateCcw size={14} />
+            </button>
           <div className="settings-card">
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-              <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { gs.resetAll(); setListeningForGlobal(null); }}>
-                {t('settings.shortcutsReset')}
-              </button>
-            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {([
                 ['play-pause',  t('settings.shortcutPlayPause')],
@@ -1447,6 +1650,7 @@ export default function Settings() {
                 );
               })}
             </div>
+          </div>
           </div>
         </section>
         </>
@@ -1522,6 +1726,71 @@ export default function Settings() {
                           </button>
                         </div>
                       </div>
+                      {showAudiomuseNavidromeServerSetting(
+                        auth.subsonicServerIdentityByServer[srv.id],
+                        auth.instantMixProbeByServer[srv.id],
+                      ) && (
+                        <div
+                          className="settings-toggle-row"
+                          style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid color-mix(in srgb, var(--text-muted) 18%, transparent)' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', minWidth: 0 }}>
+                            <Sparkles size={16} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
+                            <div>
+                              <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                {t('settings.audiomuseTitle')}
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
+                                    padding: '2px 6px',
+                                    borderRadius: 4,
+                                    background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 22%, transparent)',
+                                    color: 'var(--text-primary)',
+                                  }}
+                                >
+                                  {t('settings.hotCacheAlphaBadge')}
+                                </span>
+                                {!!auth.audiomuseNavidromeByServer[srv.id] && auth.audiomuseNavidromeIssueByServer[srv.id] && (
+                                  <AlertTriangle
+                                    size={16}
+                                    style={{ color: 'var(--color-warning, #f59e0b)', flexShrink: 0 }}
+                                    data-tooltip={t('settings.audiomuseIssueHint')}
+                                    aria-label={t('settings.audiomuseIssueHint')}
+                                  />
+                                )}
+                              </div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                                <Trans
+                                  i18nKey="settings.audiomuseDesc"
+                                  components={{
+                                    pluginLink: (
+                                      <a
+                                        href={AUDIOMUSE_NV_PLUGIN_URL}
+                                        onClick={e => {
+                                          e.preventDefault();
+                                          void openUrl(AUDIOMUSE_NV_PLUGIN_URL);
+                                        }}
+                                        style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                                      />
+                                    ),
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <label className="toggle-switch" aria-label={t('settings.audiomuseTitle')}>
+                            <input
+                              type="checkbox"
+                              checked={!!auth.audiomuseNavidromeByServer[srv.id]}
+                              onChange={e => auth.setAudiomuseNavidromeEnabled(srv.id, e.target.checked)}
+                            />
+                            <span className="toggle-track" />
+                          </label>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1729,14 +1998,16 @@ export default function Settings() {
                 </div>
               </div>
 
-              <button
-                className="btn btn-ghost"
-                style={{ marginTop: '1.25rem', alignSelf: 'flex-start' }}
-                onClick={() => openUrl('https://github.com/Psychotoxical/psysonic')}
-              >
-                <ExternalLink size={14} />
-                {t('settings.aboutRepo')}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-ghost"
+                  style={{ alignSelf: 'flex-start' }}
+                  onClick={() => openUrl('https://github.com/Psychotoxical/psysonic')}
+                >
+                  <ExternalLink size={14} />
+                  {t('settings.aboutRepo')}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -1782,25 +2053,27 @@ function HomeCustomizer() {
       <div className="settings-section-header">
         <LayoutGrid size={18} />
         <h2>{t('settings.homeCustomizerTitle')}</h2>
+      </div>
+      <div style={{ position: 'relative' }}>
         <button
           className="btn btn-ghost"
-          style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}
+          style={{ position: 'absolute', top: -22, right: 0, fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px' }}
           onClick={reset}
           data-tooltip={t('settings.sidebarReset')}
         >
           <RotateCcw size={14} />
         </button>
-      </div>
-      <div className="settings-card" style={{ padding: '4px 0' }}>
-        {sections.map(sec => (
-          <div key={sec.id} className="settings-toggle-row" style={{ padding: '8px 16px' }}>
-            <span style={{ fontSize: 14 }}>{SECTION_LABELS[sec.id]}</span>
-            <label className="toggle-switch" aria-label={SECTION_LABELS[sec.id]}>
-              <input type="checkbox" checked={sec.visible} onChange={() => toggleSection(sec.id)} />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        ))}
+        <div className="settings-card" style={{ padding: '4px 0' }}>
+          {sections.map(sec => (
+            <div key={sec.id} className="settings-toggle-row" style={{ padding: '8px 16px' }}>
+              <span style={{ fontSize: 14 }}>{SECTION_LABELS[sec.id]}</span>
+              <label className="toggle-switch" aria-label={SECTION_LABELS[sec.id]}>
+                <input type="checkbox" checked={sec.visible} onChange={() => toggleSection(sec.id)} />
+                <span className="toggle-track" />
+              </label>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -1823,6 +2096,134 @@ function SidebarGripHandle({ idx, section, label }: { idx: number; section: 'lib
     </span>
   );
 }
+
+// ── Lyrics Sources Customizer ──────────────────────────────────────────────
+
+const LYRICS_SOURCE_LABEL_KEYS: Record<LyricsSourceId, string> = {
+  server:  'settings.lyricsSourceServer',
+  lrclib:  'settings.lyricsSourceLrclib',
+  netease: 'settings.lyricsSourceNetease',
+};
+
+type LyricsDropTarget = { idx: number; before: boolean } | null;
+
+function LyricsSourceGripHandle({ idx, label }: { idx: number; label: string }) {
+  const { t } = useTranslation();
+  const { onMouseDown } = useDragSource(() => ({
+    data: JSON.stringify({ type: 'lyrics_source_reorder', index: idx }),
+    label,
+  }));
+  return (
+    <span
+      className="sidebar-customizer-grip"
+      data-tooltip={t('settings.sidebarDrag')}
+      data-tooltip-pos="right"
+      onMouseDown={onMouseDown}
+    >
+      <GripVertical size={16} />
+    </span>
+  );
+}
+
+function LyricsSourcesCustomizer() {
+  const { t } = useTranslation();
+  const lyricsSources = useAuthStore(useShallow(s => s.lyricsSources));
+  const setLyricsSources = useAuthStore(s => s.setLyricsSources);
+  const { isDragging: isPsyDragging } = useDragDrop();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dropTarget, setDropTarget] = useState<LyricsDropTarget>(null);
+  const dropTargetRef = useRef<LyricsDropTarget>(null);
+  const sourcesRef = useRef(lyricsSources);
+  sourcesRef.current = lyricsSources;
+
+  useEffect(() => {
+    if (!isPsyDragging) { dropTargetRef.current = null; setDropTarget(null); }
+  }, [isPsyDragging]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onPsyDrop = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.data) return;
+      let parsed: { type?: string; index?: number };
+      try { parsed = JSON.parse(detail.data as string); } catch { return; }
+      if (parsed.type !== 'lyrics_source_reorder' || parsed.index == null) return;
+
+      const fromIdx = parsed.index;
+      const target = dropTargetRef.current;
+      dropTargetRef.current = null; setDropTarget(null);
+      if (!target) return;
+
+      const insertBefore = target.before ? target.idx : target.idx + 1;
+      if (insertBefore === fromIdx || insertBefore === fromIdx + 1) return;
+
+      const next = [...sourcesRef.current];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(insertBefore > fromIdx ? insertBefore - 1 : insertBefore, 0, moved);
+      setLyricsSources(next);
+    };
+    el.addEventListener('psy-drop', onPsyDrop);
+    return () => el.removeEventListener('psy-drop', onPsyDrop);
+  }, [setLyricsSources]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPsyDragging || !containerRef.current) return;
+    const rows = containerRef.current.querySelectorAll<HTMLElement>('[data-lyrics-idx]');
+    let target: LyricsDropTarget = null;
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect();
+      const idx = Number(row.dataset.lyricsIdx);
+      if (e.clientY < rect.top + rect.height / 2) { target = { idx, before: true }; break; }
+      target = { idx, before: false };
+    }
+    dropTargetRef.current = target;
+    setDropTarget(target);
+  };
+
+  const toggleSource = (id: LyricsSourceId) => {
+    setLyricsSources(sourcesRef.current.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+  };
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-header">
+        <Music2 size={18} />
+        <h2>{t('settings.lyricsSourcesTitle')}</h2>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+        {t('settings.lyricsSourcesDesc')}
+      </p>
+      <div className="settings-card" style={{ padding: '4px 0' }} ref={containerRef} onMouseMove={handleMouseMove}>
+        {lyricsSources.map((src, i) => {
+          const label = t(LYRICS_SOURCE_LABEL_KEYS[src.id]);
+          const isBefore = isPsyDragging && dropTarget?.idx === i && dropTarget.before;
+          const isAfter  = isPsyDragging && dropTarget?.idx === i && !dropTarget.before;
+          return (
+            <div
+              key={src.id}
+              data-lyrics-idx={i}
+              className="sidebar-customizer-row"
+              style={{
+                borderTop:    isBefore ? '2px solid var(--accent)' : undefined,
+                borderBottom: isAfter  ? '2px solid var(--accent)' : undefined,
+              }}
+            >
+              <LyricsSourceGripHandle idx={i} label={label} />
+              <span style={{ flex: 1, fontSize: 14, opacity: src.enabled ? 1 : 0.45 }}>{label}</span>
+              <label className="toggle-switch" aria-label={label}>
+                <input type="checkbox" checked={src.enabled} onChange={() => toggleSource(src.id)} />
+                <span className="toggle-track" />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── Sidebar Customizer ──────────────────────────────────────────────────────
 
 type DropTarget = { idx: number; before: boolean; section: 'library' | 'system' } | null;
 

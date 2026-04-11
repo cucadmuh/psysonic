@@ -5,6 +5,202 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.8] - 2026-04-10
+
+### Added
+
+- **Netease Cloud Music Lyrics** *(opt-in)*: Netease Cloud Music can now be enabled in Settings → General as a last-resort lyrics fallback. It only fires when neither the server nor LRCLIB return results — the existing lyrics chain is completely unaffected. Particularly useful for Asian and international music. Chinese metadata lines (作词/作曲/编曲 etc.) are automatically stripped from the LRC output.
+
+- **Navidrome AudioMuse-AI Integration** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#147](https://github.com/Psychotoxical/psysonic/pull/147))*: Psysonic now  supports [AudioMuse-AI](https://github.com/cucadmuh/audiomuse-ai) if it is active on the Navidrome server and uses it for Random Mix, Similar Artists, and Instant Mix. No configuration required — Psysonic keeps its existing behavior when AudioMuse is unavailable. Also includes an Instant Mix probe, ping identity, and improved UX for AudioMuse-specific actions.
+
+- **ICY metadata & AzuraCast radio** *(contributed by [@sorensiimSalling](https://github.com/sorensiimSalling), PR [#146](https://github.com/Psychotoxical/psysonic/pull/146))*: Internet radio now displays live track metadata from ICY streams. AzuraCast stations are supported with extended now-playing information.
+
+- **Automatic audio device switching**: Psysonic now detects newly connected or changed audio output devices and switches to them automatically — no app restart required.
+
+### Fixed
+
+- **Multi-artist tracks**: Tracks with multiple artists (OpenSubsonic `artists[]` field, e.g. semicolon-separated entries) now display each artist individually. Artists with their own profile page are clickable links; artists without one appear as plain text. Separated by `·`.
+
+- **Gapless + Preload Gate**: The gapless chain and the preload gate now run on separate paths. Previously both could fire simultaneously, causing a brief black flash on track change.
+
+- **Replay Gain — missing album gain**: When no album gain tag is present, Psysonic now correctly falls back to track gain instead of skipping gain correction entirely.
+
+- **Statistics — music library scope**: Genre insights now respect the currently selected music library. Fetch results are cached to avoid redundant server requests. Playback durations are displayed in localized units.
+
+- **Russian locale**: "Most Played" in the sidebar, home page, and page title now uses «Популярное».
+
+### Changed
+
+- **"Reset to defaults" buttons** in Settings → Input are now styled as warning buttons (red border).
+- **Lyrics button** removed from the player bar (redundant with the queue panel tab).
+- **Icons**: Advanced search now uses the `TextSearch` icon; artist bio button now uses `Highlighter`.
+- **Album chip** in the album detail header is now opaque across all themes.
+- **Hot Cache and Hi-Res Audio**: Alpha badges removed — both features are production-ready.
+- **CPU optimisations**: Next-track buffering and preload settings have been consolidated into a unified control.
+
+### Theme Fixes
+
+- **Middle Earth**: Removed vertical stripe pattern from sidebar; improved queue artist contrast on hover; fixed album detail artist colour, bio text, and "Read more" link readability; "Next Tracks" divider label is now lighter.
+- **Toy Tale**: Fixed sidebar section labels (System/Library), queue tab buttons (Lyrics/Queue), inactive artist text, and "Next Tracks" divider label — all were too dark to read.
+- **Tetrastack**: Raised all purple and blue palette values (`#a020f0` → `#c070ff`, `#0060f0` → `#4090ff`); raised `--text-muted` from `#3a3a6a` to `#7878b8` — affected settings descriptions, artist names in tracklists, and queue labels.
+- **Horde & Alliance**: Removed repeating horizontal line pattern from sidebar.
+
+### Contributors
+
+Thank you to everyone who contributed to this release:
+
+- [@cucadmuh](https://github.com/cucadmuh) — AudioMuse-AI Navidrome integration (PR [#147](https://github.com/Psychotoxical/psysonic/pull/147))
+- [@sorensiimSalling](https://github.com/sorensiimSalling) — ICY metadata & AzuraCast radio support (PR [#146](https://github.com/Psychotoxical/psysonic/pull/146))
+
+You make Psysonic better. 🙌
+
+---
+
+## [1.34.7] - 2026-04-09
+
+### Added
+
+- **Windows — Taskbar Thumbnail Toolbar**: Prev / Play-Pause / Next media buttons now appear in the Windows taskbar thumbnail preview (the popup that appears when hovering over the taskbar icon). Buttons emit the same `media:*` events as the tray menu and souvlaki. The Play/Pause icon swaps in real-time as playback state changes.
+
+- **Windows — High-quality taskbar icons**: The taskbar thumbnail toolbar icons are now loaded from embedded `.ico` assets (`play.ico`, `pause.ico`, `prev.ico`, `next.ico`) via `CreateIconFromResourceEx`, replacing the previous monochrome GDI drawing code. All four icons are properly cleaned up on window destruction.
+
+- **Professional update modal**: The in-app updater now shows a polished modal with the full release changelog, a **Skip this version** option, and an OS-aware direct download button (`.dmg` on macOS, `.exe` on Windows, `.deb`/`.rpm` on Linux) as a fallback if the auto-update fails. The modal is fully localised in all 7 supported languages.
+
+- **Self-hosted fonts — no internet required**: All 10 UI fonts are now shipped as WOFF2 files bundled into the app via `@fontsource-variable` npm packages. The previous Google Fonts CDN dependency has been removed entirely — Psysonic now renders correctly with no internet connection and without any external requests on startup.
+
+- **Help — 11 new FAQ entries**: The Help page covers previously undocumented features across Ratings (how to rate songs/albums/artists, removing a rating, Skip-to-1★, rating filter for mixes), Folder Browser, Theme Scheduler, UI Scale, Seekbar styles, AutoEQ, Replay Gain, Hot Cache, and offline playlist caching. All 7 locales updated.
+
+### Fixed
+
+- **Embedded lyrics (MP3 & FLAC)**: A new `get_embedded_lyrics` Tauri command reads lyrics tags directly from local files — `SYLT`/`USLT` frames for MP3 (via the `id3` crate) and `SYNCEDLYRICS`/`LYRICS` tags for FLAC (via `lofty`). Additionally: the LRC parser now correctly handles timestamps without fractional seconds (e.g. `[01:23]`), and the Subsonic structured-lyrics parser now accepts both `synced` and `issynced` field names for compatibility with different server versions.
+
+- **Linux — player bar disappearing at high zoom / small window sizes**: All `grid-template-rows` definitions now use `minmax(0, 1fr)` instead of bare `1fr`, and the `min-height: 720px` constraint on the app shell has been removed. The player bar no longer gets pushed off-screen when the window is small or the UI scale is above 100 %.
+
+- **Windows — "Open folder" in Settings crashing**: The Settings page uses a Rust `open_folder` command instead of the Tauri `shell:open` API, which was blocked by the capability scope on Windows for local paths.
+
+- **macOS — Artist Radio crashing WKWebView after ~10 minutes**: Storing `currentTime` in the persisted Zustand state caused up to ~1,200 synchronous `localStorage.setItem` calls per radio session, eventually crashing the WKWebView SQLite backend. `currentTime` has been removed from the persist partializer. Old played radio tracks are also now trimmed from the queue (keeping the last 5) to cap the localStorage payload during queue top-up.
+
+- **Artist Radio — predictable track order**: The initial Artist Radio queue is now shuffled via Fisher-Yates, so positions 2+ draw from similar-artist tracks in a random order rather than always playing the server's top-5 tracks in sequence.
+
+- **Internet Radio — stall / buffering recovery**: Stall events on the HTML5 `<audio>` element now trigger automatic reconnection (up to 5 retries), recovering from transient network interruptions without requiring a manual restart.
+
+- **Corrupt MP3s — VLC-style frame tolerance**: The audio decoder now tolerates up to 100 consecutive bad frames before giving up (previously 3), matching VLC's behavior for files with invalid `main_data` offset frames. Frame-drop log messages are suppressed in release builds.
+
+- **Statistics — album/song totals respect selected music library**: Album and track counts on the Statistics page were previously derived from `getGenres()`, which is not scoped to the active music folder. Both counts are now derived from the same paginated `getAlbumList` pass used for playtime, with the same 5,000-album cap and a `≥` prefix when capped. *(PR [#138](https://github.com/Psychotoxical/psysonic/pull/138) by [@cucadmuh](https://github.com/cucadmuh))*
+
+- **Fullscreen — resize grips visible in native fullscreen**: Resize grips are now hidden whenever the window enters native fullscreen on all platforms (previously only tracked on Linux). An initial check on mount also catches windows that start in a maximized or fullscreen state.
+
+- **Albums page — year filter input height**: The "From year" / "To year" inputs in the Albums filter bar now match the height and font size of adjacent buttons, fixing the mixed-height row introduced in v1.34.4.
+
+- **Russian locale — missing lyrics-source strings**: The `lyricsServerFirst` and related settings strings were not translated in the Russian locale. *(PR [#140](https://github.com/Psychotoxical/psysonic/pull/140) by [@kilyabin](https://github.com/kilyabin))*
+
+### Contributors
+
+Thank you to everyone who contributed to this release:
+
+- [@cucadmuh](https://github.com/cucadmuh) — Statistics music-folder scope fix (PR [#138](https://github.com/Psychotoxical/psysonic/pull/138))
+- [@kilyabin](https://github.com/kilyabin) — Russian locale lyrics strings (PR [#140](https://github.com/Psychotoxical/psysonic/pull/140))
+
+---
+
+## [1.34.6] - 2026-04-08
+
+> I'm sorry this is already the third release today — every time we shipped a critical fix, another critical issue surfaced. Hopefully this one holds. 🤞
+
+### 🚨 Critical Fix
+
+- **ZIP downloads no longer freeze the UI**: All ZIP downloads (Album Detail, Playlist Detail, Albums, New Releases, Random Albums) previously buffered the entire file in the JS heap via `fetch + blob + arrayBuffer`, which caused the app to become completely unresponsive for large downloads (e.g. a 600-song, 7 GB playlist). Downloads now stream directly to disk via the Rust backend (`invoke('download_zip')`), matching the existing single-album download behavior. Progress is shown in the download overlay (bottom right).
+
+- **Offline cache downloads no longer freeze the UI**: Caching a large playlist (600+ songs) triggered up to ~1,200 synchronous `localStorage.setItem` calls as Zustand's `persist` middleware wrote on every state update. Transient download job state has been moved to a new non-persisted store (`offlineJobStore`), reducing localStorage writes for an entire download to **2** regardless of playlist size.
+
+### Added
+
+- **Playlist offline toggle**: When a playlist is already cached offline, clicking the cache button now removes it from the offline cache (shown with a red trash icon) instead of re-downloading it.
+
+### Fixed
+
+- **Home page — "Recently Added" section title** now links to `/new-releases` instead of `/albums`.
+
+---
+
+## [1.34.5] - 2026-04-08
+
+### 🚨 Critical Fix
+
+- **Massive API request flood fixed** *(closes [#133](https://github.com/Psychotoxical/psysonic/issues/133))*: Psysonic was generating 15,000+ background requests per day, filling reverse-proxy access logs (Traefik, nginx) and in some cases crashing the proxy entirely. Four root causes identified and resolved:
+  - **Now Playing polling**: Was firing every 10 seconds unconditionally — even when minimized or the dropdown was closed. Now only polls while the dropdown is open, and respects the Page Visibility API to pause immediately when the window is hidden.
+  - **Connection check interval**: Reduced from every 30 seconds to every **120 seconds** (4× reduction).
+  - **Queue sync debounce**: Increased from 1.5 s to **5 s**, preventing request bursts when skipping rapidly through tracks.
+  - **Rating prefetch cache**: Artist and album ratings are now cached in memory for **7 minutes**. Repeated page loads (Random Albums, Random Mix) no longer re-fetch ratings that were just retrieved.
+
+### Added
+
+- **Theme Scheduler** *(Settings → Appearance)*: Automatically switches the active theme at configurable times of day. Two time slots (e.g. a light theme during the day, a dark one at night). English locale displays hours in 12-hour AM/PM format; all other languages use 24-hour format.
+
+- **Theme Scheduler hint**: When the scheduler is active, a notice appears at the top of the Theme Picker explaining why manually selecting a theme has no immediate effect.
+
+- **UI Scale** *(Settings → Appearance)*: Adjust the global interface scale (80 % – 125 %) without changing the system font size.
+
+- **Folder Browser**: New sidebar section with Miller-columns directory navigation. Browse the server's music folder tree and play or queue folders directly.
+
+- **Seekbar — Waveform fade edges**: The Waveform seekbar style now fades out at both ends, giving it a cleaner, less abrupt look.
+
+- **Cover art fallback logo**: When a cover art image fails to load (broken URL, server error), the Psysonic logo is shown as a placeholder instead of a broken image icon.
+
+- **Tiling WM support** *(PR [#134](https://github.com/Psychotoxical/psysonic/pull/134))*: On tiling window managers (Hyprland, Sway, i3, bspwm, AwesomeWM, etc.) the custom title bar is automatically hidden — the WM manages window decorations. The title bar toggle in Settings is also hidden on tiling WMs. Detection is based on environment variables (`HYPRLAND_INSTANCE_SIGNATURE`, `SWAYSOCK`, `I3SOCK`, `XDG_CURRENT_DESKTOP`).
+
+### Changed
+
+- **Custom title bar disabled by default**: New installations start with the native OS title bar. Existing users keep their saved preference.
+
+### Fixed
+
+- **Custom title bar (Linux) — drag & resize**: Window dragging via the title bar now works correctly (missing Tauri `core:window:allow-start-dragging` capability was silently blocking it). CSS resize grips are now shown at the bottom corners to compensate for the removed native GTK grips. The title bar no longer misplaces itself when the window is resized to a small width (mobile-grid layout now includes the title bar row).
+
+- **Fullscreen Player — accent color delay**: The dynamic accent color extracted from album artwork now appears in ~200–300 ms instead of up to 18 seconds. The previous implementation queued the cover fetch behind up to 5 concurrent image loads via the app-wide image cache. It now fetches the cover directly and independently. The extracted color is also cached per cover ID, so switching between tracks on the same album is instant.
+
+- **Artist Detail page — slow initial render** *(closes [#132](https://github.com/Psychotoxical/psysonic/issues/132))*: Artist info and biography are now fetched independently of the main artist data, so the page renders immediately and the bio fades in once available. Previously, a slow `getArtistInfo` response blocked the entire page from rendering.
+
+- **Seekbar — Pulse Wave & Retro Tape styles**: Pulse Wave no longer leaves a stray connecting line at the playhead position. Retro Tape's rolling wheel is now anchored at the playhead instead of the center of the bar.
+
+- **Statistics — Top Rated Songs/Artists sections removed**: These sections were incorrectly added in v1.34.4 and have been removed. All other rating features from that release remain fully intact.
+
+---
+
+## [1.34.4] - 2026-04-08
+
+### Added
+
+- **Entity ratings** *(PR [#130](https://github.com/Psychotoxical/psysonic/pull/130))*: Full star-rating support (1–5 ★) for songs, albums, and artists via the OpenSubsonic `setRating` API. Ratings are shown and editable in the album track list, artist detail page, and the Favorites song list. A new shared `StarRating` component is used consistently across all surfaces. Requires an OpenSubsonic-compatible server (e.g. Navidrome ≥ 0.53).
+
+- **Song ratings — context menu & player bar**: Songs can additionally be rated directly from the **right-click context menu** and from the **player bar** (below the artist name), with optimistic updates reflected immediately across all views.
+
+- **Skip-to-1★** *(PR [#130](https://github.com/Psychotoxical/psysonic/pull/130))*: Automatically assigns a 1-star rating to a song after it has been manually skipped a configurable number of consecutive times. This skip count threshold can be enabled and adjusted in Settings → Ratings.
+
+- **Mix minimum rating filter** *(PR [#130](https://github.com/Psychotoxical/psysonic/pull/130))*: Random Mix and Home Quick Mix can now be filtered by minimum rating per entity type (song / album / artist). Configure thresholds in Settings → Ratings.
+
+- **Statistics — Top Rated Songs & Artists**: New "Top Rated Songs" and "Top Rated Artists" sections on the Statistics page, derived from starred items with a `userRating > 0`. Lists update live as ratings are changed without a page reload.
+
+- **Seekbar styles — 5 new styles**: Added Neon Glow, Pulse Wave, Particle Trail, Liquid Fill, and Retro Tape. Animated styles run a dedicated `requestAnimationFrame` loop. The style picker in Settings shows an animated live preview for each style.
+
+- **Custom title bar (Linux)**: Optional custom title bar with now-playing display (song title + artist, live-updating). Replaces the native GTK decoration when enabled. Automatically hides in native fullscreen (F11). Can be toggled in Settings → Appearance.
+
+- **Album multi-select**: Albums, New Releases, and Random Albums pages now support multi-select mode. Selected albums can be batch-queued or enqueued.
+
+- **Most Played — compilation filter**: New toggle on the Most Played page to hide compilation artists from the Top Artists list.
+
+- **Scroll reset on navigation**: The content area now scrolls back to the top automatically on every route change.
+
+### Fixed
+
+- **Backup**: The `psysonic_home` key is now included in the settings backup export.
+
+### i18n
+
+- New keys for seekbar styles, entity ratings, rating sections (Settings + Statistics), and entity rating support added to all 7 languages (EN, DE, FR, NL, ZH, NB, RU).
+
+---
+
 ## [1.34.3] - 2026-04-07
 
 ### Added

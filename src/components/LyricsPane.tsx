@@ -57,7 +57,9 @@ export default function LyricsPane({ currentTrack }: Props) {
     ? t('player.lyricsSourceServer')
     : source === 'lrclib'
       ? t('player.lyricsSourceLrclib')
-      : null;
+      : source === 'netease'
+        ? t('player.lyricsSourceNetease')
+        : null;
 
   return (
     <div className="lyrics-pane">

@@ -13,16 +13,22 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr var(--queue-width);
-  grid-template-rows: 1fr var(--player-height);
+  /* minmax(0, 1fr) instead of plain 1fr: CSS Grid spec treats 1fr as
+     minmax(auto, 1fr), meaning the row won't shrink below its min-content
+     size. With minmax(0, 1fr) the row can collapse to zero, keeping the
+     player bar row always visible regardless of content size or zoom level. */
+  grid-template-rows: minmax(0, 1fr) var(--player-height);
   grid-template-areas:
     "sidebar main queue"
     "player  player player";
-  height: 100vh;
-  /* overflow: hidden keeps the player bar pinned at the bottom even when the
-     window is dragged below the OS minHeight constraint (ignored on some
-     Linux WMs/compositors). Without this, the 1fr row's implicit auto
-     min-height can push the grid taller than 100vh, scrolling the player
-     bar out of view. */
+  /* height: 100% inherits from html/body/#root (all 100%) so the grid
+     tracks actual window resize events on every platform.
+     100vh was used previously but WebView2 (Windows) does not update the
+     CSS viewport synchronously on resize, causing the player-bar grid row
+     to drift off-screen. overflow: hidden still prevents the 1fr row from
+     pushing the grid taller than the window on Linux WMs that ignore
+     the OS minHeight constraint. */
+  height: 100%;
   overflow: hidden;
   background: var(--bg-app);
 }
@@ -33,12 +39,29 @@
 }
 
 .app-shell[data-titlebar] {
-  grid-template-rows: var(--titlebar-height) 1fr var(--player-height);
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr) var(--player-height);
   grid-template-areas:
     "titlebar titlebar titlebar"
     "sidebar  main     queue"
     "player   player   player";
 }
+
+/* Resize grips — replace the native GTK grips lost when decorations: false */
+.app-shell[data-titlebar]::before,
+.app-shell[data-titlebar]::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  background-image: radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.5px);
+  background-size: 4px 4px;
+  opacity: 0.35;
+  z-index: 9999;
+}
+.app-shell[data-titlebar]::before { left: 0; }
+.app-shell[data-titlebar]::after  { right: 0; }
 
 .titlebar {
   grid-area: titlebar;
@@ -136,6 +159,10 @@
 }
 
 .resizer-queue { right: calc(var(--queue-width) - 3px); }
+
+/* In native fullscreen the resizer sits flush against the screen edge and
+   would interfere with OS edge-swipe gestures — hide it entirely. */
+.app-shell[data-fullscreen] .resizer { display: none; }
 
 /* ─── Sidebar ─── */
 .sidebar {
@@ -634,6 +661,157 @@
   font-style: italic;
 }
 
+/* ── Update Modal ────────────────────────────────────────────────────────── */
+.update-modal {
+  width: min(520px, 94vw);
+  gap: 0;
+  padding: 0;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.update-modal-header {
+  padding: 14px 16px 14px 18px;
+}
+.update-modal-versions {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+/* Scrollable middle section (changelog + download area combined) */
+.update-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* Changelog accordion */
+.update-modal-changelog {
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.update-modal-changelog-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: 0.03em;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.update-modal-changelog-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-glass);
+}
+.update-modal-changelog-body {
+  padding: 4px 18px 12px;
+}
+/* Download area */
+.update-modal-download-area {
+  padding: 14px 18px;
+}
+.update-modal-asset {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+.update-modal-asset-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+  word-break: break-all;
+}
+.update-modal-asset-size {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.update-modal-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.update-modal-progress .app-updater-progress-bar { flex: 1; height: 4px; }
+.update-modal-dl-bytes {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.update-modal-done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.update-modal-done-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.update-modal-done-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.update-modal-folder-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+/* AUR hint */
+.update-modal-aur {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.update-modal-aur-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.update-modal-aur-cmd {
+  display: block;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--accent);
+  font-family: monospace;
+  user-select: all;
+}
+.update-modal-aur-alt {
+  color: var(--text-muted);
+}
+.update-modal-asset-none {
+  padding: 4px 0;
+}
+/* Footer */
+.update-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.update-modal-skip {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: var(--space-1) var(--space-2);
+}
+.update-modal-skip:hover { color: var(--text-secondary); }
+
 .update-toast {
   margin: 0 var(--space-1) var(--space-2);
   padding: var(--space-3) var(--space-3);
@@ -710,6 +888,28 @@
 .sidebar-offline-queue--collapsed {
   justify-content: center;
   padding: 6px;
+}
+
+.sidebar-offline-cancel {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.sidebar-offline-cancel:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 @keyframes spin-slow {
@@ -888,6 +1088,7 @@
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--bg-card);
 }
 .player-album-art-wrap::after {
   content: '';
@@ -932,6 +1133,17 @@
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+.player-track-rating {
+  margin-top: 4px;
+  width: auto;
+  justify-content: flex-start;
+}
+
+.player-track-rating .star {
+  font-size: 11px;
+  padding: 0 1px;
 }
 
 /* ── Marquee (PlayerBar track name / artist) ── */
@@ -1543,13 +1755,22 @@
 /* ─── Grid Overrides ─── */
 .app-shell[data-mobile] {
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   grid-template-areas:
     "main"
     "bottomnav"
     "player";
   width: 100vw;
   max-width: 100%;
+}
+
+.app-shell[data-mobile][data-titlebar] {
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "titlebar"
+    "main"
+    "bottomnav"
+    "player";
 }
 
 /* Hide the sidebar collapse button on mobile */
@@ -1619,7 +1840,7 @@
 /* When the mobile player is active, the app-shell becomes a single full-screen
    area with no BottomNav or PlayerBar — just the main content. */
 .app-shell[data-mobile-player] {
-  grid-template-rows: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "main";
 }
 

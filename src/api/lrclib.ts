@@ -36,7 +36,9 @@ export async function fetchLyrics(
 export function parseLrc(lrc: string): LrcLine[] {
   const lines: LrcLine[] = [];
   for (const line of lrc.split('\n')) {
-    const match = line.match(/^\[(\d+):(\d+\.\d+)\](.*)/);
+    // \d+(?:\.\d*)? — decimal part is optional so [mm:ss] (no fraction) also matches.
+    // parseFloat handles all forms: "15", "15.", "15.3", "15.32" correctly.
+    const match = line.match(/^\[(\d+):(\d+(?:\.\d*)?)\](.*)/);
     if (!match) continue;
     const mins = parseInt(match[1], 10);
     const secs = parseFloat(match[2]);

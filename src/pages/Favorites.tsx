@@ -4,11 +4,12 @@ import AlbumRow from '../components/AlbumRow';
 import ArtistRow from '../components/ArtistRow';
 import CachedImage from '../components/CachedImage';
 import {
-  getStarred, getInternetRadioStations,
+  getStarred, getInternetRadioStations, setRating,
   SubsonicAlbum, SubsonicArtist, SubsonicSong, InternetRadioStation,
   buildCoverArtUrl, coverArtCacheKey,
 } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
+import StarRating from '../components/StarRating';
 import { Cast, ChevronDown, ChevronLeft, ChevronRight, Check, Heart, ListPlus, Play, Star, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +21,7 @@ const FAV_COLUMNS: readonly ColDef[] = [
   { key: 'num',      i18nKey: null,            minWidth: 60,  defaultWidth: 60,  required: true  },
   { key: 'title',    i18nKey: 'trackTitle',    minWidth: 150, defaultWidth: 0,   required: true,  flex: true },
   { key: 'artist',   i18nKey: 'trackArtist',   minWidth: 80,  defaultWidth: 180, required: false },
+  { key: 'rating',   i18nKey: 'trackRating',   minWidth: 80,  defaultWidth: 120, required: false },
   { key: 'duration', i18nKey: 'trackDuration', minWidth: 72,  defaultWidth: 92,  required: false },
   { key: 'remove',   i18nKey: null,            minWidth: 36,  defaultWidth: 36,  required: true  },
 ];
@@ -39,13 +41,25 @@ export default function Favorites() {
     pickerOpen, setPickerOpen, pickerRef, tracklistRef,
   } = useTracklistColumns(FAV_COLUMNS, 'psysonic_favorites_columns');
 
-  const { playTrack, enqueue, playRadio, stop } = usePlayerStore();
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+
+  const playTrack = usePlayerStore(s => s.playTrack);
+  const enqueue = usePlayerStore(s => s.enqueue);
+  const playRadio = usePlayerStore(s => s.playRadio);
+  const stop = usePlayerStore(s => s.stop);
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const currentRadio = usePlayerStore(s => s.currentRadio);
   const isPlaying = usePlayerStore(s => s.isPlaying);
   const starredOverrides = usePlayerStore(s => s.starredOverrides);
   const setStarredOverride = usePlayerStore(s => s.setStarredOverride);
+  const userRatingOverrides = usePlayerStore(s => s.userRatingOverrides);
   const psyDrag = useDragDrop();
+
+  const handleRate = (songId: string, rating: number) => {
+    setRatings(r => ({ ...r, [songId]: rating }));
+    usePlayerStore.getState().setUserRatingOverride(songId, rating);
+    setRating(songId, rating).catch(() => {});
+  };
 
   function removeSong(id: string) {
     unstar(id, 'song').catch(() => {});
@@ -179,7 +193,7 @@ export default function Favorites() {
                         );
                       }
                       if (key === 'remove') return <div key="remove" />;
-                      const isCentered = key === 'duration';
+                      const isCentered = key === 'duration' || key === 'rating';
                       return (
                         <div key={key} style={{ position: 'relative', padding: 0, margin: 0, minWidth: 0, overflow: 'hidden' }}>
                           <div
@@ -263,6 +277,13 @@ export default function Favorites() {
                             <div key="artist" className="track-artist-cell">
                               <span className={`track-artist${song.artistId ? ' track-artist-link' : ''}`} style={{ cursor: song.artistId ? 'pointer' : 'default' }} onClick={() => song.artistId && navigate(`/artist/${song.artistId}`)}>{song.artist}</span>
                             </div>
+                          );
+                          case 'rating': return (
+                            <StarRating
+                              key="rating"
+                              value={ratings[song.id] ?? userRatingOverrides[song.id] ?? song.userRating ?? 0}
+                              onChange={r => handleRate(song.id, r)}
+                            />
                           );
                           case 'duration': return (
                             <div key="duration" className="track-duration">

@@ -34,6 +34,7 @@ import AdvancedSearch from './pages/AdvancedSearch';
 import Playlists from './pages/Playlists';
 import PlaylistDetail from './pages/PlaylistDetail';
 import InternetRadio from './pages/InternetRadio';
+import FolderBrowser from './pages/FolderBrowser';
 import NowPlayingPage from './pages/NowPlaying';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
@@ -61,10 +62,13 @@ import { useOfflineStore } from './store/offlineStore';
 import { initHotCachePrefetch } from './hotCachePrefetch';
 import { usePlayerStore, initAudioListeners } from './store/playerStore';
 import { useThemeStore } from './store/themeStore';
+import { useThemeScheduler } from './hooks/useThemeScheduler';
 import { useFontStore } from './store/fontStore';
 import { useEqStore } from './store/eqStore';
 import { useKeybindingsStore } from './store/keybindingsStore';
 import { useGlobalShortcutsStore } from './store/globalShortcutsStore';
+import { useZipDownloadStore } from './store/zipDownloadStore';
+import ZipDownloadOverlay from './components/ZipDownloadOverlay';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, servers, activeServerId } = useAuthStore();
@@ -76,11 +80,21 @@ function AppShell() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
+  const [isTilingWm, setIsTilingWm] = useState(false);
 
   useEffect(() => {
     if (!IS_LINUX) return;
+    invoke<boolean>('is_tiling_wm_cmd').then(setIsTilingWm).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const win = getCurrentWindow();
+    // Check initial state (e.g. app launched maximised / already fullscreen).
+    win.isFullscreen().then(setIsWindowFullscreen).catch(() => {});
     let unlisten: (() => void) | undefined;
+    // onResized fires on every size change, including fullscreen enter/exit on
+    // all platforms.  We re-query isFullscreen() rather than inferring from
+    // the size so the flag is always accurate regardless of platform quirks.
     win.onResized(() => {
       win.isFullscreen().then(setIsWindowFullscreen).catch(() => {});
     }).then(u => { unlisten = u; });
@@ -106,10 +120,12 @@ function AppShell() {
   const hasOfflineContent = Object.values(offlineAlbums).some(a => a.serverId === serverId);
 
   // Sync custom titlebar preference with native decorations on Linux
+  // On tiling WMs decorations are always off (no native title bar to replace).
   useEffect(() => {
     if (!IS_LINUX) return;
-    invoke('set_window_decorations', { enabled: !useCustomTitlebar }).catch(() => {});
-  }, [useCustomTitlebar]);
+    const enabled = isTilingWm ? false : !useCustomTitlebar;
+    invoke('set_window_decorations', { enabled }).catch(() => {});
+  }, [useCustomTitlebar, isTilingWm]);
 
   useEffect(() => {
     if (!isLoggedIn || !activeServerId) return;
@@ -286,14 +302,15 @@ function AppShell() {
       className="app-shell"
       data-mobile={isMobile || undefined}
       data-mobile-player={isMobilePlayer || undefined}
-      data-titlebar={(IS_LINUX && useCustomTitlebar && !isWindowFullscreen) || undefined}
+      data-titlebar={(IS_LINUX && useCustomTitlebar && !isWindowFullscreen && !isTilingWm) || undefined}
+      data-fullscreen={isWindowFullscreen || undefined}
       style={{
         '--sidebar-width': isMobile ? '0px' : (isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)'),
         '--queue-width': isMobile ? '0px' : (isQueueVisible ? `${queueWidth}px` : '0px')
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
     >
-      {IS_LINUX && useCustomTitlebar && !isWindowFullscreen && <TitleBar />}
+      {IS_LINUX && useCustomTitlebar && !isWindowFullscreen && !isTilingWm && <TitleBar />}
       {!isMobile && (
         <Sidebar
           isCollapsed={isSidebarCollapsed}
@@ -351,6 +368,7 @@ function AppShell() {
             <Route path="/playlists" element={<Playlists />} />
             <Route path="/playlists/:id" element={<PlaylistDetail />} />
             <Route path="/radio" element={<InternetRadio />} />
+            <Route path="/folders" element={<FolderBrowser />} />
           </Routes>
         </div>
       </main>
@@ -385,6 +403,37 @@ function TauriEventBridge() {
   const togglePlay = usePlayerStore(s => s.togglePlay);
   const next = usePlayerStore(s => s.next);
   const previous = usePlayerStore(s => s.previous);
+
+  // ZIP download progress events from Rust
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<{ id: string; bytes: number; total: number | null }>('download:zip:progress', e => {
+      useZipDownloadStore.getState().updateProgress(e.payload.id, e.payload.bytes, e.payload.total);
+    }).then(u => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Audio output device changed (Bluetooth headphones, USB DAC, etc.)
+  // The Rust device-watcher has already reopened the stream on the new device
+  // and dropped the old Sink, so we just need to restart playback.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen('audio:device-changed', () => {
+      const { currentTrack, currentTime, isPlaying, playTrack, resetAudioPause } = usePlayerStore.getState();
+      if (!currentTrack) return;
+      if (isPlaying) {
+        const pos = currentTime;
+        const dur = currentTrack.duration || 1;
+        playTrack(currentTrack);
+        setTimeout(() => usePlayerStore.getState().seek(pos / dur), 600);
+      } else {
+        // Paused: clear warm-pause flag so the next resume uses the cold path
+        // (audio_play + seek) which creates a new Sink on the new device.
+        resetAudioPause();
+      }
+    }).then(u => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
 
   // Sync tray-icon visibility with the user's stored setting.
   // Runs once on mount (initial sync) and again whenever the setting changes.
@@ -504,17 +553,32 @@ function TauriEventBridge() {
 }
 
 export default function App() {
-  const theme = useThemeStore(s => s.theme);
+  useThemeStore(s => s.theme); // keep subscription so re-render on manual change
+  const effectiveTheme = useThemeScheduler();
   const font = useFontStore(s => s.font);
+  const uiScale = useFontStore(s => s.uiScale);
+  const setUiScale = useFontStore(s => s.setUiScale);
   const [exportPickerOpen, setExportPickerOpen] = useState(false);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-theme', effectiveTheme);
+  }, [effectiveTheme]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-font', font);
   }, [font]);
+
+  // TODO(ui-scale): UI scaling is disabled pending a cross-platform rework.
+  // Reset any stored non-100% value so users aren't stuck at a broken scale.
+  // When re-enabling: remove this effect AND re-enable the slider in Settings.tsx.
+  useEffect(() => {
+    if (uiScale !== 1.0) setUiScale(1.0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.zoom = String(uiScale);
+  }, [uiScale]);
 
   useEffect(() => {
     return initAudioListeners();
@@ -592,6 +656,7 @@ export default function App() {
         />
       </Routes>
       {exportPickerOpen && <ExportPickerModal onConfirm={handleExport} onClose={() => setExportPickerOpen(false)} />}
+      <ZipDownloadOverlay />
     </BrowserRouter>
   );
 }

@@ -25,15 +25,14 @@ export default function CustomSelect({ value, options, onChange, className = '',
 
   const selected = options.find(o => o.value === value);
 
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
+  const updateDropStyle = () => {
+    if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     const MARGIN = 6;
     const maxH = 240;
     const spaceBelow = window.innerHeight - rect.bottom - MARGIN;
     const spaceAbove = rect.top - MARGIN;
     const useAbove = spaceBelow < 80 && spaceAbove > spaceBelow;
-
     setDropStyle({
       position: 'fixed',
       left: rect.left,
@@ -44,6 +43,17 @@ export default function CustomSelect({ value, options, onChange, className = '',
       maxHeight: Math.min(maxH, useAbove ? spaceAbove : spaceBelow),
       zIndex: 99998,
     });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateDropStyle();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener('scroll', updateDropStyle, true);
+    return () => window.removeEventListener('scroll', updateDropStyle, true);
   }, [open]);
 
   useEffect(() => {

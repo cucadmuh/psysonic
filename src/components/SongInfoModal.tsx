@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { usePlayerStore } from '../store/playerStore';
+import { useShallow } from 'zustand/react/shallow';
 import { getSong, SubsonicSong } from '../api/subsonic';
 import { useTranslation } from 'react-i18next';
 
@@ -33,7 +34,9 @@ function Divider() {
 
 export default function SongInfoModal() {
   const { t } = useTranslation();
-  const { songInfoModal, closeSongInfo } = usePlayerStore();
+  const { songInfoModal, closeSongInfo } = usePlayerStore(
+    useShallow(s => ({ songInfoModal: s.songInfoModal, closeSongInfo: s.closeSongInfo }))
+  );
   const [song, setSong] = useState<SubsonicSong | null>(null);
   const [loading, setLoading] = useState(false);
 

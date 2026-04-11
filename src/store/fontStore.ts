@@ -6,6 +6,8 @@ export type FontId = 'inter' | 'outfit' | 'dm-sans' | 'nunito' | 'rubik' | 'spac
 interface FontState {
   font: FontId;
   setFont: (font: FontId) => void;
+  uiScale: number;
+  setUiScale: (scale: number) => void;
 }
 
 export const useFontStore = create<FontState>()(
@@ -13,6 +15,8 @@ export const useFontStore = create<FontState>()(
     (set) => ({
       font: 'lexend',
       setFont: (font) => set({ font }),
+      uiScale: 1.0,
+      setUiScale: (uiScale) => set({ uiScale }),
     }),
     { name: 'psysonic_font' }
   )

@@ -890,7 +890,13 @@ impl MediaSource for SizedCursorSource {
 // Implements Iterator<Item = i16> + Source — identical interface to
 // rodio::Decoder, so the rest of the source chain is unchanged.
 
+/// Max retries for IO/packet-read errors (fatal — network drop, truncated file).
 const DECODE_MAX_RETRIES: usize = 3;
+/// Max *consecutive* DecodeErrors before giving up on a file.
+/// Non-fatal errors like "invalid main_data offset" are silently dropped up to
+/// this limit so a handful of corrupt MP3 frames never aborts an otherwise
+/// playable track (VLC-style frame dropping).
+const MAX_CONSECUTIVE_DECODE_ERRORS: usize = 100;
 
 struct SizedDecoder {
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
@@ -899,6 +905,9 @@ struct SizedDecoder {
     total_duration: Option<Time>,
     buffer: SampleBuffer<i16>,
     spec: SignalSpec,
+    /// Counts consecutive DecodeErrors in the hot-path. Reset to 0 on every
+    /// successfully decoded frame. Used to detect fully undecodable streams.
+    consecutive_decode_errors: usize,
 }
 
 impl SizedDecoder {
@@ -983,6 +992,8 @@ impl SizedDecoder {
         let mut format = probed.format;
 
         // Decode the first packet to initialise spec + buffer.
+        // DecodeErrors (e.g. "invalid main_data offset") are non-fatal: drop the
+        // frame and try the next packet up to MAX_CONSECUTIVE_DECODE_ERRORS times.
         let mut decode_errors: usize = 0;
         let decoded = loop {
             let packet = match format.next_packet() {
@@ -1002,10 +1013,10 @@ impl SizedDecoder {
             match decoder.decode(&packet) {
                 Ok(decoded) => break decoded,
                 Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
-                    eprintln!("[psysonic] decode error (retry {decode_errors}): {msg}");
                     decode_errors += 1;
-                    if decode_errors > DECODE_MAX_RETRIES {
-                        return Err("too many decode errors — file may be corrupt".into());
+                    eprintln!("[psysonic] init: dropped corrupt frame #{decode_errors}: {msg}");
+                    if decode_errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                        return Err("too many consecutive decode errors during init — file may be corrupt".into());
                     }
                 }
                 Err(e) => {
@@ -1025,6 +1036,7 @@ impl SizedDecoder {
             total_duration,
             buffer,
             spec,
+            consecutive_decode_errors: 0,
         })
     }
 
@@ -1061,16 +1073,19 @@ impl SizedDecoder {
             if packet.track_id() != track_id { continue; }
             match decoder.decode(&packet) {
                 Ok(d) => break d,
-                Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
                     errors += 1;
-                    if errors > DECODE_MAX_RETRIES { return Err("radio: too many decode errors".into()); }
+                    eprintln!("[psysonic] radio init: dropped corrupt frame #{errors}: {msg}");
+                    if errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                        return Err("radio: too many consecutive decode errors".into());
+                    }
                 }
                 Err(e) => return Err(format!("radio: decode error: {e}")),
             }
         };
         let spec = decoded.spec().to_owned();
         let buffer = Self::make_buffer(decoded, &spec);
-        Ok(SizedDecoder { decoder, current_frame_offset: 0, format, total_duration, buffer, spec })
+        Ok(SizedDecoder { decoder, current_frame_offset: 0, format, total_duration, buffer, spec, consecutive_decode_errors: 0 })
     }
 
     #[inline]
@@ -1120,18 +1135,47 @@ impl Iterator for SizedDecoder {
     #[inline]
     fn next(&mut self) -> Option<i16> {
         if self.current_frame_offset >= self.buffer.len() {
-            let packet = self.format.next_packet().ok()?;
-            let mut decoded = self.decoder.decode(&packet);
-            for _ in 0..DECODE_MAX_RETRIES {
-                if decoded.is_err() {
-                    let p = self.format.next_packet().ok()?;
-                    decoded = self.decoder.decode(&p);
+            // Loop until a decodable packet is found or the stream ends.
+            // DecodeErrors (e.g. MP3 "invalid main_data offset") are non-fatal:
+            // drop the frame and advance to the next packet. IO errors and a
+            // clean end-of-stream both terminate the iterator normally.
+            loop {
+                let packet = self.format.next_packet().ok()?;
+                match self.decoder.decode(&packet) {
+                    Ok(decoded) => {
+                        self.consecutive_decode_errors = 0;
+                        decoded.spec().clone_into(&mut self.spec);
+                        self.buffer = Self::make_buffer(decoded, &self.spec);
+                        self.current_frame_offset = 0;
+                        break;
+                    }
+                    Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
+                        #[cfg(not(debug_assertions))]
+                        let _ = msg;
+                        self.consecutive_decode_errors += 1;
+                        // Log sparingly: first drop, then every 10th to avoid spam.
+                        #[cfg(debug_assertions)]
+                        if self.consecutive_decode_errors == 1
+                            || self.consecutive_decode_errors % 10 == 0
+                        {
+                            eprintln!(
+                                "[psysonic] dropped corrupt frame #{}: {msg}",
+                                self.consecutive_decode_errors
+                            );
+                        }
+                        if self.consecutive_decode_errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "[psysonic] {MAX_CONSECUTIVE_DECODE_ERRORS} consecutive decode \
+                                 failures — stream appears unrecoverable, stopping"
+                            );
+                            return None;
+                        }
+                        // continue → fetch next packet
+                    }
+                    Err(_) => return None, // IO error or fatal codec error → end of stream
                 }
             }
-            let decoded = decoded.ok()?;
-            decoded.spec().clone_into(&mut self.spec);
-            self.buffer = Self::make_buffer(decoded, &self.spec);
-            self.current_frame_offset = 0;
         }
 
         let sample = *self.buffer.samples().get(self.current_frame_offset)?;
@@ -1642,6 +1686,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
         http_client: reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .use_rustls_tls()
+            .user_agent(format!("psysonic/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_default(),
         eq_gains: Arc::new(std::array::from_fn(|_| AtomicU32::new(0f32.to_bits()))),
@@ -1727,6 +1772,24 @@ async fn fetch_data(
     }
 
     let response = state.http_client.get(url).send().await.map_err(|e| e.to_string())?;
+    #[cfg(debug_assertions)]
+    {
+        let status = response.status();
+        let ct = response.headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-");
+        let server_hdr = response.headers()
+            .get("server")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-");
+        // Strip auth params from URL before logging.
+        let safe_url = url.split('?').next().unwrap_or(url);
+        eprintln!(
+            "[audio] fetch {} → {} | content-type: {} | server: {}",
+            safe_url, status, ct, server_hdr
+        );
+    }
     if !response.status().is_success() {
         if state.generation.load(Ordering::SeqCst) != gen {
             return Ok(None); // superseded
@@ -1759,11 +1822,13 @@ const MASTER_HEADROOM: f32 = 0.891_254;
 fn compute_gain(
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     volume: f32,
 ) -> (f32, f32) {
     let gain_linear = replay_gain_db
-        .map(|db| 10f32.powf(db / 20.0))
-        .unwrap_or(1.0);
+        .map(|db| 10f32.powf((db + pre_gain_db) / 20.0))
+        .unwrap_or_else(|| 10f32.powf(fallback_db / 20.0));
     let peak = replay_gain_peak.unwrap_or(1.0).max(0.001);
     let gain_linear = gain_linear.min(1.0 / peak);
     let effective = (volume.clamp(0.0, 1.0) * gain_linear * MASTER_HEADROOM).clamp(0.0, 1.0);
@@ -1779,6 +1844,8 @@ pub async fn audio_play(
     duration_hint: f64,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     manual: bool, // true = user-initiated skip → bypass crossfade, start immediately
     hi_res_enabled: bool, // false = safe 44.1 kHz mode; true = native rate (alpha)
     app: AppHandle,
@@ -1868,7 +1935,7 @@ pub async fn audio_play(
         return Ok(());
     }
 
-    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
 
     // Manual skips (user-initiated) bypass crossfade — the track should start immediately.
     let crossfade_enabled = state.crossfade_enabled.load(Ordering::Relaxed) && !manual;
@@ -2113,6 +2180,8 @@ pub async fn audio_chain_preload(
     duration_hint: f64,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     hi_res_enabled: bool,
     state: State<'_, AudioEngine>,
 ) -> Result<(), String> {
@@ -2173,7 +2242,7 @@ pub async fn audio_chain_preload(
 
     let raw_bytes = Arc::new(data);
 
-    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective_volume) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
 
     let done_next = Arc::new(AtomicBool::new(false));
     // Use a dedicated counter for the chained source — it will be swapped into
@@ -2284,8 +2353,8 @@ fn spawn_progress_task(
         let mut samples_played = samples_played;
 
         loop {
-            // 100 ms tick — tight enough for responsive UI, low enough CPU cost.
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // 500 ms tick — frontend interpolates visually at 60 fps via rAF.
+            tokio::time::sleep(Duration::from_millis(500)).await;
 
             if gen_counter.load(Ordering::SeqCst) != gen {
                 break;
@@ -2553,9 +2622,11 @@ pub fn audio_update_replay_gain(
     volume: f32,
     replay_gain_db: Option<f32>,
     replay_gain_peak: Option<f32>,
+    pre_gain_db: f32,
+    fallback_db: f32,
     state: State<'_, AudioEngine>,
 ) {
-    let (gain_linear, effective) = compute_gain(replay_gain_db, replay_gain_peak, volume);
+    let (gain_linear, effective) = compute_gain(replay_gain_db, replay_gain_peak, pre_gain_db, fallback_db, volume);
     let mut cur = state.current.lock().unwrap();
     cur.replay_gain_linear = gain_linear;
     cur.base_volume = volume.clamp(0.0, 1.0);
@@ -2821,4 +2892,76 @@ pub fn audio_set_crossfade(enabled: bool, secs: f32, state: State<'_, AudioEngin
 #[tauri::command]
 pub fn audio_set_gapless(enabled: bool, state: State<'_, AudioEngine>) {
     state.gapless_enabled.store(enabled, Ordering::Relaxed);
+}
+
+// ─── Device-change watcher ────────────────────────────────────────────────────
+//
+// Polls the OS default output device every 3 s.  When it changes (Bluetooth
+// headphones connecting, USB DAC plugging in, etc.) the stream is reopened on
+// the new device and `audio:device-changed` is emitted so the frontend can
+// restart playback.  The old Sink is dropped here — it was bound to the
+// now-closed OutputStream and can no longer produce audio on any device.
+
+pub fn start_device_watcher(engine: &AudioEngine, app: tauri::AppHandle) {
+    let reopen_tx     = engine.stream_reopen_tx.clone();
+    let stream_handle = engine.stream_handle.clone();
+    let stream_rate   = engine.stream_sample_rate.clone();
+    let current       = engine.current.clone();
+    let fading_out    = engine.fading_out_sink.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let mut last_name: Option<String> = tauri::async_runtime::spawn_blocking(|| {
+            use rodio::cpal::traits::{DeviceTrait, HostTrait};
+            rodio::cpal::default_host()
+                .default_output_device()
+                .and_then(|d| d.name().ok())
+        }).await.unwrap_or(None);
+
+        loop {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            let current_name: Option<String> = tauri::async_runtime::spawn_blocking(|| {
+                use rodio::cpal::traits::{DeviceTrait, HostTrait};
+                rodio::cpal::default_host()
+                    .default_output_device()
+                    .and_then(|d| d.name().ok())
+            }).await.unwrap_or(None);
+
+            if current_name == last_name {
+                continue;
+            }
+
+            last_name = current_name.clone();
+
+            // Only act if there is actually a device to open.
+            let Some(_new_name) = current_name else { continue };
+
+            // Debounce: give the OS time to finish configuring the new device.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let rate = stream_rate.load(Ordering::Relaxed);
+            let reopen_tx2 = reopen_tx.clone();
+            let new_handle = tauri::async_runtime::spawn_blocking(move || {
+                let (reply_tx, reply_rx) =
+                    std::sync::mpsc::sync_channel::<rodio::OutputStreamHandle>(0);
+                if reopen_tx2.send((rate, false, reply_tx)).is_err() {
+                    return None; // audio thread exited
+                }
+                reply_rx.recv_timeout(Duration::from_secs(5)).ok()
+            }).await.unwrap_or(None);
+
+            let Some(handle) = new_handle else {
+                eprintln!("[psysonic] device-watcher: stream reopen timed out");
+                continue;
+            };
+
+            *stream_handle.lock().unwrap() = handle;
+
+            // Drop the old Sink — it was bound to the now-closed OutputStream.
+            if let Some(s) = current.lock().unwrap().sink.take() { s.stop(); }
+            if let Some(s) = fading_out.lock().unwrap().take()   { s.stop(); }
+
+            app.emit("audio:device-changed", ()).ok();
+        }
+    });
 }

@@ -32,6 +32,8 @@ export interface Track {
   genre?: string;
   samplingRate?: number;
   bitDepth?: number;
+  /** Subsonic `size` in bytes when provided by the server (helps hot-cache budgeting). */
+  size?: number;
   autoAdded?: boolean;
   radioAdded?: boolean;
 }
@@ -58,6 +60,7 @@ export function songToTrack(song: SubsonicSong): Track {
     genre: song.genre,
     samplingRate: song.samplingRate,
     bitDepth: song.bitDepth,
+    size: song.size,
   };
 }
 
@@ -117,6 +120,7 @@ interface PlayerState {
   setLastfmLovedForSong: (title: string, artist: string, v: boolean) => void;
   syncLastfmLovedTracks: () => Promise<void>;
 
+  resetAudioPause: () => void;
   initializeFromServerQueue: () => Promise<void>;
 
   contextMenu: {
@@ -203,6 +207,11 @@ radioAudio.preload = 'none';
 let radioStopping = false;
 // Pending reconnect timer for stalled streams — null when no reconnect is scheduled.
 let radioReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+// Counts how many stalled-reconnects have been attempted for the current station.
+// Reset to 0 on successful playback.  Hard-stop after MAX_RADIO_RECONNECTS so a
+// dead stream doesn't loop forever and leak resources in the background.
+let radioReconnectCount = 0;
+const MAX_RADIO_RECONNECTS = 5;
 
 function clearRadioReconnectTimer() {
   if (radioReconnectTimer) { clearTimeout(radioReconnectTimer); radioReconnectTimer = null; }
@@ -211,23 +220,40 @@ function clearRadioReconnectTimer() {
 radioAudio.addEventListener('ended', () => {
   // Stream disconnected unexpectedly — clear radio state.
   clearRadioReconnectTimer();
+  radioReconnectCount = 0;
   usePlayerStore.setState({ isPlaying: false, currentRadio: null, progress: 0, currentTime: 0 });
 });
 radioAudio.addEventListener('error', () => {
   clearRadioReconnectTimer();
-  if (radioStopping) { radioStopping = false; return; }
+  if (radioStopping) { radioStopping = false; radioReconnectCount = 0; return; }
+  radioReconnectCount = 0;
   usePlayerStore.setState({ isPlaying: false, currentRadio: null });
   showToast('Radio stream error', 3000, 'error');
 });
+// Playing: stream is delivering audio — reset the reconnect counter.
+radioAudio.addEventListener('playing', () => {
+  radioReconnectCount = 0;
+});
 // Stalled: stream stopped delivering data — try to reconnect after 4 s.
+// On macOS/WKWebView, reassigning src during a stall can itself trigger
+// another stall event before the new connection is established.  The
+// radioReconnectTimer guard prevents stacking, and MAX_RADIO_RECONNECTS
+// ensures we don't loop forever on a dead stream.
 radioAudio.addEventListener('stalled', () => {
   if (radioReconnectTimer) return; // already scheduled
+  if (radioReconnectCount >= MAX_RADIO_RECONNECTS) {
+    radioReconnectCount = 0;
+    usePlayerStore.setState({ isPlaying: false, currentRadio: null });
+    showToast('Radio stream disconnected', 4000, 'error');
+    return;
+  }
   radioReconnectTimer = setTimeout(() => {
     radioReconnectTimer = null;
     if (!usePlayerStore.getState().currentRadio) return;
-    // Re-assign src to force a fresh connection, then resume playback.
-    const src = radioAudio.src;
-    radioAudio.src = src;
+    radioReconnectCount++;
+    // Use load() + play() instead of src reassignment — more reliable on
+    // macOS WKWebView where setting src can fire a premature error event.
+    radioAudio.load();
     radioAudio.play().catch(console.error);
   }, 4000);
 });
@@ -249,10 +275,10 @@ function touchHotCacheOnPlayback(trackId: string, serverId: string) {
   useHotCacheStore.getState().touchPlayed(trackId, serverId);
 }
 
-// Track ID that has already been sent to audio_chain_preload / audio_preload.
-// Prevents the 100ms progress ticker from firing 300 identical IPC calls over
-// the last 30 seconds of a track, each spawning its own HTTP download.
+// Track ID that has already been sent to audio_chain_preload (gapless chain).
 let gaplessPreloadingId: string | null = null;
+// Track ID that has already been sent to audio_preload (byte pre-download).
+let bytePreloadingId: string | null = null;
 
 // ─── Server queue sync ─────────────────────────────────────────────────────────
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -264,7 +290,7 @@ function syncQueueToServer(queue: Track[], currentTrack: Track | null, currentTi
     savePlayQueue(ids, currentTrack?.id, pos).catch(err => {
       console.error('Failed to sync play queue to server', err);
     });
-  }, 1500);
+  }, 5000);
 }
 
 // ─── Audio event handlers (called from initAudioListeners) ───────────────────
@@ -306,48 +332,59 @@ function handleAudioProgress(current_time: number, duration: number) {
   }
 
   // Pre-buffer / pre-chain next track based on preload mode.
-  const { gaplessEnabled, preloadMode, preloadCustomSeconds } = useAuthStore.getState();
+  const { gaplessEnabled, preloadMode, preloadCustomSeconds, hotCacheEnabled } = useAuthStore.getState();
   const remaining = dur - current_time;
-  const shouldPreload = preloadMode === 'early'
-    ? current_time >= 5
-    : preloadMode === 'custom'
-      ? remaining < preloadCustomSeconds && remaining > 0
-      : remaining < 30 && remaining > 0; // balanced (default)
-  if (shouldPreload) {
+
+  // Gapless chain: always triggers at 30s regardless of preloadMode.
+  const shouldChainGapless = gaplessEnabled && remaining < 30 && remaining > 0;
+  // Byte pre-download: skip when Hot Cache is active (it already handles buffering).
+  const shouldBytePreload = !hotCacheEnabled && preloadMode !== 'off' && (
+    preloadMode === 'early'
+      ? current_time >= 5
+      : preloadMode === 'custom'
+        ? remaining < preloadCustomSeconds && remaining > 0
+        : remaining < 30 && remaining > 0 // balanced (default)
+  );
+
+  if (shouldChainGapless || shouldBytePreload) {
     const { queue, queueIndex, repeatMode } = store;
     const nextIdx = queueIndex + 1;
     const nextTrack = repeatMode === 'one'
       ? track
       : (nextIdx < queue.length ? queue[nextIdx] : (repeatMode === 'all' ? queue[0] : null));
-    if (nextTrack && nextTrack.id !== track.id && nextTrack.id !== gaplessPreloadingId) {
+    if (!nextTrack || nextTrack.id === track.id) return;
+
+    const serverId = useAuthStore.getState().activeServerId ?? '';
+    const nextUrl = resolvePlaybackUrl(nextTrack.id, serverId);
+
+    // Byte pre-download — runs early so bytes are cached by chain time.
+    if (shouldBytePreload && nextTrack.id !== bytePreloadingId) {
+      bytePreloadingId = nextTrack.id;
+      invoke('audio_preload', { url: nextUrl, durationHint: nextTrack.duration }).catch(() => {});
+    }
+
+    // Gapless chain — decode + chain into Sink 30s before track boundary.
+    if (shouldChainGapless && nextTrack.id !== gaplessPreloadingId) {
       gaplessPreloadingId = nextTrack.id;
-      const serverId = useAuthStore.getState().activeServerId ?? '';
-      const nextUrl = resolvePlaybackUrl(nextTrack.id, serverId);
-      if (gaplessEnabled) {
-        // Gapless ON: decode + chain directly into the Sink now, 30 s in
-        // advance. By the time the track boundary arrives, the next source is
-        // already live — no IPC round-trip at the gap point.
-        const authState = useAuthStore.getState();
-        const replayGainDb = authState.replayGainEnabled
-          ? (authState.replayGainMode === 'album'
-              ? nextTrack.replayGainAlbumDb
-              : nextTrack.replayGainTrackDb) ?? null
-          : null;
-        const replayGainPeak = authState.replayGainEnabled
-          ? (nextTrack.replayGainPeak ?? null)
-          : null;
-        invoke('audio_chain_preload', {
-          url: nextUrl,
-          volume: store.volume,
-          durationHint: nextTrack.duration,
-          replayGainDb,
-          replayGainPeak,
-          hiResEnabled: useAuthStore.getState().enableHiRes,
-        }).catch(() => {});
-      } else {
-        // Gapless OFF: just pre-download bytes so audio_play finds them cached.
-        invoke('audio_preload', { url: nextUrl, durationHint: nextTrack.duration }).catch(() => {});
-      }
+      const authState = useAuthStore.getState();
+      const replayGainDb = authState.replayGainEnabled
+        ? (authState.replayGainMode === 'album'
+            ? (nextTrack.replayGainAlbumDb ?? nextTrack.replayGainTrackDb)
+            : nextTrack.replayGainTrackDb) ?? null
+        : null;
+      const replayGainPeak = authState.replayGainEnabled
+        ? (nextTrack.replayGainPeak ?? null)
+        : null;
+      invoke('audio_chain_preload', {
+        url: nextUrl,
+        volume: store.volume,
+        durationHint: nextTrack.duration,
+        replayGainDb,
+        replayGainPeak,
+        preGainDb: authState.replayGainPreGainDb,
+        fallbackDb: authState.replayGainFallbackDb,
+        hiResEnabled: authState.enableHiRes,
+      }).catch(() => {});
     }
   }
 }
@@ -385,7 +422,7 @@ function handleAudioEnded() {
  */
 function handleAudioTrackSwitched(duration: number) {
   lastGaplessSwitchTime = Date.now();
-  gaplessPreloadingId = null; // allow preloading for the track after this one
+  gaplessPreloadingId = null; bytePreloadingId = null; // allow preloading for the track after this one
   isAudioPaused = false;
 
   const store = usePlayerStore.getState();
@@ -460,11 +497,28 @@ function handleAudioError(message: string) {
  * set of listeners before creating the second, avoiding duplicate handlers.
  */
 export function initAudioListeners(): () => void {
+  // Dev-only: warn when audio:progress events arrive faster than 10/s.
+  // This would indicate the Rust emit interval was accidentally lowered.
+  let _devEventCount = 0;
+  let _devWindowStart = 0;
+
   const pending = [
     listen<number>('audio:playing', ({ payload }) => handleAudioPlaying(payload)),
-    listen<{ current_time: number; duration: number }>('audio:progress', ({ payload }) =>
-      handleAudioProgress(payload.current_time, payload.duration)
-    ),
+    listen<{ current_time: number; duration: number }>('audio:progress', ({ payload }) => {
+      if (import.meta.env.DEV) {
+        _devEventCount++;
+        const now = Date.now();
+        if (_devWindowStart === 0) _devWindowStart = now;
+        if (now - _devWindowStart >= 1000) {
+          if (_devEventCount > 10) {
+            console.warn(`[psysonic] audio:progress: ${_devEventCount} events/s (threshold: 10) — check Rust emit interval`);
+          }
+          _devEventCount = 0;
+          _devWindowStart = now;
+        }
+      }
+      handleAudioProgress(payload.current_time, payload.duration);
+    }),
     listen<void>('audio:ended', () => handleAudioEnded()),
     listen<string>('audio:error', ({ payload }) => handleAudioError(payload)),
     listen<number>('audio:track_switched', ({ payload }) => handleAudioTrackSwitched(payload)),
@@ -521,6 +575,7 @@ export function initAudioListeners(): () => void {
         playing: isPlaying,
         positionSecs: currentTime > 0 ? currentTime : null,
       }).catch(() => {});
+      invoke('update_taskbar_icon', { isPlaying }).catch(() => {});
       return;
     }
 
@@ -714,18 +769,25 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       // ── playRadio ────────────────────────────────────────────────────────────
-      playRadio: (station) => {
+      playRadio: async (station) => {
         const { volume } = get();
         ++playGeneration;
         isAudioPaused = false;
         clearRadioReconnectTimer();
-        gaplessPreloadingId = null;
+        radioReconnectCount = 0;
+        gaplessPreloadingId = null; bytePreloadingId = null;
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
         // Stop Rust engine in case a regular track was playing.
         invoke('audio_stop').catch(() => {});
+        // Resolve PLS/M3U playlist URLs to the actual stream URL before handing
+        // to HTML5 <audio> — the browser cannot play playlist files directly.
+        const streamUrl = await invoke<string>('resolve_stream_url', { url: station.streamUrl })
+          .catch(() => station.streamUrl);
         // Play via HTML5 audio — browser handles reconnects, codec negotiation, buffering.
-        radioAudio.src = station.streamUrl;
-        radioAudio.volume = volume;
+        radioAudio.src = streamUrl;
+        const { replayGainFallbackDb } = useAuthStore.getState();
+        const fallbackFactor = replayGainFallbackDb !== 0 ? Math.pow(10, replayGainFallbackDb / 20) : 1;
+        radioAudio.volume = Math.min(1, volume * fallbackFactor);
         radioAudio.play().catch((err: unknown) => {
           console.error('[psysonic] radio HTML5 play failed:', err);
           showToast('Radio stream error', 3000, 'error');
@@ -754,7 +816,7 @@ export const usePlayerStore = create<PlayerState>()(
 
         const gen = ++playGeneration;
         isAudioPaused = false;
-        gaplessPreloadingId = null; // new track — allow fresh preload for next
+        gaplessPreloadingId = null; bytePreloadingId = null; // new track — allow fresh preload for next
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
 
         // If a radio stream is active, stop it before the new track starts so
@@ -789,7 +851,7 @@ export const usePlayerStore = create<PlayerState>()(
         setDeferHotCachePrefetch(true);
         const url = resolvePlaybackUrl(track.id, authState.activeServerId ?? '');
         const replayGainDb = authState.replayGainEnabled
-          ? (authState.replayGainMode === 'album' ? track.replayGainAlbumDb : track.replayGainTrackDb) ?? null
+          ? (authState.replayGainMode === 'album' ? (track.replayGainAlbumDb ?? track.replayGainTrackDb) : track.replayGainTrackDb) ?? null
           : null;
         const replayGainPeak = authState.replayGainEnabled ? (track.replayGainPeak ?? null) : null;
         invoke('audio_play', {
@@ -798,6 +860,8 @@ export const usePlayerStore = create<PlayerState>()(
           durationHint: track.duration,
           replayGainDb,
           replayGainPeak,
+          preGainDb: authState.replayGainPreGainDb,
+          fallbackDb: authState.replayGainFallbackDb,
           manual,
           hiResEnabled: authState.enableHiRes,
         }).catch((err: unknown) => {
@@ -839,6 +903,10 @@ export const usePlayerStore = create<PlayerState>()(
         set({ isPlaying: false });
       },
 
+      resetAudioPause: () => {
+        isAudioPaused = false;
+      },
+
       resume: () => {
         if (get().currentRadio) {
           radioAudio.play().catch(console.error);
@@ -867,7 +935,7 @@ export const usePlayerStore = create<PlayerState>()(
             if (freshSong) set({ currentTrack: trackToPlay });
             const authStateCold = useAuthStore.getState();
             const replayGainDbCold = authStateCold.replayGainEnabled
-              ? (authStateCold.replayGainMode === 'album' ? trackToPlay.replayGainAlbumDb : trackToPlay.replayGainTrackDb) ?? null
+              ? (authStateCold.replayGainMode === 'album' ? (trackToPlay.replayGainAlbumDb ?? trackToPlay.replayGainTrackDb) : trackToPlay.replayGainTrackDb) ?? null
               : null;
             const replayGainPeakCold = authStateCold.replayGainEnabled ? (trackToPlay.replayGainPeak ?? null) : null;
             const coldServerId = useAuthStore.getState().activeServerId ?? '';
@@ -879,8 +947,10 @@ export const usePlayerStore = create<PlayerState>()(
               volume: vol,
               durationHint: trackToPlay.duration,
               replayGainDb: replayGainDbCold,
-              manual: false,
               replayGainPeak: replayGainPeakCold,
+              preGainDb: authStateCold.replayGainPreGainDb,
+              fallbackDb: authStateCold.replayGainFallbackDb,
+              manual: false,
               hiResEnabled: useAuthStore.getState().enableHiRes,
             }).then(() => {
               if (playGeneration === gen && currentTime > 1) {
@@ -911,6 +981,8 @@ export const usePlayerStore = create<PlayerState>()(
                durationHint: currentTrack.duration,
                replayGainDb: replayGainDbCold,
                replayGainPeak: replayGainPeakCold,
+               preGainDb: authStateCold.replayGainPreGainDb,
+               fallbackDb: authStateCold.replayGainFallbackDb,
                manual: false,
                hiResEnabled: useAuthStore.getState().enableHiRes,
              }).catch((err: unknown) => {
@@ -973,7 +1045,19 @@ export const usePlayerStore = create<PlayerState>()(
                       .slice(0, 10)
                       .map(t => ({ ...t, radioAdded: true as const }));
                     if (fresh.length > 0) {
-                      set(state => ({ queue: [...state.queue, ...fresh] }));
+                      // Trim played tracks from the front to keep the queue bounded.
+                      // Without trimming the queue grows unboundedly, making every
+                      // Zustand persist write larger and causing UI freezes over time.
+                      // Keep the last HISTORY_KEEP played tracks so the user can still
+                      // navigate backwards a few songs.
+                      const HISTORY_KEEP = 5;
+                      set(state => {
+                        const trimStart = Math.max(0, state.queueIndex - HISTORY_KEEP);
+                        return {
+                          queue: [...state.queue.slice(trimStart), ...fresh],
+                          queueIndex: state.queueIndex - trimStart,
+                        };
+                      });
                     }
                   })
                   .catch(() => {})
@@ -1230,18 +1314,20 @@ export const usePlayerStore = create<PlayerState>()(
          if (!currentTrack || !currentTrack.id) return;
          const authState = useAuthStore.getState();
          const replayGainDb = authState.replayGainEnabled
-           ? (authState.replayGainMode === 'album' 
-               ? currentTrack.replayGainAlbumDb 
+           ? (authState.replayGainMode === 'album'
+               ? (currentTrack.replayGainAlbumDb ?? currentTrack.replayGainTrackDb)
                : currentTrack.replayGainTrackDb) ?? null
            : null;
          const replayGainPeak = authState.replayGainEnabled 
            ? (currentTrack.replayGainPeak ?? null) 
            : null;
          
-         invoke('audio_update_replay_gain', { 
-           volume, 
-           replayGainDb, 
-           replayGainPeak 
+         invoke('audio_update_replay_gain', {
+           volume,
+           replayGainDb,
+           replayGainPeak,
+           preGainDb: authState.replayGainPreGainDb,
+           fallbackDb: authState.replayGainFallbackDb,
          }).catch(console.error);
        },
     }),
@@ -1254,7 +1340,13 @@ export const usePlayerStore = create<PlayerState>()(
         currentTrack: state.currentTrack,
         queue: state.queue,
         queueIndex: state.queueIndex,
-        currentTime: state.currentTime,
+        // currentTime is intentionally NOT persisted here.
+        // handleAudioProgress fires every 100ms and each setState with a
+        // persisted field triggers a full JSON serialisation of the queue to
+        // localStorage.  After ~10 minutes of Artist Radio the queue grows to
+        // 50+ tracks; 6 000+ synchronous SQLite writes cause WKWebView's
+        // storage process to crash on macOS → black screen + audio stop.
+        // Resume position is recovered from Subsonic savePlayQueue (5s debounce).
         lastfmLovedCache: state.lastfmLovedCache,
       }),
     }

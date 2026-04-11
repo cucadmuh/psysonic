@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import type { EntityRatingSupportLevel } from '../api/subsonic';
+import {
+  isNavidromeAudiomuseSoftwareEligible,
+  type InstantMixProbeResult,
+  type SubsonicServerIdentity,
+} from '../utils/subsonicServerIdentity';
 import { usePlayerStore } from './playerStore';
 
 export interface ServerProfile {
@@ -12,7 +17,16 @@ export interface ServerProfile {
   password: string;
 }
 
-export type SeekbarStyle = 'waveform' | 'linedot' | 'bar' | 'thick' | 'segmented';
+export type SeekbarStyle = 'waveform' | 'linedot' | 'bar' | 'thick' | 'segmented' | 'neon' | 'pulsewave' | 'particletrail' | 'liquidfill' | 'retrotape';
+
+export type LyricsSourceId = 'server' | 'lrclib' | 'netease';
+export interface LyricsSourceConfig { id: LyricsSourceId; enabled: boolean; }
+
+const DEFAULT_LYRICS_SOURCES: LyricsSourceConfig[] = [
+  { id: 'server',  enabled: true  },
+  { id: 'lrclib',  enabled: true  },
+  { id: 'netease', enabled: false },
+];
 
 interface AuthState {
   // Multi-server
@@ -34,10 +48,12 @@ interface AuthState {
   customGenreBlacklist: string[];
   replayGainEnabled: boolean;
   replayGainMode: 'track' | 'album';
+  replayGainPreGainDb: number;   // added to RG gain for tagged files (0…+6 dB)
+  replayGainFallbackDb: number;  // gain for untagged files / radio (-6…0 dB)
   crossfadeEnabled: boolean;
   crossfadeSecs: number;
   gaplessEnabled: boolean;
-  preloadMode: 'balanced' | 'early' | 'custom';
+  preloadMode: 'off' | 'balanced' | 'early' | 'custom';
   preloadCustomSeconds: number;
   infiniteQueueEnabled: boolean;
   showArtistImages: boolean;
@@ -48,6 +64,8 @@ interface AuthState {
   useCustomTitlebar: boolean;
   nowPlayingEnabled: boolean;
   lyricsServerFirst: boolean;
+  enableNeteaselyrics: boolean;
+  lyricsSources: LyricsSourceConfig[];
   showFullscreenLyrics: boolean;
   showChangelogOnUpdate: boolean;
   lastSeenChangelogVersion: string;
@@ -104,6 +122,27 @@ interface AuthState {
   entityRatingSupportByServer: Record<string, EntityRatingSupportLevel>;
   setEntityRatingSupport: (serverId: string, level: EntityRatingSupportLevel) => void;
 
+  /**
+   * Per server: Navidrome has the AudioMuse-AI plugin — use `getSimilarSongs` (Instant Mix) and
+   * `getArtistInfo2` similar artists instead of Last.fm for discovery on this server.
+   */
+  audiomuseNavidromeByServer: Record<string, boolean>;
+  setAudiomuseNavidromeEnabled: (serverId: string, enabled: boolean) => void;
+
+  /** From `ping` — used to show the AudioMuse toggle only on Navidrome ≥ 0.60. */
+  subsonicServerIdentityByServer: Record<string, SubsonicServerIdentity>;
+  setSubsonicServerIdentity: (serverId: string, identity: SubsonicServerIdentity) => void;
+
+  /** Instant Mix / similar path failed while this server had AudioMuse enabled (cleared on success or toggle off). */
+  audiomuseNavidromeIssueByServer: Record<string, boolean>;
+  setAudiomuseNavidromeIssue: (serverId: string, hasIssue: boolean) => void;
+
+  /**
+   * `getSimilarSongs` probe per server (after ping). `empty` hides the AudioMuse row; re-run by testing connection.
+   */
+  instantMixProbeByServer: Record<string, InstantMixProbeResult>;
+  setInstantMixProbe: (serverId: string, result: InstantMixProbeResult) => void;
+
   // Status
   isLoggedIn: boolean;
   isConnecting: boolean;
@@ -130,10 +169,12 @@ interface AuthState {
   setCustomGenreBlacklist: (v: string[]) => void;
   setReplayGainEnabled: (v: boolean) => void;
   setReplayGainMode: (v: 'track' | 'album') => void;
+  setReplayGainPreGainDb: (v: number) => void;
+  setReplayGainFallbackDb: (v: number) => void;
   setCrossfadeEnabled: (v: boolean) => void;
   setCrossfadeSecs: (v: number) => void;
   setGaplessEnabled: (v: boolean) => void;
-  setPreloadMode: (v: 'balanced' | 'early' | 'custom') => void;
+  setPreloadMode: (v: 'off' | 'balanced' | 'early' | 'custom') => void;
   setPreloadCustomSeconds: (v: number) => void;
   setInfiniteQueueEnabled: (v: boolean) => void;
   setShowArtistImages: (v: boolean) => void;
@@ -144,6 +185,8 @@ interface AuthState {
   setUseCustomTitlebar: (v: boolean) => void;
   setNowPlayingEnabled: (v: boolean) => void;
   setLyricsServerFirst: (v: boolean) => void;
+  setEnableNeteaselyrics: (v: boolean) => void;
+  setLyricsSources: (sources: LyricsSourceConfig[]) => void;
   setShowFullscreenLyrics: (v: boolean) => void;
   setShowChangelogOnUpdate: (v: boolean) => void;
   setLastSeenChangelogVersion: (v: string) => void;
@@ -216,6 +259,8 @@ export const useAuthStore = create<AuthState>()(
       customGenreBlacklist: [],
       replayGainEnabled: false,
       replayGainMode: 'track',
+      replayGainPreGainDb: 0,
+      replayGainFallbackDb: 0,
       crossfadeEnabled: false,
       crossfadeSecs: 3,
       gaplessEnabled: false,
@@ -227,9 +272,11 @@ export const useAuthStore = create<AuthState>()(
       minimizeToTray: false,
       discordRichPresence: false,
       enableAppleMusicCoversDiscord: false,
-      useCustomTitlebar: true,
+      useCustomTitlebar: false,
       nowPlayingEnabled: false,
       lyricsServerFirst: true,
+      enableNeteaselyrics: false,
+      lyricsSources: DEFAULT_LYRICS_SOURCES,
       showFullscreenLyrics: true,
       showChangelogOnUpdate: true,
       lastSeenChangelogVersion: '',
@@ -250,6 +297,10 @@ export const useAuthStore = create<AuthState>()(
       musicLibraryFilterByServer: {},
       musicLibraryFilterVersion: 0,
       entityRatingSupportByServer: {},
+      audiomuseNavidromeByServer: {},
+      subsonicServerIdentityByServer: {},
+      audiomuseNavidromeIssueByServer: {},
+      instantMixProbeByServer: {},
       isLoggedIn: false,
       isConnecting: false,
       connectionError: null,
@@ -272,11 +323,19 @@ export const useAuthStore = create<AuthState>()(
           const newServers = s.servers.filter(srv => srv.id !== id);
           const switchedAway = s.activeServerId === id;
           const { [id]: _r, ...entityRatingRest } = s.entityRatingSupportByServer;
+          const { [id]: _a, ...audiomuseRest } = s.audiomuseNavidromeByServer;
+          const { [id]: _idn, ...identityRest } = s.subsonicServerIdentityByServer;
+          const { [id]: _iss, ...issueRest } = s.audiomuseNavidromeIssueByServer;
+          const { [id]: _pr, ...probeRest } = s.instantMixProbeByServer;
           return {
             servers: newServers,
             activeServerId: switchedAway ? (newServers[0]?.id ?? null) : s.activeServerId,
             isLoggedIn: switchedAway ? false : s.isLoggedIn,
             entityRatingSupportByServer: entityRatingRest,
+            audiomuseNavidromeByServer: audiomuseRest,
+            subsonicServerIdentityByServer: identityRest,
+            audiomuseNavidromeIssueByServer: issueRest,
+            instantMixProbeByServer: probeRest,
           };
         });
       },
@@ -312,10 +371,18 @@ export const useAuthStore = create<AuthState>()(
         set({ replayGainMode: v });
         usePlayerStore.getState().updateReplayGainForCurrentTrack();
       },
+      setReplayGainPreGainDb: (v) => {
+        set({ replayGainPreGainDb: v });
+        usePlayerStore.getState().updateReplayGainForCurrentTrack();
+      },
+      setReplayGainFallbackDb: (v) => {
+        set({ replayGainFallbackDb: v });
+        usePlayerStore.getState().updateReplayGainForCurrentTrack();
+      },
       setCrossfadeEnabled: (v) => set({ crossfadeEnabled: v }),
       setCrossfadeSecs: (v) => set({ crossfadeSecs: v }),
       setGaplessEnabled: (v) => set({ gaplessEnabled: v }),
-      setPreloadMode: (v: 'balanced' | 'early' | 'custom') => set({ preloadMode: v }),
+      setPreloadMode: (v: 'off' | 'balanced' | 'early' | 'custom') => set({ preloadMode: v }),
       setPreloadCustomSeconds: (v: number) => set({ preloadCustomSeconds: v }),
       setInfiniteQueueEnabled: (v) => set({ infiniteQueueEnabled: v }),
       setShowArtistImages: (v) => set({ showArtistImages: v }),
@@ -326,6 +393,8 @@ export const useAuthStore = create<AuthState>()(
       setUseCustomTitlebar: (v) => set({ useCustomTitlebar: v }),
       setNowPlayingEnabled: (v) => set({ nowPlayingEnabled: v }),
       setLyricsServerFirst: (v: boolean) => set({ lyricsServerFirst: v }),
+      setEnableNeteaselyrics: (v: boolean) => set({ enableNeteaselyrics: v }),
+      setLyricsSources: (sources) => set({ lyricsSources: sources }),
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),
       setShowChangelogOnUpdate: (v) => set({ showChangelogOnUpdate: v }),
       setLastSeenChangelogVersion: (v) => set({ lastSeenChangelogVersion: v }),
@@ -403,6 +472,60 @@ export const useAuthStore = create<AuthState>()(
           entityRatingSupportByServer: { ...s.entityRatingSupportByServer, [serverId]: level },
         })),
 
+      setAudiomuseNavidromeEnabled: (serverId, enabled) =>
+        set(s => {
+          const audiomuseNavidromeByServer = enabled
+            ? { ...s.audiomuseNavidromeByServer, [serverId]: true }
+            : (() => {
+                const { [serverId]: _removed, ...rest } = s.audiomuseNavidromeByServer;
+                return rest;
+              })();
+          const { [serverId]: _issueRm, ...issueRest } = s.audiomuseNavidromeIssueByServer;
+          return { audiomuseNavidromeByServer, audiomuseNavidromeIssueByServer: issueRest };
+        }),
+
+      setSubsonicServerIdentity: (serverId, identity) =>
+        set(s => {
+          const subsonicServerIdentityByServer = { ...s.subsonicServerIdentityByServer, [serverId]: { ...identity } };
+          if (!isNavidromeAudiomuseSoftwareEligible(identity)) {
+            const { [serverId]: _a, ...audiomuseRest } = s.audiomuseNavidromeByServer;
+            const { [serverId]: _i, ...issueRest } = s.audiomuseNavidromeIssueByServer;
+            const { [serverId]: _p, ...probeRest } = s.instantMixProbeByServer;
+            return {
+              subsonicServerIdentityByServer,
+              audiomuseNavidromeByServer: audiomuseRest,
+              audiomuseNavidromeIssueByServer: issueRest,
+              instantMixProbeByServer: probeRest,
+            };
+          }
+          return { subsonicServerIdentityByServer };
+        }),
+
+      setInstantMixProbe: (serverId, result) =>
+        set(s => {
+          const instantMixProbeByServer = { ...s.instantMixProbeByServer, [serverId]: result };
+          if (result === 'empty') {
+            const { [serverId]: _a, ...audiomuseRest } = s.audiomuseNavidromeByServer;
+            const { [serverId]: _i, ...issueRest } = s.audiomuseNavidromeIssueByServer;
+            return {
+              instantMixProbeByServer,
+              audiomuseNavidromeByServer: audiomuseRest,
+              audiomuseNavidromeIssueByServer: issueRest,
+            };
+          }
+          return { instantMixProbeByServer };
+        }),
+
+      setAudiomuseNavidromeIssue: (serverId, hasIssue) =>
+        set(s =>
+          hasIssue
+            ? { audiomuseNavidromeIssueByServer: { ...s.audiomuseNavidromeIssueByServer, [serverId]: true } }
+            : (() => {
+                const { [serverId]: _rm, ...rest } = s.audiomuseNavidromeIssueByServer;
+                return { audiomuseNavidromeIssueByServer: rest };
+              })(),
+        ),
+
       logout: () => set({ isLoggedIn: false, musicFolders: [] }),
 
       getBaseUrl: () => {
@@ -426,6 +549,26 @@ export const useAuthStore = create<AuthState>()(
       },
       onRehydrateStorage: () => (state, error) => {
         if (error || !state) return;
+        // If both hot cache and preload were enabled before mutual exclusion was enforced, reset both.
+        const conflictingLegacyState =
+          state.hotCacheEnabled && state.preloadMode !== 'off'
+            ? { hotCacheEnabled: false, preloadMode: 'off' as const }
+            : {};
+
+        // Migrate lyricsServerFirst + enableNeteaselyrics → lyricsSources (one-time).
+        let lyricsSourcesMigrated: { lyricsSources?: LyricsSourceConfig[] } = {};
+        try {
+          const raw = JSON.parse(localStorage.getItem('psysonic-auth') ?? '{}') as { state?: Record<string, unknown> };
+          if (!raw?.state?.lyricsSources) {
+            const serverFirst = (raw?.state?.lyricsServerFirst as boolean | undefined) ?? true;
+            const neteaseOn   = (raw?.state?.enableNeteaselyrics as boolean | undefined) ?? false;
+            const migrated: LyricsSourceConfig[] = serverFirst
+              ? [{ id: 'server', enabled: true }, { id: 'lrclib', enabled: true }, { id: 'netease', enabled: neteaseOn }]
+              : [{ id: 'lrclib', enabled: true }, { id: 'server', enabled: true }, { id: 'netease', enabled: neteaseOn }];
+            lyricsSourcesMigrated = { lyricsSources: migrated };
+          }
+        } catch { /* ignore */ }
+
         useAuthStore.setState({
           mixMinRatingSong: clampMixFilterMinStars(state.mixMinRatingSong as number),
           mixMinRatingAlbum: clampMixFilterMinStars(state.mixMinRatingAlbum as number),
@@ -433,6 +576,8 @@ export const useAuthStore = create<AuthState>()(
           skipStarManualSkipCountsByKey: sanitizeSkipStarCounts(
             (state as { skipStarManualSkipCountsByKey?: unknown }).skipStarManualSkipCountsByKey,
           ),
+          ...conflictingLegacyState,
+          ...lyricsSourcesMigrated,
         });
       },
     }

@@ -40,7 +40,6 @@ function HeroBg({ url }: { url: string }) {
           style={{
             backgroundImage: `url(${layer.url})`,
             opacity: layer.visible ? 1 : 0,
-            filter: layer.visible ? 'blur(0px)' : 'blur(18px)',
           }}
           aria-hidden="true"
         />

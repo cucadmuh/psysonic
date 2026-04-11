@@ -3,7 +3,22 @@
    Catppuccin Mocha Color Palette + Inter Typography
    ───────────────────────────────────────────────────────────── */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300..700&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Nunito:ital,wght@0,300..800;1,300..800&family=Rubik:ital,wght@0,300..700;1,300..700&family=Figtree:ital,wght@0,300..800;1,300..800&family=Manrope:wght@300..800&family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&family=Lexend:wght@300..700&display=swap');
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/inter/wght-italic.css';
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/dm-sans/wght-italic.css';
+@import '@fontsource-variable/nunito';
+@import '@fontsource-variable/nunito/wght-italic.css';
+@import '@fontsource-variable/rubik';
+@import '@fontsource-variable/rubik/wght-italic.css';
+@import '@fontsource-variable/figtree';
+@import '@fontsource-variable/figtree/wght-italic.css';
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/plus-jakarta-sans/wght-italic.css';
+@import '@fontsource-variable/lexend';
 
 /* ─── Catppuccin Mocha Variables ─── */
 :root,
@@ -3129,8 +3144,8 @@
 /* ─── Global Base Settings ─── */
 :root {
   /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Inter Variable', sans-serif;
 
   /* Spacing */
   --space-1: 4px;
@@ -3499,8 +3514,9 @@ html,
 body,
 #root {
   height: 100%;
-  min-width: 1280px;
-  min-height: 720px;
+  /* min-height removed: Tauri enforces the real window minimum (minHeight: 480).
+     A CSS min-height larger than the effective CSS viewport (which shrinks at
+     zoom > 1) pushes html taller than the window, clipping the player bar. */
   overflow: hidden;
 }
 
@@ -6303,49 +6319,54 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 /* ─── Font overrides ─── */
+[data-font='inter'] {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --font-display: 'Inter Variable', sans-serif;
+}
+
 [data-font='outfit'] {
-  --font-sans: 'Outfit', system-ui, sans-serif;
-  --font-display: 'Outfit', sans-serif;
+  --font-sans: 'Outfit Variable', system-ui, sans-serif;
+  --font-display: 'Outfit Variable', sans-serif;
 }
 
 [data-font='dm-sans'] {
-  --font-sans: 'DM Sans', system-ui, sans-serif;
-  --font-display: 'DM Sans', sans-serif;
+  --font-sans: 'DM Sans Variable', system-ui, sans-serif;
+  --font-display: 'DM Sans Variable', sans-serif;
 }
 
 [data-font='nunito'] {
-  --font-sans: 'Nunito', system-ui, sans-serif;
-  --font-display: 'Nunito', sans-serif;
+  --font-sans: 'Nunito Variable', system-ui, sans-serif;
+  --font-display: 'Nunito Variable', sans-serif;
 }
 
 [data-font='rubik'] {
-  --font-sans: 'Rubik', system-ui, sans-serif;
-  --font-display: 'Rubik', sans-serif;
+  --font-sans: 'Rubik Variable', system-ui, sans-serif;
+  --font-display: 'Rubik Variable', sans-serif;
 }
 
 [data-font='space-grotesk'] {
-  --font-sans: 'Space Grotesk', system-ui, sans-serif;
-  --font-display: 'Space Grotesk', sans-serif;
+  --font-sans: 'Space Grotesk Variable', system-ui, sans-serif;
+  --font-display: 'Space Grotesk Variable', sans-serif;
 }
 
 [data-font='figtree'] {
-  --font-sans: 'Figtree', system-ui, sans-serif;
-  --font-display: 'Figtree', sans-serif;
+  --font-sans: 'Figtree Variable', system-ui, sans-serif;
+  --font-display: 'Figtree Variable', sans-serif;
 }
 
 [data-font='manrope'] {
-  --font-sans: 'Manrope', system-ui, sans-serif;
-  --font-display: 'Manrope', sans-serif;
+  --font-sans: 'Manrope Variable', system-ui, sans-serif;
+  --font-display: 'Manrope Variable', sans-serif;
 }
 
 [data-font='plus-jakarta-sans'] {
-  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-sans: 'Plus Jakarta Sans Variable', system-ui, sans-serif;
+  --font-display: 'Plus Jakarta Sans Variable', sans-serif;
 }
 
 [data-font='lexend'] {
-  --font-sans: 'Lexend', system-ui, sans-serif;
-  --font-display: 'Lexend', sans-serif;
+  --font-sans: 'Lexend Variable', system-ui, sans-serif;
+  --font-display: 'Lexend Variable', sans-serif;
 }
 
 /* ─── Equalizer bars animation ─── */
@@ -6495,11 +6516,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 /* Old Shire craftsmanship — vertical wood grain, warm hearthlight from right edge */
 [data-theme='middle-earth'] .sidebar {
   background-color: #221608;
-  background-image:
-    repeating-linear-gradient(90deg,
-      rgba(255, 220, 120, 0.04) 0px, rgba(255, 220, 120, 0.04) 1px,
-      transparent 1px, transparent 14px),
-    linear-gradient(180deg, #261a0a 0%, #1e1408 55%, #241c0e 100%);
+  background-image: linear-gradient(180deg, #261a0a 0%, #1e1408 55%, #241c0e 100%);
   border-right: 2px solid rgba(200, 160, 40, 0.28);
   box-shadow:
     inset -3px 0 12px rgba(200, 140, 30, 0.10),
@@ -6959,6 +6976,40 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 [data-theme='middle-earth'] .lyrics-status {
   color: #7a5a30;
+}
+
+/* Queue: "Nächste Titel" divider label */
+[data-theme='middle-earth'] .queue-divider span {
+  color: #a07840 !important;
+}
+
+/* Queue: artist text visible on hover for inactive items */
+[data-theme='middle-earth'] .queue-item:hover .queue-item-artist,
+[data-theme='middle-earth'] .queue-item.context-active .queue-item-artist {
+  color: #e8c878;
+}
+
+/* AlbumDetail header: artist name readable */
+[data-theme='middle-earth'] .album-detail-artist,
+[data-theme='middle-earth'] .album-detail-artist-link {
+  color: #e8c878;
+}
+
+[data-theme='middle-earth'] .album-detail-artist-link:hover {
+  color: #f8e060;
+}
+
+/* ArtistDetail About: heading, bio text + "Mehr lesen" readable */
+[data-theme='middle-earth'] .np-card-title {
+  color: #6b4e2a;
+}
+
+[data-theme='middle-earth'] .np-bio-text {
+  color: #5a3e20;
+}
+
+[data-theme='middle-earth'] .np-bio-toggle {
+  color: #7a5228;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -8260,19 +8311,19 @@ input[type="range"]:hover::-webkit-slider-thumb {
   --ctp-teal: #00f0f0;
   --ctp-yellow: #f0d000;
   /* O-piece  — yellow */
-  --ctp-mauve: #a020f0;
+  --ctp-mauve: #c070ff;
   /* T-piece  — purple */
-  --ctp-lavender: #a020f0;
-  --ctp-pink: #a020f0;
+  --ctp-lavender: #c070ff;
+  --ctp-pink: #c070ff;
   --ctp-green: #00d000;
   /* S-piece  — green  */
   --ctp-red: #f02000;
   /* Z-piece  — red    */
   --ctp-flamingo: #f02000;
   --ctp-maroon: #f02000;
-  --ctp-blue: #0060f0;
+  --ctp-blue: #4090ff;
   /* J-piece  — blue   */
-  --ctp-sapphire: #0060f0;
+  --ctp-sapphire: #4090ff;
   --ctp-peach: #f07800;
   /* L-piece  — orange */
   --ctp-rosewater: #f07800;
@@ -8294,7 +8345,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
   --text-primary: #ffffff;
   --text-secondary: #f0d000;
   /* O-piece yellow — like the score readout */
-  --text-muted: #3a3a6a;
+  --text-muted: #7878b8;
   --border: #1e1e48;
   --border-subtle: #0d0d22;
 
@@ -8322,7 +8373,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='tetrastack'] .player-bar {
   border-top: 3px solid #00f0f0;
   box-shadow:
-    0 -2px 0 #a020f0,
+    0 -2px 0 #c070ff,
     0 -8px 24px rgba(0, 240, 240, 0.12);
 }
 
@@ -8374,7 +8425,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 /* Album title in queue = T-piece purple */
 [data-theme='tetrastack'] .queue-meta-album {
-  color: #a020f0;
+  color: #c070ff;
 }
 
 /* Active queue item = I-piece left border */
@@ -8452,8 +8503,8 @@ input[type="range"]:hover::-webkit-slider-thumb {
 /* Artist pill links = J-piece blue */
 [data-theme='tetrastack'] .artist-ext-link:hover {
   background: rgba(0, 96, 240, 0.1);
-  color: #0060f0 !important;
-  border-color: rgba(0, 96, 240, 0.4) !important;
+  color: #4090ff !important;
+  border-color: rgba(64, 144, 255, 0.4) !important;
 }
 
 /* Now playing active track = Z-piece red accent */
@@ -8467,6 +8518,26 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='tetrastack'] .connection-type,
 [data-theme='tetrastack'] .connection-server {
   color: #f0d000;
+}
+
+/* Sidebar section labels */
+[data-theme='tetrastack'] .nav-section-label {
+  color: rgba(0, 240, 240, 0.45);
+}
+
+/* Queue tab buttons (Lyrics / Warteschlange) — inactive */
+[data-theme='tetrastack'] .queue-tab-btn {
+  color: #6060a8;
+}
+
+/* Queue: inactive song artist */
+[data-theme='tetrastack'] .queue-item-artist {
+  color: #6060a8;
+}
+
+/* Queue: "Nächste Titel" divider */
+[data-theme='tetrastack'] .queue-divider span {
+  color: #6060a8 !important;
 }
 
 /* ── The Book (Social Media) ────────────────────────────────── */
@@ -12117,11 +12188,6 @@ input[type="range"]:hover::-webkit-slider-thumb {
 /* Sidebar — iron plate lines + subtle red glow on active */
 [data-theme='horde'] .sidebar {
   background-color: #110300;
-  background-image: repeating-linear-gradient(180deg,
-      transparent 0px,
-      transparent 39px,
-      rgba(100, 20, 0, 0.18) 39px,
-      rgba(100, 20, 0, 0.18) 40px);
   border-right: 1px solid rgba(140, 40, 10, 0.35);
 }
 
@@ -12241,11 +12307,6 @@ input[type="range"]:hover::-webkit-slider-thumb {
 /* Sidebar — cathedral stone columns with gold right-border */
 [data-theme='alliance'] .sidebar {
   background-color: #040c18;
-  background-image: repeating-linear-gradient(180deg,
-      transparent 0px,
-      transparent 47px,
-      rgba(60, 100, 180, 0.14) 47px,
-      rgba(60, 100, 180, 0.14) 48px);
   border-right: 2px solid rgba(200, 170, 50, 0.30);
 }
 
@@ -12823,6 +12884,30 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='toy-tale'] .connection-type,
 [data-theme='toy-tale'] .connection-server {
   color: #6a5030;
+}
+
+/* Sidebar section labels (sky-blue bg needs light text) */
+[data-theme='toy-tale'] .nav-section-label {
+  color: rgba(200, 230, 255, 0.55);
+}
+
+/* Queue tab buttons (Lyrics / Warteschlange) — inactive */
+[data-theme='toy-tale'] .queue-tab-btn {
+  color: #b89060;
+}
+
+[data-theme='toy-tale'] .queue-tab-btn:hover {
+  color: #f0e8d8;
+}
+
+/* Queue: inactive song artist */
+[data-theme='toy-tale'] .queue-item-artist {
+  color: #9a7848;
+}
+
+/* Queue: "Nächste Titel" divider */
+[data-theme='toy-tale'] .queue-divider span {
+  color: #b89060 !important;
 }
 
 /* ─── North Park — South Park ─── */

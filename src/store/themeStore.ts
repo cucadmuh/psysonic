@@ -6,6 +6,30 @@ type Theme = 'mocha' | 'macchiato' | 'frappe' | 'latte' | 'nord' | 'nord-snowsto
 interface ThemeState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  enableThemeScheduler: boolean;
+  setEnableThemeScheduler: (v: boolean) => void;
+  themeDay: string;
+  setThemeDay: (v: string) => void;
+  themeNight: string;
+  setThemeNight: (v: string) => void;
+  timeDayStart: string;
+  setTimeDayStart: (v: string) => void;
+  timeNightStart: string;
+  setTimeNightStart: (v: string) => void;
+}
+
+export function getScheduledTheme(state: Pick<ThemeState, 'enableThemeScheduler' | 'theme' | 'themeDay' | 'themeNight' | 'timeDayStart' | 'timeNightStart'>): string {
+  if (!state.enableThemeScheduler) return state.theme;
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const [dh, dm] = state.timeDayStart.split(':').map(Number);
+  const [nh, nm] = state.timeNightStart.split(':').map(Number);
+  const dayMins = dh * 60 + dm;
+  const nightMins = nh * 60 + nm;
+  const isDay = dayMins < nightMins
+    ? nowMins >= dayMins && nowMins < nightMins
+    : nowMins >= dayMins || nowMins < nightMins;
+  return isDay ? state.themeDay : state.themeNight;
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -13,6 +37,16 @@ export const useThemeStore = create<ThemeState>()(
     (set) => ({
       theme: 'mocha',
       setTheme: (theme) => set({ theme }),
+      enableThemeScheduler: false,
+      setEnableThemeScheduler: (v) => set({ enableThemeScheduler: v }),
+      themeDay: 'latte',
+      setThemeDay: (v) => set({ themeDay: v }),
+      themeNight: 'mocha',
+      setThemeNight: (v) => set({ themeNight: v }),
+      timeDayStart: '07:00',
+      setTimeDayStart: (v) => set({ timeDayStart: v }),
+      timeNightStart: '19:00',
+      setTimeNightStart: (v) => set({ timeNightStart: v }),
     }),
     {
       name: 'psysonic_theme',

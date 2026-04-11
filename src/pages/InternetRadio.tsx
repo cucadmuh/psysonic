@@ -19,7 +19,10 @@ import { showToast } from '../utils/toast';
 
 export default function InternetRadio() {
   const { t } = useTranslation();
-  const { playRadio, stop, currentRadio, isPlaying } = usePlayerStore();
+  const playRadio = usePlayerStore(s => s.playRadio);
+  const stop = usePlayerStore(s => s.stop);
+  const currentRadio = usePlayerStore(s => s.currentRadio);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
 
   const [stations, setStations] = useState<InternetRadioStation[]>([]);
   const [loading, setLoading] = useState(true);

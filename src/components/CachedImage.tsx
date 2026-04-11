@@ -26,8 +26,9 @@ export function useCachedUrl(fetchUrl: string, cacheKey: string, fallbackToFetch
   return fallbackToFetch ? (resolved || fetchUrl) : resolved;
 }
 
-export default function CachedImage({ src, cacheKey, style, onLoad, ...props }: CachedImageProps) {
+export default function CachedImage({ src, cacheKey, style, onLoad, onError, ...props }: CachedImageProps) {
   const [inView, setInView] = useState(false);
+  const [fallbackSrc, setFallbackSrc] = useState<string | undefined>(undefined);
   const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
@@ -49,14 +50,34 @@ export default function CachedImage({ src, cacheKey, style, onLoad, ...props }: 
   // URL upgrades within the same image — avoids the end-of-load flash.
   useEffect(() => {
     setLoaded(false);
+    setFallbackSrc(undefined);
   }, [cacheKey]);
+
+  const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (onError) {
+      // Caller wants custom error handling (e.g. hide the element)
+      onError(e);
+    } else {
+      // Nullify the DOM-level handler first to prevent any infinite loop
+      e.currentTarget.onerror = null;
+      setFallbackSrc('/logo-psysonic.png');
+    }
+  };
+
+  const isFallback = fallbackSrc !== undefined;
+  const finalSrc = fallbackSrc ?? (resolvedSrc || undefined);
+
+  const fallbackStyle: React.CSSProperties = isFallback
+    ? { objectFit: 'contain', background: 'var(--bg-card, var(--ctp-surface0, #313244))', padding: '15%' }
+    : {};
 
   return (
     <img
       ref={imgRef}
-      src={resolvedSrc || undefined}
-      style={{ ...style, opacity: loaded ? 1 : 0, transition: 'opacity 0.15s ease' }}
+      src={finalSrc}
+      style={{ ...style, opacity: loaded ? 1 : 0, transition: 'opacity 0.15s ease', ...fallbackStyle }}
       onLoad={e => { setLoaded(true); onLoad?.(e); }}
+      onError={handleError}
       {...props}
     />
   );

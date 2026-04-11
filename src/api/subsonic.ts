@@ -3,6 +3,11 @@ import md5 from 'md5';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '../store/authStore';
 import { version } from '../../package.json';
+import {
+  isNavidromeAudiomuseSoftwareEligible,
+  type InstantMixProbeResult,
+  type SubsonicServerIdentity,
+} from '../utils/subsonicServerIdentity';
 
 // ─── Secure random salt ────────────────────────────────────────
 function secureRandomSalt(): string {
@@ -181,6 +186,68 @@ export interface SubsonicArtistInfo {
 }
 
 // ─── API Methods ──────────────────────────────────────────────
+export interface SubsonicDirectoryEntry {
+  id: string;
+  parent?: string;
+  title: string;
+  isDir: boolean;
+  album?: string;
+  artist?: string;
+  albumId?: string;
+  artistId?: string;
+  coverArt?: string;
+  duration?: number;
+  track?: number;
+  year?: number;
+  bitRate?: number;
+  suffix?: string;
+  size?: number;
+  genre?: string;
+  starred?: string;
+  userRating?: number;
+}
+
+export interface SubsonicDirectory {
+  id: string;
+  parent?: string;
+  name: string;
+  child: SubsonicDirectoryEntry[];
+}
+
+export async function getMusicDirectory(id: string): Promise<SubsonicDirectory> {
+  const data = await api<{ directory: { id: string; parent?: string; name: string; child?: SubsonicDirectoryEntry | SubsonicDirectoryEntry[] } }>(
+    'getMusicDirectory.view',
+    { id },
+  );
+  const dir = data.directory;
+  const raw = dir.child;
+  const child: SubsonicDirectoryEntry[] = !raw ? [] : Array.isArray(raw) ? raw : [raw];
+  return { id: dir.id, parent: dir.parent, name: dir.name, child };
+}
+
+/** Returns the top-level artist/directory entries for a music folder root.
+ *  Music folder IDs from getMusicFolders() are NOT valid getMusicDirectory IDs —
+ *  use getIndexes.view with musicFolderId instead. */
+export async function getMusicIndexes(musicFolderId: string): Promise<SubsonicDirectoryEntry[]> {
+  type IndexArtist = { id: string; name: string; coverArt?: string };
+  type IndexEntry  = { name: string; artist?: IndexArtist | IndexArtist[] };
+  const data = await api<{ indexes: { index?: IndexEntry | IndexEntry[] } }>(
+    'getIndexes.view',
+    { musicFolderId },
+  );
+  const raw = data.indexes?.index;
+  if (!raw) return [];
+  const indices = Array.isArray(raw) ? raw : [raw];
+  const entries: SubsonicDirectoryEntry[] = [];
+  for (const idx of indices) {
+    const artists = idx.artist ? (Array.isArray(idx.artist) ? idx.artist : [idx.artist]) : [];
+    for (const a of artists) {
+      entries.push({ id: a.id, title: a.name, isDir: true, coverArt: a.coverArt });
+    }
+  }
+  return entries;
+}
+
 export async function getMusicFolders(): Promise<SubsonicMusicFolder[]> {
   const data = await api<{ musicFolders: { musicFolder: SubsonicMusicFolder | SubsonicMusicFolder[] } }>(
     'getMusicFolders.view',
@@ -203,8 +270,14 @@ export async function ping(): Promise<boolean> {
   }
 }
 
+export type PingWithCredentialsResult = SubsonicServerIdentity & { ok: boolean };
+
 /** Test a connection with explicit credentials — does NOT depend on store state. */
-export async function pingWithCredentials(serverUrl: string, username: string, password: string): Promise<boolean> {
+export async function pingWithCredentials(
+  serverUrl: string,
+  username: string,
+  password: string,
+): Promise<PingWithCredentialsResult> {
   try {
     const base = serverUrl.startsWith('http') ? serverUrl.replace(/\/$/, '') : `http://${serverUrl.replace(/\/$/, '')}`;
     const salt = secureRandomSalt();
@@ -215,10 +288,106 @@ export async function pingWithCredentials(serverUrl: string, username: string, p
       timeout: 15000,
     });
     const data = resp.data?.['subsonic-response'];
-    return data?.status === 'ok';
+    const ok = data?.status === 'ok';
+    return {
+      ok,
+      type: typeof data?.type === 'string' ? data.type : undefined,
+      serverVersion: typeof data?.serverVersion === 'string' ? data.serverVersion : undefined,
+      openSubsonic: data?.openSubsonic === true,
+    };
   } catch {
-    return false;
+    return { ok: false };
   }
+}
+
+function restBaseFromUrl(serverUrl: string): string {
+  const base = serverUrl.startsWith('http') ? serverUrl.replace(/\/$/, '') : `http://${serverUrl.replace(/\/$/, '')}`;
+  return `${base}/rest`;
+}
+
+async function apiWithCredentials<T>(
+  serverUrl: string,
+  username: string,
+  password: string,
+  endpoint: string,
+  extra: Record<string, unknown> = {},
+  timeout = 15000,
+): Promise<T> {
+  const params = { ...getAuthParams(username, password), ...extra };
+  const resp = await axios.get(`${restBaseFromUrl(serverUrl)}/${endpoint}`, {
+    params,
+    paramsSerializer: { indexes: null },
+    timeout,
+  });
+  const data = resp.data?.['subsonic-response'];
+  if (!data) throw new Error('Invalid response from server (possibly not a Subsonic server)');
+  if (data.status !== 'ok') throw new Error(data.error?.message ?? 'Subsonic API error');
+  return data as T;
+}
+
+const INSTANT_MIX_PROBE_RANDOM_SIZE = 8;
+const INSTANT_MIX_PROBE_SIMILAR_COUNT = 12;
+const INSTANT_MIX_PROBE_MAX_TRACKS = 4;
+
+/**
+ * Probes whether `getSimilarSongs` returns any tracks (Instant Mix / Navidrome agent chain).
+ * Does not pass `musicFolderId` — probes the whole library as seen by the account.
+ * Note: if `ND_AGENTS` includes Last.fm, a positive result does not prove AudioMuse alone.
+ */
+export async function probeInstantMixWithCredentials(
+  serverUrl: string,
+  username: string,
+  password: string,
+): Promise<InstantMixProbeResult> {
+  try {
+    const data = await apiWithCredentials<{ randomSongs: { song: SubsonicSong | SubsonicSong[] } }>(
+      serverUrl,
+      username,
+      password,
+      'getRandomSongs.view',
+      { size: INSTANT_MIX_PROBE_RANDOM_SIZE, _t: Date.now() },
+      12000,
+    );
+    const raw = data.randomSongs?.song;
+    const songs: SubsonicSong[] = !raw ? [] : Array.isArray(raw) ? raw : [raw];
+    if (songs.length === 0) return 'skipped';
+
+    let anyError = false;
+    for (const song of songs.slice(0, INSTANT_MIX_PROBE_MAX_TRACKS)) {
+      try {
+        const simData = await apiWithCredentials<{ similarSongs: { song: SubsonicSong | SubsonicSong[] } }>(
+          serverUrl,
+          username,
+          password,
+          'getSimilarSongs.view',
+          { id: song.id, count: INSTANT_MIX_PROBE_SIMILAR_COUNT },
+          12000,
+        );
+        const sRaw = simData.similarSongs?.song;
+        const list: SubsonicSong[] = !sRaw ? [] : Array.isArray(sRaw) ? sRaw : [sRaw];
+        if (list.some(s => s.id !== song.id)) return 'ok';
+      } catch {
+        anyError = true;
+      }
+    }
+    return anyError ? 'error' : 'empty';
+  } catch {
+    return 'error';
+  }
+}
+
+/** After a successful ping, probe Instant Mix in the background (Navidrome ≥ 0.60 only). */
+export function scheduleInstantMixProbeForServer(
+  serverId: string,
+  serverUrl: string,
+  username: string,
+  password: string,
+  identity: SubsonicServerIdentity,
+): void {
+  if (!isNavidromeAudiomuseSoftwareEligible(identity)) return;
+  void probeInstantMixWithCredentials(serverUrl, username, password).then(result =>
+    useAuthStore.getState().setInstantMixProbe(serverId, result),
+  );
 }
 
 export async function getRandomAlbums(size = 6): Promise<SubsonicAlbum[]> {
@@ -247,6 +416,68 @@ export async function getAlbumList(
   return data.albumList2?.album ?? [];
 }
 
+/**
+ * Navidrome (and some servers) ignore `musicFolderId` on getSimilarSongs / getSimilarSongs2 / getTopSongs,
+ * so similar tracks can leak from other libraries. When the user scoped to one folder, we keep a set of
+ * album ids in that scope (paginated getAlbumList2) and drop songs whose albumId is not in the set.
+ */
+let scopedLibraryAlbumIdCache: {
+  serverId: string;
+  folderId: string;
+  filterVersion: number;
+  ids: Set<string>;
+} | null = null;
+
+async function albumIdsInActiveLibraryScope(): Promise<Set<string> | null> {
+  const { activeServerId, musicLibraryFilterByServer, musicLibraryFilterVersion } = useAuthStore.getState();
+  if (!activeServerId) return null;
+  const folder = musicLibraryFilterByServer[activeServerId];
+  if (folder === undefined || folder === 'all') {
+    scopedLibraryAlbumIdCache = null;
+    return null;
+  }
+  const hit = scopedLibraryAlbumIdCache;
+  if (
+    hit &&
+    hit.serverId === activeServerId &&
+    hit.folderId === folder &&
+    hit.filterVersion === musicLibraryFilterVersion
+  ) {
+    return hit.ids;
+  }
+  const ids = new Set<string>();
+  const pageSize = 500;
+  let offset = 0;
+  for (;;) {
+    const albums = await getAlbumList('alphabeticalByName', pageSize, offset);
+    for (const a of albums) ids.add(a.id);
+    if (albums.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 500_000) break;
+  }
+  scopedLibraryAlbumIdCache = {
+    serverId: activeServerId,
+    folderId: folder,
+    filterVersion: musicLibraryFilterVersion,
+    ids,
+  };
+  return ids;
+}
+
+export async function filterSongsToActiveLibrary(songs: SubsonicSong[]): Promise<SubsonicSong[]> {
+  const allowed = await albumIdsInActiveLibraryScope();
+  if (!allowed || allowed.size === 0) return songs;
+  return songs.filter(s => s.albumId && allowed.has(s.albumId));
+}
+
+/** When scoped to one library, ask the server for more similar tracks — many will be filtered out client-side. */
+function similarSongsRequestCount(desired: number): number {
+  const { activeServerId, musicLibraryFilterByServer } = useAuthStore.getState();
+  const f = activeServerId ? musicLibraryFilterByServer[activeServerId] : undefined;
+  if (f === undefined || f === 'all') return desired;
+  return Math.min(300, Math.max(desired, desired * 4));
+}
+
 export async function getRandomSongs(size = 50, genre?: string, timeout = 15000): Promise<SubsonicSong[]> {
   const params: Record<string, string | number> = { size, _t: Date.now(), ...libraryFilterParams() };
   if (genre) params.genre = genre;
@@ -270,6 +501,19 @@ export async function getAlbum(id: string): Promise<{ album: SubsonicAlbum; song
 }
 
 const MIX_RATING_PREFETCH_CONCURRENCY = 8;
+const RATING_CACHE_TTL = 7 * 60 * 1000; // 7 minutes
+const ratingCache = new Map<string, { value: number | undefined; expiresAt: number }>();
+
+function getCachedRating(key: string): number | undefined | null {
+  const entry = ratingCache.get(key);
+  if (!entry) return null; // cache miss
+  if (Date.now() > entry.expiresAt) { ratingCache.delete(key); return null; }
+  return entry.value;
+}
+
+function setCachedRating(key: string, value: number | undefined): void {
+  ratingCache.set(key, { value, expiresAt: Date.now() + RATING_CACHE_TTL });
+}
 
 function parseEntityUserRating(v: unknown): number | undefined {
   if (v === null || v === undefined) return undefined;
@@ -286,22 +530,30 @@ export async function prefetchArtistUserRatings(
   const unique = [...new Set(ids.filter(Boolean))];
   const out = new Map<string, number>();
   if (!unique.length) return out;
+  const uncached: string[] = [];
+  for (const id of unique) {
+    const cached = getCachedRating(`artist:${id}`);
+    if (cached !== null) { if (cached !== undefined) out.set(id, cached); }
+    else uncached.push(id);
+  }
+  if (!uncached.length) return out;
   let next = 0;
   async function worker() {
     for (;;) {
       const i = next++;
-      if (i >= unique.length) return;
-      const id = unique[i];
+      if (i >= uncached.length) return;
+      const id = uncached[i];
       try {
         const { artist } = await getArtist(id);
         const r = parseEntityUserRating(artist.userRating);
+        setCachedRating(`artist:${id}`, r);
         if (r !== undefined) out.set(id, r);
       } catch {
         /* ignore */
       }
     }
   }
-  const nWorkers = Math.min(concurrency, unique.length);
+  const nWorkers = Math.min(concurrency, uncached.length);
   await Promise.all(Array.from({ length: nWorkers }, () => worker()));
   return out;
 }
@@ -314,24 +566,183 @@ export async function prefetchAlbumUserRatings(
   const unique = [...new Set(ids.filter(Boolean))];
   const out = new Map<string, number>();
   if (!unique.length) return out;
+  const uncached: string[] = [];
+  for (const id of unique) {
+    const cached = getCachedRating(`album:${id}`);
+    if (cached !== null) { if (cached !== undefined) out.set(id, cached); }
+    else uncached.push(id);
+  }
+  if (!uncached.length) return out;
   let next = 0;
   async function worker() {
     for (;;) {
       const i = next++;
-      if (i >= unique.length) return;
-      const id = unique[i];
+      if (i >= uncached.length) return;
+      const id = uncached[i];
       try {
         const { album } = await getAlbum(id);
         const r = parseEntityUserRating(album.userRating);
+        setCachedRating(`album:${id}`, r);
         if (r !== undefined) out.set(id, r);
       } catch {
         /* ignore */
       }
     }
   }
-  const nWorkers = Math.min(concurrency, unique.length);
+  const nWorkers = Math.min(concurrency, uncached.length);
   await Promise.all(Array.from({ length: nWorkers }, () => worker()));
   return out;
+}
+
+/** Paginated album stats for Statistics (playtime, counts, genre breakdown). Same TTL as rating prefetch. */
+export interface StatisticsLibraryAggregates {
+  playtimeSec: number;
+  albumsCounted: number;
+  songsCounted: number;
+  capped: boolean;
+  genres: SubsonicGenre[];
+}
+
+/** Key `prefix:serverId:folder` — Statistics caches share scope with `libraryFilterParams()`. */
+function statisticsPageCacheKey(prefix: string): string | null {
+  const { activeServerId, musicLibraryFilterByServer } = useAuthStore.getState();
+  if (!activeServerId) return null;
+  const folder = musicLibraryFilterByServer[activeServerId] ?? 'all';
+  const folderPart = folder === 'all' ? 'all' : folder;
+  return `${prefix}:${activeServerId}:${folderPart}`;
+}
+
+const statisticsAggregatesCache = new Map<string, { value: StatisticsLibraryAggregates; expiresAt: number }>();
+
+/**
+ * Walks up to 5000 newest albums (scoped by library filter). Cached per server + music folder for
+ * 7 minutes (same `RATING_CACHE_TTL` as album/artist rating prefetch).
+ * Unknown/missing album genre is stored as `value: ''`; UI should map to i18n.
+ */
+export async function fetchStatisticsLibraryAggregates(): Promise<StatisticsLibraryAggregates> {
+  const key = statisticsPageCacheKey('statsAgg');
+  if (key) {
+    const hit = statisticsAggregatesCache.get(key);
+    if (hit && Date.now() < hit.expiresAt) return hit.value;
+  }
+
+  let playtimeSec = 0;
+  let albumsCounted = 0;
+  let songsCounted = 0;
+  const genreAgg = new Map<string, { songCount: number; albumCount: number }>();
+  const pageSize = 500;
+  const maxPages = 10;
+  let capped = false;
+  let offset = 0;
+  let nextPage = getAlbumList('newest', pageSize, 0);
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const albums = await nextPage;
+      for (const a of albums) {
+        playtimeSec += a.duration ?? 0;
+        albumsCounted += 1;
+        const sc = a.songCount ?? 0;
+        songsCounted += sc;
+        const label = (a.genre?.trim()) ? a.genre.trim() : '';
+        let g = genreAgg.get(label);
+        if (!g) {
+          g = { songCount: 0, albumCount: 0 };
+          genreAgg.set(label, g);
+        }
+        g.songCount += sc;
+        g.albumCount += 1;
+      }
+      if (albums.length < pageSize) break;
+      if (page === maxPages - 1) {
+        capped = true;
+        break;
+      }
+      offset += pageSize;
+      nextPage = getAlbumList('newest', pageSize, offset);
+    } catch {
+      break;
+    }
+  }
+
+  const genres: SubsonicGenre[] = [...genreAgg.entries()]
+    .map(([value, c]) => ({ value, songCount: c.songCount, albumCount: c.albumCount }))
+    .sort((a, b) => b.songCount - a.songCount);
+
+  const result: StatisticsLibraryAggregates = {
+    playtimeSec,
+    albumsCounted,
+    songsCounted,
+    capped,
+    genres,
+  };
+  if (key) {
+    statisticsAggregatesCache.set(key, { value: result, expiresAt: Date.now() + RATING_CACHE_TTL });
+  }
+  return result;
+}
+
+/** Recent / frequent / highest album strips + artist count for Statistics. */
+export interface StatisticsOverviewData {
+  recent: SubsonicAlbum[];
+  frequent: SubsonicAlbum[];
+  highest: SubsonicAlbum[];
+  artistCount: number;
+}
+
+const statisticsOverviewCache = new Map<string, { value: StatisticsOverviewData; expiresAt: number }>();
+
+export async function fetchStatisticsOverview(): Promise<StatisticsOverviewData> {
+  const key = statisticsPageCacheKey('statsOverview');
+  if (key) {
+    const hit = statisticsOverviewCache.get(key);
+    if (hit && Date.now() < hit.expiresAt) return hit.value;
+  }
+  const [recent, frequent, highest, artists] = await Promise.all([
+    getAlbumList('recent', 20).catch(() => [] as SubsonicAlbum[]),
+    getAlbumList('frequent', 12).catch(() => [] as SubsonicAlbum[]),
+    getAlbumList('highest', 12).catch(() => [] as SubsonicAlbum[]),
+    getArtists().catch(() => [] as SubsonicArtist[]),
+  ]);
+  const result: StatisticsOverviewData = {
+    recent,
+    frequent,
+    highest,
+    artistCount: artists.length,
+  };
+  if (key) {
+    statisticsOverviewCache.set(key, { value: result, expiresAt: Date.now() + RATING_CACHE_TTL });
+  }
+  return result;
+}
+
+/** Format (suffix) histogram from a random sample for Statistics. */
+export interface StatisticsFormatSample {
+  rows: { format: string; count: number }[];
+  sampleSize: number;
+}
+
+const statisticsFormatCache = new Map<string, { value: StatisticsFormatSample; expiresAt: number }>();
+
+export async function fetchStatisticsFormatSample(): Promise<StatisticsFormatSample> {
+  const key = statisticsPageCacheKey('statsFormat');
+  if (key) {
+    const hit = statisticsFormatCache.get(key);
+    if (hit && Date.now() < hit.expiresAt) return hit.value;
+  }
+  const songs = await getRandomSongs(500).catch(() => [] as SubsonicSong[]);
+  const counts: Record<string, number> = {};
+  for (const song of songs) {
+    const fmt = song.suffix?.toUpperCase() ?? 'Unknown';
+    counts[fmt] = (counts[fmt] ?? 0) + 1;
+  }
+  const rows = Object.entries(counts)
+    .map(([format, count]) => ({ format, count }))
+    .sort((a, b) => b.count - a.count);
+  const result: StatisticsFormatSample = { rows, sampleSize: songs.length };
+  if (key) {
+    statisticsFormatCache.set(key, { value: result, expiresAt: Date.now() + RATING_CACHE_TTL });
+  }
+  return result;
 }
 
 export async function getArtists(): Promise<SubsonicArtist[]> {
@@ -348,15 +759,21 @@ export async function getArtist(id: string): Promise<{ artist: SubsonicArtist; a
   return { artist, albums: album ?? [] };
 }
 
-export async function getArtistInfo(id: string): Promise<SubsonicArtistInfo> {
-  const data = await api<{ artistInfo2: SubsonicArtistInfo }>('getArtistInfo2.view', { id, count: 5 });
+export async function getArtistInfo(id: string, options?: { similarArtistCount?: number }): Promise<SubsonicArtistInfo> {
+  const count = options?.similarArtistCount ?? 5;
+  const data = await api<{ artistInfo2: SubsonicArtistInfo }>('getArtistInfo2.view', { id, count, ...libraryFilterParams() });
   return data.artistInfo2 ?? {};
 }
 
 export async function getTopSongs(artist: string): Promise<SubsonicSong[]> {
   try {
-    const data = await api<{ topSongs: { song: SubsonicSong[] } }>('getTopSongs.view', { artist, count: 5 });
-    return data.topSongs?.song ?? [];
+    const { activeServerId, musicLibraryFilterByServer } = useAuthStore.getState();
+    const scoped = activeServerId && musicLibraryFilterByServer[activeServerId] && musicLibraryFilterByServer[activeServerId] !== 'all';
+    const topCount = scoped ? 20 : 5;
+    const data = await api<{ topSongs: { song: SubsonicSong[] } }>('getTopSongs.view', { artist, count: topCount, ...libraryFilterParams() });
+    const raw = data.topSongs?.song ?? [];
+    const filtered = await filterSongsToActiveLibrary(raw);
+    return filtered.slice(0, 5);
   } catch {
     return [];
   }
@@ -364,8 +781,26 @@ export async function getTopSongs(artist: string): Promise<SubsonicSong[]> {
 
 export async function getSimilarSongs2(id: string, count = 50): Promise<SubsonicSong[]> {
   try {
-    const data = await api<{ similarSongs2: { song: SubsonicSong[] } }>('getSimilarSongs2.view', { id, count });
-    return data.similarSongs2?.song ?? [];
+    const requestCount = similarSongsRequestCount(count);
+    const data = await api<{ similarSongs2: { song: SubsonicSong[] } }>('getSimilarSongs2.view', { id, count: requestCount, ...libraryFilterParams() });
+    const raw = data.similarSongs2?.song ?? [];
+    const filtered = await filterSongsToActiveLibrary(raw);
+    return filtered.slice(0, count);
+  } catch {
+    return [];
+  }
+}
+
+/** Similar tracks for a song id (Subsonic `getSimilarSongs`) — Navidrome + AudioMuse Instant Mix. */
+export async function getSimilarSongs(id: string, count = 50): Promise<SubsonicSong[]> {
+  try {
+    const requestCount = similarSongsRequestCount(count);
+    const data = await api<{ similarSongs: { song: SubsonicSong | SubsonicSong[] } }>('getSimilarSongs.view', { id, count: requestCount, ...libraryFilterParams() });
+    const raw = data.similarSongs?.song;
+    if (!raw) return [];
+    const list = Array.isArray(raw) ? raw : [raw];
+    const filtered = await filterSongsToActiveLibrary(list);
+    return filtered.slice(0, count);
   } catch {
     return [];
   }
@@ -765,7 +1200,10 @@ export interface SubsonicLyricLine {
 }
 
 export interface SubsonicStructuredLyrics {
-  issynced: boolean;
+  /** OpenSubsonic spec field name (Navidrome ≥ 0.50.0 / any OpenSubsonic server). */
+  synced?: boolean;
+  /** Legacy / alternate casing used by some older Subsonic-compatible servers. */
+  issynced?: boolean;
   lang?: string;
   offset?: number;
   displayArtist?: string;
@@ -787,7 +1225,7 @@ export async function getLyricsBySongId(id: string): Promise<SubsonicStructuredL
     );
     const list = data.lyricsList?.structuredLyrics;
     if (!list || list.length === 0) return null;
-    return list.find(l => l.issynced) ?? list[0];
+    return list.find(l => l.synced || l.issynced) ?? list[0];
   } catch {
     // Server doesn't support the endpoint or track has no embedded lyrics
     return null;

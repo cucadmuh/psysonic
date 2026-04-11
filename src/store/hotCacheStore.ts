@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
+import { isHotCachePreviousTrackUnderGrace } from '../utils/hotCacheGate';
 import type { Track } from './playerStore';
 
-const PREFETCH_AHEAD = 5;
+/** How many queue slots after the current index are eviction-protected (1 = current + next only). */
+export const HOT_CACHE_PROTECT_AFTER_CURRENT = 1;
 
 export interface HotCacheEntry {
   localPath: string;
@@ -22,7 +24,7 @@ interface HotCacheState {
   touchPlayed: (trackId: string, serverId: string) => void;
   removeEntry: (trackId: string, serverId: string) => void;
   totalBytes: () => number;
-  /** Evict until total size ≤ maxBytes. Respects queue tail first, protects current + next N. */
+  /** Evict until total size ≤ maxBytes. Protects current + next (+ grace for last «previous» track). */
   evictToFit: (
     queue: Track[],
     queueIndex: number,
@@ -103,7 +105,7 @@ export const useHotCacheStore = create<HotCacheState>()(
         if (maxBytes <= 0) return;
 
         const protectLo = Math.max(0, queueIndex);
-        const protectHi = Math.min(queue.length - 1, queueIndex + PREFETCH_AHEAD);
+        const protectHi = Math.min(queue.length - 1, queueIndex + HOT_CACHE_PROTECT_AFTER_CURRENT);
         const protectedIds = new Set<string>();
         for (let i = protectLo; i <= protectHi; i++) {
           protectedIds.add(queue[i].id);
@@ -127,6 +129,7 @@ export const useHotCacheStore = create<HotCacheState>()(
           if (!parsed) continue;
           const { serverId, trackId } = parsed;
           if (protectedIds.has(trackId) && serverId === activeServerId) continue;
+          if (isHotCachePreviousTrackUnderGrace(trackId, serverId)) continue;
 
           const meta = entries[key];
           const lru = lruStamp(meta);

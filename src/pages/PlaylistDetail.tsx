@@ -12,15 +12,18 @@ import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
 import { usePlaylistStore } from '../store/playlistStore';
 import { useOfflineStore } from '../store/offlineStore';
+import { useOfflineJobStore } from '../store/offlineJobStore';
 import { useAuthStore } from '../store/authStore';
 import { useDownloadModalStore } from '../store/downloadModalStore';
-import { writeFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
+import { useZipDownloadStore } from '../store/zipDownloadStore';
 import { useDragDrop } from '../contexts/DragDropContext';
 import CachedImage, { useCachedUrl } from '../components/CachedImage';
 import { coverArtCacheKey, buildCoverArtUrl } from '../api/subsonic';
 import { useTranslation } from 'react-i18next';
 import { showToast } from '../utils/toast';
+import { formatHumanHoursMinutes } from '../utils/formatHumanDuration';
 import StarRating from '../components/StarRating';
 
 function sanitizeFilename(name: string): string {
@@ -39,9 +42,7 @@ function formatDuration(seconds: number): string {
 
 function totalDurationLabel(songs: SubsonicSong[]): string {
   const total = songs.reduce((acc, s) => acc + (s.duration ?? 0), 0);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return formatHumanHoursMinutes(total);
 }
 
 function codecLabel(song: SubsonicSong): string {
@@ -83,8 +84,24 @@ export default function PlaylistDetail() {
   );
   const touchPlaylist = usePlaylistStore((s) => s.touchPlaylist);
   const { startDrag, isDragging } = useDragDrop();
-  const { downloadPlaylist, isAlbumDownloading, isAlbumDownloaded, getAlbumProgress } = useOfflineStore();
+  const downloadPlaylist = useOfflineStore(s => s.downloadPlaylist);
+  const deleteAlbum = useOfflineStore(s => s.deleteAlbum);
   const activeServerId = useAuthStore(s => s.activeServerId) ?? '';
+  const isDownloading = useOfflineJobStore(s =>
+    !!id && s.jobs.some(j => j.albumId === id && (j.status === 'queued' || j.status === 'downloading'))
+  );
+  const isCached = useOfflineStore(s => {
+    if (!id) return false;
+    const meta = s.albums[`${activeServerId}:${id}`];
+    if (!meta || meta.trackIds.length === 0) return false;
+    return meta.trackIds.every(tid => !!s.tracks[`${activeServerId}:${tid}`]);
+  });
+  const offlineProgressDone = useOfflineJobStore(s => {
+    if (!id) return 0;
+    return s.jobs.filter(j => j.albumId === id && (j.status === 'done' || j.status === 'error')).length;
+  });
+  const offlineProgressTotal = useOfflineJobStore(s => (!id ? 0 : s.jobs.filter(j => j.albumId === id).length));
+  const offlineProgress = offlineProgressTotal > 0 ? { done: offlineProgressDone, total: offlineProgressTotal } : null;
   const downloadFolder = useAuthStore(s => s.downloadFolder);
   const setDownloadFolder = useAuthStore(s => s.setDownloadFolder);
   const requestDownloadFolder = useDownloadModalStore(s => s.requestFolder);
@@ -96,11 +113,16 @@ export default function PlaylistDetail() {
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [editingMeta, setEditingMeta] = useState(false);
   const [customCoverId, setCustomCoverId] = useState<string | null>(null);
+  const [filterText, setFilterText] = useState('');
+  const [sortKey, setSortKey] = useState<'natural' | 'title' | 'artist'>('natural');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   const [contextMenuSongId, setContextMenuSongId] = useState<string | null>(null);
   const contextMenuOpen = usePlayerStore(s => s.contextMenu.isOpen);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const zipDownloads = useZipDownloadStore(s => s.downloads);
+  const [zipDownloadId, setZipDownloadId] = useState<string | null>(null);
+  const activeZip = zipDownloadId ? zipDownloads.find(d => d.id === zipDownloadId) : undefined;
 
   // ── Bulk select ───────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -299,38 +321,21 @@ export default function PlaylistDetail() {
     if (!playlist || !id) return;
     const folder = downloadFolder || await requestDownloadFolder();
     if (!folder) return;
-    setDownloadProgress(0);
+
+    const filename = `${sanitizeFilename(playlist.name)}.zip`;
+    const destPath = await join(folder, filename);
+    const url = buildDownloadUrl(id);
+    const downloadId = crypto.randomUUID();
+
+    const { start, complete, fail } = useZipDownloadStore.getState();
+    start(downloadId, filename);
+    setZipDownloadId(downloadId);
     try {
-      const url = buildDownloadUrl(id);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const contentLength = response.headers.get('Content-Length');
-      const total = contentLength ? parseInt(contentLength, 10) : 0;
-      const chunks: Uint8Array<ArrayBuffer>[] = [];
-      if (total && response.body) {
-        const reader = response.body.getReader();
-        let received = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          setDownloadProgress(Math.round((received / total) * 100));
-        }
-      } else {
-        const buffer = await response.arrayBuffer() as ArrayBuffer;
-        chunks.push(new Uint8Array(buffer));
-        setDownloadProgress(100);
-      }
-      const blob = new Blob(chunks);
-      const buffer = await blob.arrayBuffer();
-      const path = await join(folder, `${sanitizeFilename(playlist.name)}.zip`);
-      await writeFile(path, new Uint8Array(buffer));
+      await invoke('download_zip', { id: downloadId, url, destPath });
+      complete(downloadId);
     } catch (e) {
-      console.error('Download failed:', e);
-      setDownloadProgress(null);
-    } finally {
-      setTimeout(() => setDownloadProgress(null), 60000);
+      fail(downloadId);
+      console.error('ZIP download failed:', e);
     }
   };
 
@@ -433,6 +438,7 @@ export default function PlaylistDetail() {
   // ── Row mousedown: threshold drag for reorder (from anywhere on the row) ──
   const handleRowMouseDown = (e: React.MouseEvent, idx: number) => {
     if (e.button !== 0) return;
+    if (isFiltered) return;
     if ((e.target as HTMLElement).closest('button, input')) return;
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY;
@@ -457,6 +463,26 @@ export default function PlaylistDetail() {
   // ── Memoized derivations ──────────────────────────────────────
   const existingIds = useMemo(() => new Set(songs.map(s => s.id)), [songs]);
   const tracks = useMemo(() => songs.map(songToTrack), [songs]);
+
+  const displayedSongs = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    if (!q && sortKey === 'natural') return songs;
+    let result = [...songs];
+    if (q) result = result.filter(s => s.title.toLowerCase().includes(q) || (s.artist ?? '').toLowerCase().includes(q));
+    if (sortKey !== 'natural') {
+      result.sort((a, b) => {
+        const av = sortKey === 'title' ? a.title : (a.artist ?? '');
+        const bv = sortKey === 'title' ? b.title : (b.artist ?? '');
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+    }
+    return result;
+  }, [songs, filterText, sortKey, sortDir]);
+  const displayedTracks = useMemo(
+    () => displayedSongs === songs ? tracks : displayedSongs.map(songToTrack),
+    [displayedSongs, songs, tracks],
+  );
+  const isFiltered = displayedSongs !== songs;
 
   // ── Drag-over visual feedback ─────────────────────────────────
   const handleRowMouseEnter = (idx: number, e: React.MouseEvent) => {
@@ -587,33 +613,34 @@ export default function PlaylistDetail() {
                 >
                   <Search size={16} /> {t('playlists.addSongs')}
                 </button>
-                {songs.length > 0 && id && (() => {
-                  const isDownloading = isAlbumDownloading(id);
-                  const isCached = isAlbumDownloaded(id, activeServerId);
-                  const progress = isDownloading ? getAlbumProgress(id) : null;
-                  return (
-                    <button
-                      className="btn btn-ghost"
-                      disabled={isDownloading}
-                      onClick={() => { if (playlist) downloadPlaylist(id, playlist.name, playlist.coverArt, songs, activeServerId); }}
-                      data-tooltip={isDownloading
-                        ? t('albumDetail.offlineDownloading', { n: progress?.done ?? 0, total: progress?.total ?? 0 })
-                        : isCached ? t('playlists.offlineCached') : t('playlists.cacheOffline')}
-                    >
-                      {isDownloading
-                        ? <div className="spinner" style={{ width: 14, height: 14, borderTopColor: 'currentColor' }} />
-                        : isCached ? <Check size={16} /> : <HardDriveDownload size={16} />}
-                    </button>
-                  );
-                })()}
+                {songs.length > 0 && id && (
+                  <button
+                    className={`btn btn-ghost${isCached ? ' btn-danger' : ''}`}
+                    disabled={isDownloading}
+                    onClick={() => {
+                      if (isCached) {
+                        deleteAlbum(id, activeServerId);
+                      } else if (playlist) {
+                        downloadPlaylist(id, playlist.name, playlist.coverArt, songs, activeServerId);
+                      }
+                    }}
+                    data-tooltip={isDownloading
+                      ? t('albumDetail.offlineDownloading', { n: offlineProgress?.done ?? 0, total: offlineProgress?.total ?? 0 })
+                      : isCached ? t('playlists.removeOffline') : t('playlists.cacheOffline')}
+                  >
+                    {isDownloading
+                      ? <div className="spinner" style={{ width: 14, height: 14, borderTopColor: 'currentColor' }} />
+                      : isCached ? <Trash2 size={16} /> : <HardDriveDownload size={16} />}
+                  </button>
+                )}
                 {songs.length > 0 && (
-                  downloadProgress !== null ? (
+                  activeZip && !activeZip.done && !activeZip.error ? (
                     <div className="download-progress-wrap">
                       <Download size={14} />
                       <div className="download-progress-bar">
-                        <div className="download-progress-fill" style={{ width: `${downloadProgress}%` }} />
+                        <div className="download-progress-fill" style={{ width: `${activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : 0}%` }} />
                       </div>
-                      <span className="download-progress-pct">{downloadProgress}%</span>
+                      <span className="download-progress-pct">{activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : '…'}%</span>
                     </div>
                   ) : (
                     <button className="btn btn-ghost" onClick={handleDownload} data-tooltip={t('playlists.downloadZip')}>
@@ -658,6 +685,44 @@ export default function PlaylistDetail() {
               <span className="playlist-search-duration">{formatDuration(song.duration ?? 0)}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Filter / sort toolbar ── */}
+      {songs.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 16px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 160px', maxWidth: 260 }}>
+            <input
+              className="input"
+              style={{ width: '100%', paddingRight: filterText ? 28 : undefined }}
+              placeholder={t('albumDetail.filterSongs')}
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+            />
+            {filterText && (
+              <button
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, lineHeight: 1 }}
+                onClick={() => setFilterText('')}
+              >×</button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {(['natural', 'title', 'artist'] as const).map(key => (
+              <button
+                key={key}
+                className={`btn btn-sm ${sortKey === key ? 'btn-surface' : 'btn-ghost'}`}
+                onClick={() => {
+                  if (sortKey === key && key !== 'natural') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                  else { setSortKey(key); setSortDir('asc'); }
+                }}
+              >
+                {key === 'natural' ? t('albumDetail.sortNatural')
+                  : key === 'title' ? t('albumDetail.sortByTitle')
+                  : t('albumDetail.sortByArtist')}
+                {sortKey === key && key !== 'natural' && <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -795,23 +860,25 @@ export default function PlaylistDetail() {
           </div>
         )}
 
-        {songs.map((song, idx) => (
-          <React.Fragment key={song.id + idx}>
-            {isDragging && dropTargetIdx?.idx === idx && dropTargetIdx.before && (
+        {displayedSongs.map((song, i) => {
+          const realIdx = isFiltered ? songs.indexOf(song) : i;
+          return (
+          <React.Fragment key={song.id + i}>
+            {!isFiltered && isDragging && dropTargetIdx?.idx === i && dropTargetIdx.before && (
               <div className="playlist-drop-indicator" />
             )}
             <div
-              data-track-idx={idx}
+              data-track-idx={realIdx}
               className={`track-row track-row-va tracklist-playlist${currentTrack?.id === song.id ? ' active' : ''}${contextMenuSongId === song.id ? ' context-active' : ''}${selectedIds.has(song.id) ? ' bulk-selected' : ''}`}
               style={gridStyle}
-              onMouseEnter={e => handleRowMouseEnter(idx, e)}
-              onMouseDown={e => handleRowMouseDown(e, idx)}
+              onMouseEnter={e => !isFiltered && handleRowMouseEnter(i, e)}
+              onMouseDown={e => handleRowMouseDown(e, realIdx)}
               onClick={e => {
                 if ((e.target as HTMLElement).closest('button, a, input')) return;
                 if (selectedIds.size > 0) {
-                  toggleSelect(song.id, idx, e.shiftKey);
+                  toggleSelect(song.id, i, e.shiftKey);
                 } else {
-                  playTrack(tracks[idx], tracks);
+                  playTrack(displayedTracks[i], displayedTracks);
                 }
               }}
               onContextMenu={e => {
@@ -824,11 +891,11 @@ export default function PlaylistDetail() {
                 const inSelectMode = selectedIds.size > 0;
                 switch (colDef.key) {
                   case 'num': return (
-                    <div key="num" className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}${currentTrack?.id === song.id && !isPlaying ? ' track-num-paused' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(tracks[idx], tracks); }}>
-                      <span className={`bulk-check${selectedIds.has(song.id) ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`} onClick={e => { e.stopPropagation(); toggleSelect(song.id, idx, e.shiftKey); }} />
+                    <div key="num" className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}${currentTrack?.id === song.id && !isPlaying ? ' track-num-paused' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(displayedTracks[i], displayedTracks); }}>
+                      <span className={`bulk-check${selectedIds.has(song.id) ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`} onClick={e => { e.stopPropagation(); toggleSelect(song.id, i, e.shiftKey); }} />
                       {currentTrack?.id === song.id && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
                       <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
-                      <span className="track-num-number">{idx + 1}</span>
+                      <span className="track-num-number">{i + 1}</span>
                     </div>
                   );
                   case 'title': return (
@@ -855,7 +922,7 @@ export default function PlaylistDetail() {
                   );
                   case 'delete': return (
                     <div key="delete" className="playlist-row-delete-cell">
-                      <button className="playlist-row-delete-btn" onClick={e => { e.stopPropagation(); removeSong(idx); }} data-tooltip={t('playlists.removeSong')} data-tooltip-pos="left">
+                      <button className="playlist-row-delete-btn" onClick={e => { e.stopPropagation(); removeSong(realIdx); }} data-tooltip={t('playlists.removeSong')} data-tooltip-pos="left">
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -864,22 +931,14 @@ export default function PlaylistDetail() {
                 }
               })}
             </div>
-            {isDragging && dropTargetIdx?.idx === idx && !dropTargetIdx.before && (
+            {!isFiltered && isDragging && dropTargetIdx?.idx === i && !dropTargetIdx.before && (
               <div className="playlist-drop-indicator" />
             )}
           </React.Fragment>
-        ))}
+          );
+        })}
 
-        {/* Total row */}
-        {songs.length > 0 && (
-          <div className="tracklist-total" style={gridStyle}>
-            {visibleCols.map(c => {
-              if (c.key === 'title') return <span key="title" className="tracklist-total-label">{t('albumDetail.trackTotal')}</span>;
-              if (c.key === 'duration') return <span key="duration" className="tracklist-total-value">{formatDuration(songs.reduce((a, s) => a + (s.duration ?? 0), 0))}</span>;
-              return <span key={c.key} />;
-            })}
-          </div>
-        )}
+
       </div>
 
       {/* ── Suggestions ── */}

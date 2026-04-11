@@ -182,8 +182,17 @@ export default function RandomMix() {
         <h1 className="page-title">{t('randomMix.title')}</h1>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-surface" onClick={fetchSongs} disabled={loading} data-tooltip={t('randomMix.remixTooltip')}>
-            <RefreshCw size={18} className={loading ? 'spin' : ''} /> {t('randomMix.remix')}
+          <button
+            className="btn btn-surface"
+            onClick={selectedGenre ? () => loadGenreMix(selectedGenre) : fetchSongs}
+            disabled={selectedGenre ? genreMixLoading : loading}
+            data-tooltip={selectedGenre
+              ? t('randomMix.remixTooltipGenre', { genre: selectedGenre })
+              : t('randomMix.remixTooltip')
+            }
+          >
+            <RefreshCw size={18} className={(selectedGenre ? genreMixLoading : loading) ? 'spin' : ''} />
+            {selectedGenre ? t('randomMix.remixGenre', { genre: selectedGenre }) : t('randomMix.remix')}
           </button>
           {(() => {
             const isGenreLoading = selectedGenre && !genreMixComplete;
@@ -313,6 +322,14 @@ export default function RandomMix() {
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('randomMix.genreMixNoGenres')}</span>
             ) : (
               <>
+                <button
+                  className={`btn ${selectedGenre === null ? 'btn-primary' : 'btn-surface'}`}
+                  style={{ fontSize: 12, padding: '4px 12px' }}
+                  onClick={() => { setSelectedGenre(null); setGenreMixSongs([]); setGenreMixComplete(false); fetchSongs(); }}
+                  disabled={genreMixLoading}
+                >
+                  {t('randomMix.genreMixAll')}
+                </button>
                 {displayedGenres.map(genre => (
                   <button
                     key={genre}

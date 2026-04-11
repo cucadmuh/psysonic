@@ -6,8 +6,9 @@ import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
 import { useDownloadModalStore } from '../store/downloadModalStore';
 import { useOfflineStore } from '../store/offlineStore';
-import { writeFile } from '@tauri-apps/plugin-fs';
+import { useOfflineJobStore } from '../store/offlineJobStore';
 import { join } from '@tauri-apps/api/path';
+import { useZipDownloadStore } from '../store/zipDownloadStore';
 import AlbumCard from '../components/AlbumCard';
 import AlbumHeader from '../components/AlbumHeader';
 import AlbumTrackList from '../components/AlbumTrackList';
@@ -44,38 +45,48 @@ export default function AlbumDetail() {
   const [bio, setBio] = useState<string | null>(null);
   const [bioOpen, setBioOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [isStarred, setIsStarred] = useState(false);
   const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const [offlineStorageFull, setOfflineStorageFull] = useState(false);
 
-  const { downloadAlbum, deleteAlbum } = useOfflineStore();
-  const offlineTracks = useOfflineStore(s => s.tracks);
-  const offlineAlbums = useOfflineStore(s => s.albums);
-  const offlineJobs = useOfflineStore(s => s.jobs);
+  const downloadAlbum = useOfflineStore(s => s.downloadAlbum);
+  const deleteAlbum = useOfflineStore(s => s.deleteAlbum);
   const serverId = auth.activeServerId ?? '';
   const entityRatingSupportByServer = useAuthStore(s => s.entityRatingSupportByServer);
   const setEntityRatingSupport = useAuthStore(s => s.setEntityRatingSupport);
   const albumEntityRatingSupport = entityRatingSupportByServer[serverId] ?? 'unknown';
 
   const [albumEntityRating, setAlbumEntityRating] = useState(0);
+  const [filterText, setFilterText] = useState('');
+  const [sortKey, setSortKey] = useState<'natural' | 'title' | 'artist'>('natural');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const offlineStatus: 'none' | 'downloading' | 'cached' = (() => {
-    if (!album) return 'none';
-    const meta = offlineAlbums[`${serverId}:${album.album.id}`];
-    const isDownloaded = meta && meta.trackIds.length > 0 && meta.trackIds.every(tid => !!offlineTracks[`${serverId}:${tid}`]);
-    if (isDownloaded) return 'cached';
-    const isDownloading = offlineJobs.some(j => j.albumId === album.album.id && (j.status === 'queued' || j.status === 'downloading'));
-    return isDownloading ? 'downloading' : 'none';
-  })();
+  // Derive a stable albumId for the selectors below (empty string when not yet loaded).
+  const albumId = album?.album.id ?? '';
 
-  const offlineProgress = (() => {
-    if (!album) return null;
-    const albumJobs = offlineJobs.filter(j => j.albumId === album.album.id);
-    if (albumJobs.length === 0) return null;
-    const done = albumJobs.filter(j => j.status === 'done' || j.status === 'error').length;
-    return { done, total: albumJobs.length };
-  })();
+  // Selectors return primitives so Zustand only triggers a re-render when the VALUE
+  // actually changes — not on every `jobs` array mutation during batch downloads.
+  const offlineStatus = useOfflineStore((s): 'none' | 'downloading' | 'cached' => {
+    if (!albumId) return 'none';
+    const meta = s.albums[`${serverId}:${albumId}`];
+    const isDownloaded = meta && meta.trackIds.length > 0 && meta.trackIds.every(tid => !!s.tracks[`${serverId}:${tid}`]);
+    return isDownloaded ? 'cached' : 'none';
+  });
+  const isOfflineDownloading = useOfflineJobStore(s =>
+    !!albumId && s.jobs.some(j => j.albumId === albumId && (j.status === 'queued' || j.status === 'downloading'))
+  );
+  const offlineProgressDone = useOfflineJobStore(s => {
+    if (!albumId) return 0;
+    return s.jobs.filter(j => j.albumId === albumId && (j.status === 'done' || j.status === 'error')).length;
+  });
+  const offlineProgressTotal = useOfflineJobStore(s => {
+    if (!albumId) return 0;
+    return s.jobs.filter(j => j.albumId === albumId).length;
+  });
+  const resolvedOfflineStatus = isOfflineDownloading ? 'downloading' : offlineStatus;
+  const offlineProgress = offlineProgressTotal > 0
+    ? { done: offlineProgressDone, total: offlineProgressTotal }
+    : null;
 
   useEffect(() => {
     if (!id) return;
@@ -181,45 +192,22 @@ const handleEnqueueAll = () => {
     if (!album) return;
     const { name, id: albumId } = album.album;
 
-    // Ask for folder before starting download if not already set
     const folder = auth.downloadFolder || await requestDownloadFolder();
     if (!folder) return;
 
-    setDownloadProgress(0);
+    const filename = `${sanitizeFilename(name)}.zip`;
+    const destPath = await join(folder, filename);
+    const url = buildDownloadUrl(albumId);
+    const downloadId = crypto.randomUUID();
+
+    const { start, complete, fail } = useZipDownloadStore.getState();
+    start(downloadId, filename);
     try {
-      const url = buildDownloadUrl(albumId);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const contentLength = response.headers.get('Content-Length');
-      const total = contentLength ? parseInt(contentLength, 10) : 0;
-      const chunks: Uint8Array<ArrayBuffer>[] = [];
-
-      if (total && response.body) {
-        const reader = response.body.getReader();
-        let received = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          setDownloadProgress(Math.round((received / total) * 100));
-        }
-      } else {
-        const buffer = await response.arrayBuffer() as ArrayBuffer;
-        chunks.push(new Uint8Array(buffer));
-        setDownloadProgress(100);
-      }
-
-      const blob = new Blob(chunks);
-      const buffer = await blob.arrayBuffer();
-      const path = await join(folder, `${sanitizeFilename(name)}.zip`);
-      await writeFile(path, new Uint8Array(buffer));
+      await invoke('download_zip', { id: downloadId, url, destPath });
+      complete(downloadId);
     } catch (e) {
-      console.error('Download failed:', e);
-      setDownloadProgress(null);
-    } finally {
-      setTimeout(() => setDownloadProgress(null), 60000);
+      fail(downloadId);
+      console.error('ZIP download failed:', e);
     }
   };
 
@@ -274,6 +262,22 @@ const handleEnqueueAll = () => {
     deleteAlbum(album.album.id, serverId);
   };
 
+  const displayedSongs = useMemo(() => {
+    if (!album) return [];
+    const q = filterText.trim().toLowerCase();
+    if (!q && sortKey === 'natural') return album.songs;
+    let result = [...album.songs];
+    if (q) result = result.filter(s => s.title.toLowerCase().includes(q) || (s.artist ?? '').toLowerCase().includes(q));
+    if (sortKey !== 'natural') {
+      result.sort((a, b) => {
+        const av = sortKey === 'title' ? a.title : (a.artist ?? '');
+        const bv = sortKey === 'title' ? b.title : (b.artist ?? '');
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+    }
+    return result;
+  }, [album, filterText, sortKey, sortDir]);
+
   // Hooks must be called unconditionally — derive from nullable album state.
   // useMemo is required: buildCoverArtUrl generates a new salt on every call, so without
   // memoization every re-render (e.g. currentTrack change) produces a new fetchUrl,
@@ -281,6 +285,12 @@ const handleEnqueueAll = () => {
   const coverUrl = useMemo(() => album?.album.coverArt ? buildCoverArtUrl(album.album.coverArt, 400) : '', [album?.album.coverArt]);
   const coverKey = useMemo(() => album?.album.coverArt ? coverArtCacheKey(album.album.coverArt, 400) : '', [album?.album.coverArt]);
   const resolvedCoverUrl = useCachedUrl(coverUrl, coverKey);
+
+  // Must be before early returns — hooks must be called unconditionally.
+  const mergedStarredSongs = useMemo(() => new Set([
+    ...[...starredSongs].filter(id => starredOverrides[id] !== false),
+    ...Object.entries(starredOverrides).filter(([, v]) => v).map(([k]) => k),
+  ]), [starredSongs, starredOverrides]);
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>;
   if (!album) return <div className="empty-state">{t('albumDetail.notFound')}</div>;
@@ -297,7 +307,7 @@ const handleEnqueueAll = () => {
         coverKey={coverKey}
         resolvedCoverUrl={resolvedCoverUrl}
         isStarred={isStarred}
-        downloadProgress={downloadProgress}
+        downloadProgress={null}
         bio={bio}
         bioOpen={bioOpen}
         onToggleStar={toggleStar}
@@ -306,7 +316,7 @@ const handleEnqueueAll = () => {
         onEnqueueAll={handleEnqueueAll}
         onBio={handleBio}
         onCloseBio={() => setBioOpen(false)}
-        offlineStatus={offlineStatus}
+        offlineStatus={resolvedOfflineStatus}
         offlineProgress={offlineProgress}
         onCacheOffline={handleCacheOffline}
         onRemoveOffline={handleRemoveOffline}
@@ -327,17 +337,50 @@ const handleEnqueueAll = () => {
         </div>
       )}
 
+      {songs.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 16px 8px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 160px', maxWidth: 260 }}>
+            <input
+              className="input"
+              style={{ width: '100%', paddingRight: filterText ? 28 : undefined }}
+              placeholder={t('albumDetail.filterSongs')}
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+            />
+            {filterText && (
+              <button
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, lineHeight: 1 }}
+                onClick={() => setFilterText('')}
+              >×</button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {(['natural', 'title', 'artist'] as const).map(key => (
+              <button
+                key={key}
+                className={`btn btn-sm ${sortKey === key ? 'btn-surface' : 'btn-ghost'}`}
+                onClick={() => {
+                  if (sortKey === key && key !== 'natural') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                  else { setSortKey(key); setSortDir('asc'); }
+                }}
+              >
+                {key === 'natural' ? t('albumDetail.sortNatural') : key === 'title' ? t('albumDetail.sortByTitle') : t('albumDetail.sortByArtist')}
+                {sortKey === key && key !== 'natural' && <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <AlbumTrackList
-        songs={songs}
+        songs={displayedSongs}
+        sorted={sortKey !== 'natural' || !!filterText.trim()}
         hasVariousArtists={hasVariousArtists}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         ratings={ratings}
         userRatingOverrides={userRatingOverrides}
-        starredSongs={new Set([
-          ...[...starredSongs].filter(id => starredOverrides[id] !== false),
-          ...Object.entries(starredOverrides).filter(([, v]) => v).map(([k]) => k),
-        ])}
+        starredSongs={mergedStarredSongs}
         onPlaySong={handlePlaySong}
         onRate={handleRate}
         onToggleSongStar={toggleSongStar}

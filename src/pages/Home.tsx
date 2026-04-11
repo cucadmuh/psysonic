@@ -111,7 +111,7 @@ export default function Home() {
             {isVisible('recent') && (
               <AlbumRow
                 title={t('home.recent')}
-                titleLink="/albums"
+                titleLink="/new-releases"
                 albums={recent}
                 onLoadMore={() => loadMore('newest', recent, setRecent)}
                 moreText={t('home.loadMore')}

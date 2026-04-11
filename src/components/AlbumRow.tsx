@@ -12,9 +12,10 @@ interface Props {
   moreLink?: string;
   moreText?: string;
   onLoadMore?: () => Promise<void>;
+  showRating?: boolean;
 }
 
-export default function AlbumRow({ title, titleLink, albums, moreLink, moreText, onLoadMore }: Props) {
+export default function AlbumRow({ title, titleLink, albums, moreLink, moreText, onLoadMore, showRating }: Props) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -89,7 +90,7 @@ export default function AlbumRow({ title, titleLink, albums, moreLink, moreText,
       
       <div className="album-grid-wrapper">
         <div className="album-grid" ref={scrollRef} onScroll={handleScroll}>
-          {albums.map(a => <AlbumCard key={a.id} album={a} />)}
+          {albums.map(a => <AlbumCard key={a.id} album={a} showRating={showRating} />)}
           {loadingMore && (
             <div className="album-card-more" style={{ cursor: 'default' }}>
               <div style={{ padding: '1rem', background: 'var(--bg-app)', borderRadius: '50%' }}>

@@ -127,6 +127,8 @@ const MIN_CONTRAST    = 4.5;
  */
 export function extractCoverColors(imageUrl: string): Promise<CoverColors> {
   if (!imageUrl) return Promise.resolve({ accent: '' });
+  // Logo fallback has no meaningful color — skip extraction and use theme accent
+  if (imageUrl.includes('logo-psysonic')) return Promise.resolve({ accent: '' });
 
   return new Promise(resolve => {
     const img = new Image();
