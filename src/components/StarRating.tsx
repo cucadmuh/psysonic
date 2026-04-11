@@ -34,12 +34,46 @@ export default function StarRating({
   const [clearShrinkStar, setClearShrinkStar] = React.useState<number | null>(null);
   /** After clear: ignore hover so stars stay grey until pointer leaves widget or next click */
   const [suppressHoverPreview, setSuppressHoverPreview] = React.useState(false);
+  const prevValueRef = React.useRef(value);
+  const internalClickRef = React.useRef(false);
 
   const cappedValue = Math.min(Math.max(0, value), selectCap);
 
   React.useEffect(() => {
     if (value > 0) setSuppressHoverPreview(false);
   }, [value]);
+
+  // Keep keyboard-driven changes visually in sync with mouse click effects.
+  React.useEffect(() => {
+    const prev = prevValueRef.current;
+    const next = value;
+    prevValueRef.current = value;
+
+    if (internalClickRef.current) {
+      internalClickRef.current = false;
+      return;
+    }
+    if (prev === next) return;
+
+    setPulseStar(null);
+    setClearShrinkStar(null);
+
+    if (next > prev) {
+      const star = Math.max(1, Math.min(selectCap, next));
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setPulseStar(star));
+      });
+      return;
+    }
+
+    if (next < prev) {
+      const star = Math.max(1, Math.min(selectCap, prev));
+      if (next === 0) setSuppressHoverPreview(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setClearShrinkStar(star));
+      });
+    }
+  }, [value, selectCap]);
 
   const effectiveHover = suppressHoverPreview ? 0 : Math.min(hover, selectCap);
   const filled = (n: number) => (effectiveHover || cappedValue) >= n;
@@ -49,6 +83,7 @@ export default function StarRating({
     setSuppressHoverPreview(false);
 
     const next = cappedValue === n ? 0 : n;
+    internalClickRef.current = true;
     onChange(next);
     setHover(0);
 
