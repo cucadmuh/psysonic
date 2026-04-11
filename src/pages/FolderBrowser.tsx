@@ -10,6 +10,7 @@ import {
 import { usePlayerStore, Track } from '../store/playerStore';
 import { useTranslation } from 'react-i18next';
 import { Folder, FolderOpen, Music, ChevronRight } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 
 type ColumnKind = 'roots' | 'indexes' | 'directory';
 type NavPos = { colIndex: number; rowIndex: number };
@@ -73,9 +74,12 @@ export default function FolderBrowser() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pendingNavColRef = useRef<number | null>(null);
   const autoResolvedTrackRef = useRef<string | null>(null);
+  const prevTrackIdRef = useRef<string | null>(null);
+  const lastHotkeyRevealTsRef = useRef<number | null>(null);
   const [keyboardPos, setKeyboardPos] = useState<NavPos | null>(null);
   const [contextAnchorPos, setContextAnchorPos] = useState<NavPos | null>(null);
   const [columnsViewportWidth, setColumnsViewportWidth] = useState(0);
+  const location = useLocation();
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const isPlaying = usePlayerStore(s => s.isPlaying);
   const playTrack = usePlayerStore(s => s.playTrack);
@@ -540,17 +544,26 @@ export default function FolderBrowser() {
       autoResolvedTrackRef.current = null;
       return;
     }
-    if (autoResolvedTrackRef.current === currentTrack.id) return;
+
+    const hotkeyRevealTs = (location.state as { folderBrowserRevealTs?: number } | null)?.folderBrowserRevealTs ?? null;
+    const hotkeyRevealRequested = hotkeyRevealTs !== null && hotkeyRevealTs !== lastHotkeyRevealTsRef.current;
+    const forceReveal = hotkeyRevealRequested;
+    if (autoResolvedTrackRef.current === currentTrack.id && !forceReveal) return;
 
     const rootCol = columns[0];
     if (!rootCol || rootCol.loading || rootCol.error || rootCol.items.length === 0) return;
 
     const selectedLeafId =
       [...columns].reverse().find(c => c.selectedId)?.selectedId ?? null;
+    const wasOnPreviousTrackPath = !!prevTrackIdRef.current && selectedLeafId === prevTrackIdRef.current;
     if (selectedLeafId === currentTrack.id) {
       autoResolvedTrackRef.current = currentTrack.id;
+      if (hotkeyRevealRequested) {
+        lastHotkeyRevealTsRef.current = hotkeyRevealTs;
+      }
       return;
     }
+    if (!forceReveal && !wasOnPreviousTrackPath) return;
 
     let cancelled = false;
     resolveColumnsForTrack(currentTrack, rootCol.items).then((resolved) => {
@@ -562,10 +575,17 @@ export default function FolderBrowser() {
       const leafRowIndex = resolved[leafColIndex].items.findIndex(it => it.id === currentTrack.id);
       if (leafRowIndex >= 0) setKeyboardPos({ colIndex: leafColIndex, rowIndex: leafRowIndex });
       autoResolvedTrackRef.current = currentTrack.id;
+      if (hotkeyRevealRequested) {
+        lastHotkeyRevealTsRef.current = hotkeyRevealTs;
+      }
     });
 
     return () => { cancelled = true; };
-  }, [columns, currentTrack, resolveColumnsForTrack]);
+  }, [columns, currentTrack, resolveColumnsForTrack, location.state]);
+
+  useEffect(() => {
+    prevTrackIdRef.current = currentTrack?.id ?? null;
+  }, [currentTrack?.id]);
 
   return (
     <div className="folder-browser">

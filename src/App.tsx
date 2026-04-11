@@ -478,7 +478,9 @@ function TauriEventBridge() {
           break;
         }
         case 'toggle-queue':      toggleQueue(); break;
-        case 'open-folder-browser': navigate('/folders'); break;
+        case 'open-folder-browser':
+          navigate('/folders', { state: { folderBrowserRevealTs: Date.now() } });
+          break;
         case 'fullscreen-player': toggleFullscreen(); break;
         case 'native-fullscreen': {
           const win = getCurrentWindow();

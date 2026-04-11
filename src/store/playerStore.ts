@@ -167,7 +167,6 @@ let seekTarget: number | null = null;
 // Guard against rapid double-click play/pause sending two state transitions
 // to the Rust backend before it has finished the previous one.
 let togglePlayLock = false;
-
 /**
  * Skip → 1★: counts in `authStore.skipStarManualSkipCountsByKey` (persisted).
  * Only user-initiated `next()` increments. Natural track end (incl. gapless) clears the count;
