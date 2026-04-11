@@ -6994,16 +6994,21 @@
 }
 
 .folder-col {
-  flex: 0 0 var(--folder-col-width, 220px);
-  min-width: var(--folder-col-width, 220px);
-  max-width: var(--folder-col-width, 220px);
+  flex: 1 1 220px;
+  min-width: 200px;
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 1px solid var(--border-subtle);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--accent) 35%, var(--text-muted)) transparent;
-  transition: min-width 0.18s ease, max-width 0.18s ease, flex-basis 0.18s ease;
+  transition: min-width 0.18s ease, max-width 0.18s ease, flex-basis 0.18s ease, flex-grow 0.18s ease;
+}
+
+.folder-browser-columns--compact .folder-col {
+  flex: 0 0 var(--folder-col-width, 220px);
+  min-width: var(--folder-col-width, 220px);
+  max-width: var(--folder-col-width, 220px);
 }
 
 .folder-col.folder-col--compact {

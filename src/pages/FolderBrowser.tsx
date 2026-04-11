@@ -571,7 +571,7 @@ export default function FolderBrowser() {
     <div className="folder-browser">
       <h1 className="page-title folder-browser-title">{t('sidebar.folderBrowser')}</h1>
       <div
-        className={`folder-browser-columns${keyboardNavActive ? ' keyboard-nav-active' : ''}`}
+        className={`folder-browser-columns${keyboardNavActive ? ' keyboard-nav-active' : ''}${compactColumnsEnabled ? ' folder-browser-columns--compact' : ''}`}
         ref={wrapperRef}
         tabIndex={0}
         onKeyDown={onColumnsKeyDown}
