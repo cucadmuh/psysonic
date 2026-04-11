@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   getMusicFolders,
   getMusicDirectory,
@@ -75,6 +75,7 @@ export default function FolderBrowser() {
   const autoResolvedTrackRef = useRef<string | null>(null);
   const [keyboardPos, setKeyboardPos] = useState<NavPos | null>(null);
   const [contextAnchorPos, setContextAnchorPos] = useState<NavPos | null>(null);
+  const [columnsViewportWidth, setColumnsViewportWidth] = useState(0);
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const isPlaying = usePlayerStore(s => s.isPlaying);
   const playTrack = usePlayerStore(s => s.playTrack);
@@ -115,6 +116,17 @@ export default function FolderBrowser() {
   }, [columns.length]);
 
   useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    setColumnsViewportWidth(el.clientWidth);
+    const observer = new ResizeObserver(() => {
+      setColumnsViewportWidth(el.clientWidth);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!wrapperRef.current) return;
     requestAnimationFrame(() => {
       columns.forEach((col, colIndex) => {
@@ -132,6 +144,17 @@ export default function FolderBrowser() {
         );
         kbdRow?.scrollIntoView({ block: 'nearest' });
       }
+
+      const fallbackColIndex = [...columns]
+        .map((c, i) => (c.selectedId ? i : -1))
+        .filter(i => i >= 0)
+        .pop();
+      const baseColIndex = keyboardPos?.colIndex ?? fallbackColIndex ?? Math.max(0, columns.length - 1);
+      const focusColIndex = Math.min(Math.max(0, columns.length - 1), baseColIndex + 1);
+      const focusCol = wrapperRef.current?.querySelector<HTMLElement>(
+        `.folder-col[data-folder-col-index="${focusColIndex}"]`,
+      );
+      focusCol?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
   }, [columns, keyboardPos]);
 
@@ -486,6 +509,32 @@ export default function FolderBrowser() {
   const isSelectedPathForCurrentTrack =
     isPlaying && currentTrack && playingPathIds[playingPathIds.length - 1] === currentTrack.id;
 
+  const activeColIndex = useMemo(() => {
+    if (keyboardPos) return keyboardPos.colIndex;
+    const fromSelection = [...columns]
+      .map((c, i) => (c.selectedId ? i : -1))
+      .filter(i => i >= 0);
+    if (fromSelection.length > 0) return fromSelection[fromSelection.length - 1];
+    return Math.max(0, columns.length - 1);
+  }, [columns, keyboardPos]);
+
+  const visibleAnchorColIndex = useMemo(
+    () => Math.min(Math.max(0, columns.length - 1), activeColIndex + 1),
+    [activeColIndex, columns.length],
+  );
+
+  const compactColumnsEnabled = useMemo(() => {
+    if (columns.length < 4 || columnsViewportWidth <= 0) return false;
+    const expandedColumnWidth = 220;
+    return columns.length * expandedColumnWidth > columnsViewportWidth;
+  }, [columns.length, columnsViewportWidth]);
+
+  const isColumnCompact = useCallback((col: Column, colIndex: number) => {
+    if (!compactColumnsEnabled) return false;
+    if (col.loading || col.error || col.items.length === 0) return false;
+    return Math.abs(colIndex - visibleAnchorColIndex) > 1;
+  }, [compactColumnsEnabled, visibleAnchorColIndex]);
+
   useEffect(() => {
     if (!currentTrack?.id) {
       autoResolvedTrackRef.current = null;
@@ -528,7 +577,11 @@ export default function FolderBrowser() {
         onKeyDown={onColumnsKeyDown}
       >
         {columns.map((col, colIndex) => (
-          <div key={`${col.id}-${colIndex}`} className="folder-col" data-folder-col-index={colIndex}>
+          <div
+            key={`${col.id}-${colIndex}`}
+            className={`folder-col${isColumnCompact(col, colIndex) ? ' folder-col--compact' : ''}`}
+            data-folder-col-index={colIndex}
+          >
             {col.loading ? (
               <div className="folder-col-status">
                 <div className="spinner" style={{ width: 20, height: 20 }} />
@@ -553,6 +606,7 @@ export default function FolderBrowser() {
                   <button
                     key={item.id}
                     type="button"
+                    title={item.title}
                     data-col-index={colIndex}
                     data-row-index={rowIndex}
                     data-item-id={item.id}

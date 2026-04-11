@@ -6969,6 +6969,8 @@
   /* height fallback for browsers that don't support flex: 1 correctly here */
   height: calc(100vh - var(--player-height, 88px) - var(--titlebar-height, 0px) - 70px);
   border-top: 1px solid var(--border-subtle);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 35%, var(--text-muted)) transparent;
 }
 
 .folder-browser-columns:focus,
@@ -6977,18 +6979,53 @@
 }
 
 .folder-browser-columns::-webkit-scrollbar {
-  height: 6px;
+  height: 8px;
+}
+
+.folder-browser-columns::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.folder-browser-columns::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 35%, var(--text-muted));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .folder-col {
-  flex: 1;
-  min-width: 200px;
+  flex: 0 0 var(--folder-col-width, 220px);
+  min-width: var(--folder-col-width, 220px);
+  max-width: var(--folder-col-width, 220px);
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 1px solid var(--border-subtle);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--accent) 35%, var(--text-muted)) transparent;
+  transition: min-width 0.18s ease, max-width 0.18s ease, flex-basis 0.18s ease;
+}
+
+.folder-col.folder-col--compact {
+  flex-basis: 56px;
+  min-width: 56px;
+  max-width: 56px;
+}
+
+.folder-col.folder-col--compact .folder-col-row {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+}
+
+.folder-col.folder-col--compact .folder-col-name,
+.folder-col.folder-col--compact .folder-col-chevron {
+  display: none;
+}
+
+.folder-col.folder-col--compact .folder-col-icon {
+  opacity: 0.95;
 }
 
 .folder-col::-webkit-scrollbar {
