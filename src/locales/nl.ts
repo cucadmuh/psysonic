@@ -552,6 +552,7 @@ export const nlTranslation = {
     shortcutSeekForward: '10s vooruitspoelen',
     shortcutSeekBackward: '10s terugspoelen',
     shortcutToggleQueue: 'Wachtrij tonen/verbergen',
+    shortcutOpenFolderBrowser: 'Folder Browser openen',
     shortcutFullscreenPlayer: 'Volledigschermspeler',
     shortcutNativeFullscreen: 'Systeemvolledig scherm',
     tabSystem: 'Systeem',

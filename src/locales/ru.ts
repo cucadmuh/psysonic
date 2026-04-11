@@ -603,6 +603,7 @@ export const ruTranslation = {
     shortcutSeekForward: 'Вперёд на 10 с',
     shortcutSeekBackward: 'Назад на 10 с',
     shortcutToggleQueue: 'Показать / скрыть очередь',
+    shortcutOpenFolderBrowser: 'Открыть Folder Browser',
     shortcutFullscreenPlayer: 'Полноэкранный плеер',
     shortcutNativeFullscreen: 'Системный полный экран',
     playbackTitle: 'Воспроизведение',

@@ -1503,6 +1503,7 @@ export default function Settings() {
                 ['seek-forward',      t('settings.shortcutSeekForward')],
                 ['seek-backward',     t('settings.shortcutSeekBackward')],
                 ['toggle-queue',      t('settings.shortcutToggleQueue')],
+                ['open-folder-browser', t('settings.shortcutOpenFolderBrowser')],
                 ['fullscreen-player', t('settings.shortcutFullscreenPlayer')],
                 ['native-fullscreen', t('settings.shortcutNativeFullscreen')],
               ] as [KeyAction, string][]).map(([action, label]) => {

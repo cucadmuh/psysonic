@@ -10,6 +10,7 @@ export type KeyAction =
   | 'seek-forward'
   | 'seek-backward'
   | 'toggle-queue'
+  | 'open-folder-browser'
   | 'fullscreen-player'
   | 'native-fullscreen';
 
@@ -25,6 +26,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   'seek-forward':      null,
   'seek-backward':     null,
   'toggle-queue':      null,
+  'open-folder-browser': null,
   'fullscreen-player': null,
   'native-fullscreen': 'F11',
 };

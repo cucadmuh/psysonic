@@ -571,6 +571,7 @@ export const zhTranslation = {
     shortcutSeekForward: '快进 10 秒',
     shortcutSeekBackward: '快退 10 秒',
     shortcutToggleQueue: '切换队列',
+    shortcutOpenFolderBrowser: '打开 Folder Browser',
     shortcutFullscreenPlayer: '全屏播放器',
     shortcutNativeFullscreen: '原生全屏',
     playbackTitle: '播放',
