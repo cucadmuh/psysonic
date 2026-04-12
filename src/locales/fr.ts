@@ -5,6 +5,7 @@ export const frTranslation = {
     newReleases: 'Nouveautés',
     allAlbums: 'Tous les albums',
     randomAlbums: 'Albums aléatoires',
+    randomPicker: 'Créer un mix',
     artists: 'Artistes',
     randomMix: 'Mix aléatoire',
     favorites: 'Favoris',
@@ -202,6 +203,13 @@ export const frTranslation = {
     playAll: 'Tout lire',
     removeSong: 'Retirer des favoris',
     stations: 'Stations de radio',
+  },
+  randomLanding: {
+    title: 'Créer un mix',
+    mixByTracks: 'Mix par pistes',
+    mixByTracksDesc: 'Sélection aléatoire de titres depuis toute votre médiathèque',
+    mixByAlbums: 'Mix par albums',
+    mixByAlbumsDesc: 'Albums aléatoires pour vos prochaines découvertes',
   },
   randomAlbums: {
     title: 'Albums aléatoires',

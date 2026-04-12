@@ -120,7 +120,7 @@ export default function Home() {
             {isVisible('discover') && (
               <AlbumRow
                 title={t('home.discover')}
-                titleLink="/random-albums"
+                titleLink="/random/albums"
                 albums={random}
                 onLoadMore={() => loadMore('random', random, setRandom)}
                 moreText={t('home.discoverMore')}

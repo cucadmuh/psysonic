@@ -5,6 +5,7 @@ export const nbTranslation = {
     newReleases: 'Nye utgivelser',
     allAlbums: 'Alle album',
     randomAlbums: 'Tilfeldige album',
+    randomPicker: 'Lag en miks',
     artists: 'Artister',
     randomMix: 'Tilfeldig miks',
     favorites: 'Favoritter',
@@ -202,6 +203,13 @@ export const nbTranslation = {
     playAll: 'Spill alle',
     removeSong: 'Fjern fra favoritter',
 	stations: 'Radiostasjoner',
+  },
+  randomLanding: {
+    title: 'Lag en miks',
+    mixByTracks: 'Miks etter spor',
+    mixByTracksDesc: 'Tilfeldig utvalg av spor fra hele biblioteket ditt',
+    mixByAlbums: 'Miks etter album',
+    mixByAlbumsDesc: 'Tilfeldige album for nye oppdagelser',
   },
   randomAlbums: {
     title: 'Tilfeldige album',

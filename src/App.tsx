@@ -21,6 +21,7 @@ import ArtistDetail from './pages/ArtistDetail';
 import NewReleases from './pages/NewReleases';
 import Favorites from './pages/Favorites';
 import RandomMix from './pages/RandomMix';
+import RandomLanding from './pages/RandomLanding';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import AlbumDetail from './pages/AlbumDetail';
@@ -347,13 +348,14 @@ function AppShell() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/albums" element={<Albums />} />
-            <Route path="/random-albums" element={<RandomAlbums />} />
+            <Route path="/random" element={<RandomLanding />} />
+            <Route path="/random/albums" element={<RandomAlbums />} />
             <Route path="/album/:id" element={<AlbumDetail />} />
             <Route path="/artists" element={<Artists />} />
             <Route path="/artist/:id" element={<ArtistDetail />} />
             <Route path="/new-releases" element={<NewReleases />} />
             <Route path="/favorites" element={<Favorites />} />
-            <Route path="/random-mix" element={<RandomMix />} />
+            <Route path="/random/mix" element={<RandomMix />} />
             <Route path="/label/:name" element={<LabelAlbums />} />
             <Route path="/search" element={<SearchResults />} />
             <Route path="/search/advanced" element={<AdvancedSearch />} />

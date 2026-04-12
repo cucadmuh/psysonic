@@ -5,6 +5,7 @@ export const enTranslation = {
     newReleases: 'New Releases',
     allAlbums: 'All Albums',
     randomAlbums: 'Random Albums',
+    randomPicker: 'Build a Mix',
     artists: 'Artists',
     randomMix: 'Random Mix',
     favorites: 'Favorites',
@@ -203,6 +204,13 @@ export const enTranslation = {
     playAll: 'Play all',
     removeSong: 'Remove from favorites',
     stations: 'Radio Stations',
+  },
+  randomLanding: {
+    title: 'Build a Mix',
+    mixByTracks: 'Mix by Tracks',
+    mixByTracksDesc: 'Random selection of tracks from your entire library',
+    mixByAlbums: 'Mix by Albums',
+    mixByAlbumsDesc: 'Random album picks for your next discovery',
   },
   randomAlbums: {
     title: 'Random Albums',

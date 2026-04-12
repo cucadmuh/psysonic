@@ -6,6 +6,7 @@ export const ruTranslation = {
     newReleases: 'Новинки',
     allAlbums: 'Все альбомы',
     randomAlbums: 'Случайные альбомы',
+    randomPicker: 'Собрать микс',
     artists: 'Исполнители',
     randomMix: 'Случайный микс',
     favorites: 'Избранное',
@@ -206,6 +207,13 @@ export const ruTranslation = {
     playAll: 'Воспроизвести всё',
     removeSong: 'Убрать из избранного',
     stations: 'Радиостанции',
+  },
+  randomLanding: {
+    title: 'Собрать микс',
+    mixByTracks: 'Микс по трекам',
+    mixByTracksDesc: 'Случайная подборка треков со всей медиатеки',
+    mixByAlbums: 'Микс по альбомам',
+    mixByAlbumsDesc: 'Случайная подборка альбомов для открытий',
   },
   randomAlbums: {
     title: 'Случайные альбомы',

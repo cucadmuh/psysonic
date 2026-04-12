@@ -5,6 +5,7 @@ export const zhTranslation = {
     newReleases: '新发布',
     allAlbums: '全部专辑',
     randomAlbums: '随机专辑',
+    randomPicker: '创建混音',
     artists: '艺术家',
     randomMix: '随机混音',
     favorites: '收藏夹',
@@ -202,6 +203,13 @@ export const zhTranslation = {
     playAll: '全部播放',
     removeSong: '从收藏中移除',
     stations: '广播电台',
+  },
+  randomLanding: {
+    title: '创建混音',
+    mixByTracks: '按曲目混音',
+    mixByTracksDesc: '从整个媒体库随机选取曲目',
+    mixByAlbums: '按专辑混音',
+    mixByAlbumsDesc: '随机选取专辑，探索新音乐',
   },
   randomAlbums: {
     title: '随机专辑',

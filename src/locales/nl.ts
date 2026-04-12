@@ -5,6 +5,7 @@ export const nlTranslation = {
     newReleases: 'Nieuw',
     allAlbums: 'Alle albums',
     randomAlbums: 'Willekeurige albums',
+    randomPicker: 'Mix samenstellen',
     artists: 'Artiesten',
     randomMix: 'Willekeurige mix',
     favorites: 'Favorieten',
@@ -202,6 +203,13 @@ export const nlTranslation = {
     playAll: 'Alles afspelen',
     removeSong: 'Verwijderen uit favorieten',
     stations: 'Radiostations',
+  },
+  randomLanding: {
+    title: 'Mix samenstellen',
+    mixByTracks: 'Mix op nummers',
+    mixByTracksDesc: 'Willekeurige selectie uit je volledige mediatheek',
+    mixByAlbums: 'Mix op albums',
+    mixByAlbumsDesc: 'Willekeurige albums voor nieuwe ontdekkingen',
   },
   randomAlbums: {
     title: 'Willekeurige albums',

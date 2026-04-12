@@ -5,6 +5,7 @@ export const deTranslation = {
     newReleases: 'Neueste',
     allAlbums: 'Alle Alben',
     randomAlbums: 'Zufallsalben',
+    randomPicker: 'Mix erstellen',
     artists: 'Künstler',
     randomMix: 'Zufallsmix',
     favorites: 'Favoriten',
@@ -202,6 +203,13 @@ export const deTranslation = {
     playAll: 'Alle abspielen',
     removeSong: 'Aus Favoriten entfernen',
     stations: 'Radiosender',
+  },
+  randomLanding: {
+    title: 'Mix erstellen',
+    mixByTracks: 'Mix nach Titeln',
+    mixByTracksDesc: 'Zufällige Auswahl aus deiner gesamten Mediathek',
+    mixByAlbums: 'Mix nach Alben',
+    mixByAlbumsDesc: 'Zufällige Alben für neue Entdeckungen',
   },
   randomAlbums: {
     title: 'Zufallsalben',

@@ -8,9 +8,9 @@ import { useSidebarStore } from '../store/sidebarStore';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Disc3, Users, Music4, Radio, Settings, Heart, BarChart3, Shuffle,
-  PanelLeftClose, PanelLeft, HelpCircle, Dices, AudioLines, HardDriveDownload, Tags, ListMusic, Cast,
-  ChevronDown, Check, Music2, TrendingUp, FolderOpen, X,
+  Disc3, Users, Music4, Radio, Settings, Heart, BarChart3,
+  PanelLeftClose, PanelLeft, HelpCircle, AudioLines, HardDriveDownload, Tags, ListMusic, Cast,
+  ChevronDown, Check, Music2, TrendingUp, FolderOpen, X, Wand2,
 } from 'lucide-react';
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
@@ -21,10 +21,9 @@ export const ALL_NAV_ITEMS: Record<string, { icon: React.ElementType; labelKey: 
   mainstage:    { icon: Disc3,      labelKey: 'sidebar.mainstage',    to: '/',              section: 'library' },
   newReleases:  { icon: Radio,      labelKey: 'sidebar.newReleases',  to: '/new-releases',  section: 'library' },
   allAlbums:    { icon: Music4,     labelKey: 'sidebar.allAlbums',    to: '/albums',        section: 'library' },
-  randomAlbums: { icon: Dices,      labelKey: 'sidebar.randomAlbums', to: '/random-albums', section: 'library' },
+  randomPicker: { icon: Wand2,      labelKey: 'sidebar.randomPicker', to: '/random',        section: 'library' },
   artists:      { icon: Users,      labelKey: 'sidebar.artists',      to: '/artists',       section: 'library' },
   genres:       { icon: Tags,       labelKey: 'sidebar.genres',       to: '/genres',        section: 'library' },
-  randomMix:    { icon: Shuffle,    labelKey: 'sidebar.randomMix',    to: '/random-mix',    section: 'library' },
   favorites:    { icon: Heart,       labelKey: 'sidebar.favorites',    to: '/favorites',      section: 'library' },
   playlists:    { icon: ListMusic,   labelKey: 'sidebar.playlists',    to: '/playlists',      section: 'library' },
   mostPlayed:   { icon: TrendingUp,  labelKey: 'sidebar.mostPlayed',   to: '/most-played',    section: 'library' },
