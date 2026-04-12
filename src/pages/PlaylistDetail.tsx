@@ -114,8 +114,9 @@ export default function PlaylistDetail() {
   const [editingMeta, setEditingMeta] = useState(false);
   const [customCoverId, setCustomCoverId] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
-  const [sortKey, setSortKey] = useState<'natural' | 'title' | 'artist'>('natural');
+  const [sortKey, setSortKey] = useState<'natural' | 'title' | 'artist' | 'album' | 'favorite' | 'rating' | 'duration'>('natural');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortClickCount, setSortClickCount] = useState(0);
   const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   const [contextMenuSongId, setContextMenuSongId] = useState<string | null>(null);
@@ -471,13 +472,27 @@ export default function PlaylistDetail() {
     if (q) result = result.filter(s => s.title.toLowerCase().includes(q) || (s.artist ?? '').toLowerCase().includes(q));
     if (sortKey !== 'natural') {
       result.sort((a, b) => {
-        const av = sortKey === 'title' ? a.title : (a.artist ?? '');
-        const bv = sortKey === 'title' ? b.title : (b.artist ?? '');
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        let av: string | number;
+        let bv: string | number;
+        const effectiveRating = (s: SubsonicSong) => ratings[s.id] ?? userRatingOverrides[s.id] ?? s.userRating ?? 0;
+        const effectiveStarred = (s: SubsonicSong) => (s.id in starredOverrides ? starredOverrides[s.id] : starredSongs.has(s.id)) ? 1 : 0;
+        switch (sortKey) {
+          case 'title': av = a.title; bv = b.title; break;
+          case 'artist': av = a.artist ?? ''; bv = b.artist ?? ''; break;
+          case 'album': av = a.album ?? ''; bv = b.album ?? ''; break;
+          case 'favorite': av = effectiveStarred(a); bv = effectiveStarred(b); break;
+          case 'rating': av = effectiveRating(a); bv = effectiveRating(b); break;
+          case 'duration': av = a.duration ?? 0; bv = b.duration ?? 0; break;
+          default: av = a.title; bv = b.title;
+        }
+        if (typeof av === 'number' && typeof bv === 'number') {
+          return sortDir === 'asc' ? av - bv : bv - av;
+        }
+        return sortDir === 'asc' ? (av as string).localeCompare(bv as string) : (bv as string).localeCompare(av as string);
       });
     }
     return result;
-  }, [songs, filterText, sortKey, sortDir]);
+  }, [songs, filterText, sortKey, sortDir, ratings, userRatingOverrides, starredOverrides, starredSongs]);
   const displayedTracks = useMemo(
     () => displayedSongs === songs ? tracks : displayedSongs.map(songToTrack),
     [displayedSongs, songs, tracks],
@@ -706,23 +721,6 @@ export default function PlaylistDetail() {
               >×</button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {(['natural', 'title', 'artist'] as const).map(key => (
-              <button
-                key={key}
-                className={`btn btn-sm ${sortKey === key ? 'btn-surface' : 'btn-ghost'}`}
-                onClick={() => {
-                  if (sortKey === key && key !== 'natural') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                  else { setSortKey(key); setSortDir('asc'); }
-                }}
-              >
-                {key === 'natural' ? t('albumDetail.sortNatural')
-                  : key === 'title' ? t('albumDetail.sortByTitle')
-                  : t('albumDetail.sortByArtist')}
-                {sortKey === key && key !== 'natural' && <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
@@ -777,6 +775,38 @@ export default function PlaylistDetail() {
               const isLastCol = colIndex === visibleCols.length - 1;
               const isCentered = PL_CENTERED.has(key);
               const label = colDef.i18nKey ? t(`albumDetail.${colDef.i18nKey}`) : '';
+              const sortableCols = new Set(['title', 'artist', 'favorite', 'rating', 'duration', 'album']);
+              const canSort = sortableCols.has(key);
+              const isSortActive = canSort && sortKey === key;
+
+              const handleSortClick = () => {
+                if (!canSort) return;
+                if (sortKey === key) {
+                  const nextCount = sortClickCount + 1;
+                  if (nextCount >= 3) {
+                    setSortKey('natural');
+                    setSortDir('asc');
+                    setSortClickCount(0);
+                  } else {
+                    setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                    setSortClickCount(nextCount);
+                  }
+                } else {
+                  setSortKey(key as typeof sortKey);
+                  setSortDir('asc');
+                  setSortClickCount(1);
+                }
+              };
+
+              const renderSortIndicator = () => {
+                if (!isSortActive) return null;
+                return (
+                  <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
+                    {sortDir === 'asc' ? '▲' : '▼'}
+                  </span>
+                );
+              };
+
               if (key === 'num') return (
                 <div key="num" className="track-num">
                   <span
@@ -790,9 +820,23 @@ export default function PlaylistDetail() {
               if (key === 'title') {
                 const hasNextCol = colIndex + 1 < visibleCols.length;
                 return (
-                  <div key="title" style={{ position: 'relative', padding: 0, margin: 0, minWidth: 0, overflow: 'hidden' }}>
+                  <div
+                    key="title"
+                    onClick={handleSortClick}
+                    style={{
+                      position: 'relative',
+                      padding: 0,
+                      margin: 0,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      cursor: canSort ? 'pointer' : 'default',
+                      userSelect: 'none',
+                    }}
+                    className={isSortActive ? 'tracklist-header-cell-active' : ''}
+                  >
                     <div style={{ display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 12 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isSortActive ? 600 : 400 }}>{label}</span>
+                      {canSort && renderSortIndicator()}
                     </div>
                     {hasNextCol && <div className="col-resize-handle" onMouseDown={e => startResize(e, colIndex + 1, -1)} />}
                   </div>
@@ -800,7 +844,20 @@ export default function PlaylistDetail() {
               }
               if (key === 'delete') return <div key="delete" />;
               return (
-                <div key={key} style={{ position: 'relative', padding: 0, margin: 0, minWidth: 0, overflow: 'hidden' }}>
+                <div
+                  key={key}
+                  onClick={handleSortClick}
+                  style={{
+                    position: 'relative',
+                    padding: 0,
+                    margin: 0,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    cursor: canSort ? 'pointer' : 'default',
+                    userSelect: 'none',
+                  }}
+                  className={isSortActive ? 'tracklist-header-cell-active' : ''}
+                >
                   <div
                     style={{
                       display: 'flex',
@@ -811,7 +868,8 @@ export default function PlaylistDetail() {
                       paddingLeft: isCentered ? 0 : 12,
                     }}
                   >
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isSortActive ? 600 : 400 }}>{label}</span>
+                    {canSort && renderSortIndicator()}
                   </div>
                   {!isLastCol && key !== 'delete' && (
                     <div className="col-resize-handle" onMouseDown={e => startResize(e, colIndex, 1)} />

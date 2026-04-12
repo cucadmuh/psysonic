@@ -44,6 +44,8 @@ const CENTERED_COLS = new Set<ColKey>(['favorite', 'rating', 'duration']);
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+export type SortKey = 'natural' | 'title' | 'artist' | 'album' | 'favorite' | 'rating' | 'duration';
+
 interface AlbumTrackListProps {
   songs: SubsonicSong[];
   sorted?: boolean;
@@ -57,6 +59,9 @@ interface AlbumTrackListProps {
   onRate: (songId: string, rating: number) => void;
   onToggleSongStar: (song: SubsonicSong, e: React.MouseEvent) => void;
   onContextMenu: (x: number, y: number, track: Track, type: 'song' | 'album' | 'artist' | 'queue-item' | 'album-song') => void;
+  sortKey?: SortKey;
+  sortDir?: 'asc' | 'desc';
+  onSort?: (key: SortKey) => void;
 }
 
 // ── TrackRow (memoised) ───────────────────────────────────────────────────────
@@ -262,6 +267,9 @@ export default function AlbumTrackList({
   onRate,
   onToggleSongStar,
   onContextMenu,
+  sortKey,
+  sortDir,
+  onSort,
 }: AlbumTrackListProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -375,12 +383,33 @@ export default function AlbumTrackList({
 
   const currentTrackId = currentTrack?.id ?? null;
 
+  // ── Sortable columns ──────────────────────────────────────────────────────
+  const SORTABLE_COLS = new Set<ColKey | 'album'>(['title', 'artist', 'album', 'favorite', 'rating', 'duration']);
+
+  const isSortable = (key: ColKey | string): key is SortKey => SORTABLE_COLS.has(key as ColKey);
+
+  const handleHeaderClick = (key: ColKey | string) => {
+    if (!isSortable(key) || !onSort) return;
+    onSort(key);
+  };
+
+  const renderSortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return null;
+    return (
+      <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
+        {sortDir === 'asc' ? '▲' : '▼'}
+      </span>
+    );
+  };
+
   // ── Header cell renderer ──────────────────────────────────────────────────
   const renderHeaderCell = (colDef: ColDef, colIndex: number) => {
     const key = colDef.key as ColKey;
     const isLastCol = colIndex === visibleCols.length - 1;
     const isCentered = CENTERED_COLS.has(key);
     const label = colDef.i18nKey ? t(`albumDetail.${colDef.i18nKey as string}`) : '';
+    const canSort = isSortable(key) && onSort;
+    const isActive = canSort && sortKey === key;
 
     if (key === 'num') {
       return (
@@ -398,9 +427,23 @@ export default function AlbumTrackList({
     if (key === 'title') {
       const hasNextCol = colIndex + 1 < visibleCols.length;
       return (
-        <div key={key} style={{ position: 'relative', padding: 0, margin: 0, minWidth: 0, overflow: 'hidden' }}>
+        <div
+          key={key}
+          style={{
+            position: 'relative',
+            padding: 0,
+            margin: 0,
+            minWidth: 0,
+            overflow: 'hidden',
+            cursor: canSort ? 'pointer' : 'default',
+            userSelect: 'none',
+          }}
+          onClick={() => handleHeaderClick(key)}
+          className={isActive ? 'tracklist-header-cell-active' : ''}
+        >
           <div style={{ display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 12 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 600 : 400 }}>{label}</span>
+            {canSort && renderSortIndicator(key as SortKey)}
           </div>
           {hasNextCol && (
             <div className="col-resize-handle" onMouseDown={e => startResize(e, colIndex + 1, -1)} />
@@ -411,7 +454,20 @@ export default function AlbumTrackList({
 
     const isResizable = !isLastCol;
     return (
-      <div key={key} style={{ position: 'relative', padding: 0, margin: 0, minWidth: 0, overflow: 'hidden' }}>
+      <div
+        key={key}
+        style={{
+          position: 'relative',
+          padding: 0,
+          margin: 0,
+          minWidth: 0,
+          overflow: 'hidden',
+          cursor: canSort ? 'pointer' : 'default',
+          userSelect: 'none',
+        }}
+        onClick={() => handleHeaderClick(key)}
+        className={isActive ? 'tracklist-header-cell-active' : ''}
+      >
         <div
           style={{
             display: 'flex', width: '100%', height: '100%', alignItems: 'center',
@@ -419,7 +475,8 @@ export default function AlbumTrackList({
             paddingLeft: isCentered ? 0 : 12,
           }}
         >
-          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isActive ? 600 : 400 }}>{label}</span>
+          {canSort && isSortable(key) && renderSortIndicator(key as SortKey)}
         </div>
         {isResizable && (
           <div className="col-resize-handle" onMouseDown={e => startResize(e, colIndex, 1)} />
