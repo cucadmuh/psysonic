@@ -7268,6 +7268,35 @@ html.no-compositing .fs-lyrics-rail {
   text-align: center;
 }
 
+.folder-col-filter {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.35rem 0.45rem;
+  background: color-mix(in srgb, var(--bg-base) 92%, transparent);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.folder-col-filter-input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+
+.folder-col-filter-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border-subtle));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.folder-col.folder-col--compact .folder-col-filter {
+  display: none;
+}
+
 .folder-col-error {
   color: var(--danger, #f38ba8);
 }

@@ -69,9 +69,12 @@ function entryToTrack(e: SubsonicDirectoryEntry): Track {
 export default function FolderBrowser() {
   const { t } = useTranslation();
   const [columns, setColumns] = useState<Column[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<number, string>>({});
+  const [filterFocusCol, setFilterFocusCol] = useState<number | null>(null);
   const [keyboardNavActive, setKeyboardNavActive] = useState(false);
   const [playingPathIds, setPlayingPathIds] = useState<string[]>(persistedPlayingPathIds);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const filterInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const pendingNavColRef = useRef<number | null>(null);
   const autoResolvedTrackRef = useRef<string | null>(null);
   const prevTrackIdRef = useRef<string | null>(null);
@@ -83,6 +86,7 @@ export default function FolderBrowser() {
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const isPlaying = usePlayerStore(s => s.isPlaying);
   const playTrack = usePlayerStore(s => s.playTrack);
+  const enqueue = usePlayerStore(s => s.enqueue);
   const openContextMenu = usePlayerStore(s => s.openContextMenu);
   const isContextMenuOpen = usePlayerStore(s => s.contextMenu.isOpen);
 
@@ -180,6 +184,20 @@ export default function FolderBrowser() {
   }, [keyboardNavActive]);
 
   useEffect(() => {
+    setColumnFilters(prev => {
+      const next: Record<number, string> = {};
+      let changed = false;
+      Object.entries(prev).forEach(([k, v]) => {
+        const idx = Number(k);
+        if (idx < columns.length) next[idx] = v;
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setFilterFocusCol(prev => (prev !== null && prev >= columns.length ? null : prev));
+  }, [columns.length]);
+
+  useEffect(() => {
     if (!isContextMenuOpen) setContextAnchorPos(null);
   }, [isContextMenuOpen]);
 
@@ -218,18 +236,31 @@ export default function FolderBrowser() {
     persistedPlayingPathIds = playingPathIds;
   }, [playingPathIds]);
 
-  const preferredRowIndex = useCallback((col: Column): number => {
-    if (col.items.length === 0) return -1;
-    if (col.selectedId) {
-      const selectedIdx = col.items.findIndex(it => it.id === col.selectedId);
+  const filteredItemsByCol = useMemo(() => {
+    return columns.map((col, colIndex) => {
+      const query = (columnFilters[colIndex] ?? '').trim().toLowerCase();
+      if (!query) return col.items;
+      return col.items.filter(item => {
+        const haystack = `${item.title} ${item.artist ?? ''} ${item.album ?? ''}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    });
+  }, [columns, columnFilters]);
+
+  const preferredRowIndex = useCallback((colIndex: number): number => {
+    const items = filteredItemsByCol[colIndex] ?? [];
+    if (items.length === 0) return -1;
+    const selectedId = columns[colIndex]?.selectedId;
+    if (selectedId) {
+      const selectedIdx = items.findIndex(it => it.id === selectedId);
       if (selectedIdx >= 0) return selectedIdx;
     }
     return 0;
-  }, []);
+  }, [filteredItemsByCol, columns]);
 
   const fallbackNavPos = useCallback((cols: Column[]): NavPos | null => {
     for (let c = 0; c < cols.length; c++) {
-      const rowIndex = preferredRowIndex(cols[c]);
+      const rowIndex = preferredRowIndex(c);
       if (rowIndex >= 0) return { colIndex: c, rowIndex };
     }
     return null;
@@ -239,15 +270,17 @@ export default function FolderBrowser() {
     if (pendingNavColRef.current !== null) {
       const targetColIndex = pendingNavColRef.current;
       const targetCol = columns[targetColIndex];
-      if (targetCol && targetCol.items.length > 0 && !targetCol.loading && !targetCol.error) {
-        const rowIndex = preferredRowIndex(targetCol);
-        const targetItem = targetCol.items[rowIndex];
+      const targetItems = filteredItemsByCol[targetColIndex] ?? [];
+      if (targetCol && targetItems.length > 0 && !targetCol.loading && !targetCol.error) {
+        const rowIndex = preferredRowIndex(targetColIndex);
+        const safeRowIndex = Math.min(Math.max(0, rowIndex), targetItems.length - 1);
+        const targetItem = targetItems[safeRowIndex];
         setColumns(prev =>
           prev.map((c, i) => (i === targetColIndex ? { ...c, selectedId: targetItem.id } : c)),
         );
         setKeyboardPos({
           colIndex: targetColIndex,
-          rowIndex,
+          rowIndex: safeRowIndex,
         });
         pendingNavColRef.current = null;
         return;
@@ -258,15 +291,31 @@ export default function FolderBrowser() {
       if (!prev) return fallbackNavPos(columns);
       if (prev.colIndex >= columns.length) return fallbackNavPos(columns);
       const col = columns[prev.colIndex];
-      if (col.loading || col.error || col.items.length === 0) return fallbackNavPos(columns);
-      if (prev.rowIndex >= col.items.length) {
-        return { colIndex: prev.colIndex, rowIndex: col.items.length - 1 };
+      const visibleItems = filteredItemsByCol[prev.colIndex] ?? [];
+      if (col.loading || col.error || visibleItems.length === 0) return fallbackNavPos(columns);
+      if (prev.rowIndex >= visibleItems.length) {
+        return { colIndex: prev.colIndex, rowIndex: visibleItems.length - 1 };
       }
       return prev;
     });
-  }, [columns, fallbackNavPos, preferredRowIndex]);
+  }, [columns, fallbackNavPos, preferredRowIndex, filteredItemsByCol]);
+
+  const clearFiltersRightOf = useCallback((colIndex: number) => {
+    setColumnFilters(prev => {
+      const next: Record<number, string> = {};
+      let changed = false;
+      Object.entries(prev).forEach(([k, v]) => {
+        const idx = Number(k);
+        if (idx <= colIndex) next[idx] = v;
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setFilterFocusCol(prev => (prev !== null && prev > colIndex ? null : prev));
+  }, []);
 
   const handleDirClick = useCallback((colIndex: number, item: SubsonicDirectoryEntry) => {
+    clearFiltersRightOf(colIndex);
     const nextKind: ColumnKind = colIndex === 0 ? 'indexes' : 'directory';
     setColumns(prev => [
       ...prev.slice(0, colIndex + 1).map((c, i) =>
@@ -305,7 +354,7 @@ export default function FolderBrowser() {
           return next;
         });
       });
-  }, []);
+  }, [clearFiltersRightOf]);
 
   const handleFileClick = useCallback(
     (colIndex: number, item: SubsonicDirectoryEntry) => {
@@ -317,24 +366,29 @@ export default function FolderBrowser() {
         item.id,
       ];
       setPlayingPathIds(path);
-      const col = columns[colIndex];
-      const queue = col.items.filter(it => !it.isDir).map(entryToTrack);
+      const visibleItems = filteredItemsByCol[colIndex] ?? columns[colIndex]?.items ?? [];
+      const queue = visibleItems.filter(it => !it.isDir).map(entryToTrack);
       playTrack(entryToTrack(item), queue.length > 0 ? queue : [entryToTrack(item)]);
     },
-    [columns, playTrack],
+    [columns, filteredItemsByCol, playTrack],
   );
 
   const setSelectedInColumn = useCallback((colIndex: number, itemId: string) => {
-    setColumns(prev =>
-      prev.map((c, i) => (i === colIndex ? { ...c, selectedId: itemId } : c)),
-    );
-  }, []);
+    setColumns(prev => {
+      const prevSelectedId = prev[colIndex]?.selectedId ?? null;
+      if (prevSelectedId !== itemId) {
+        clearFiltersRightOf(colIndex);
+      }
+      return prev.map((c, i) => (i === colIndex ? { ...c, selectedId: itemId } : c));
+    });
+  }, [clearFiltersRightOf]);
 
   const clearSelectedInColumn = useCallback((colIndex: number) => {
     setColumns(prev =>
       prev.map((c, i) => (i === colIndex ? { ...c, selectedId: null } : c)),
     );
   }, []);
+
 
   const handleActivate = useCallback((colIndex: number, item: SubsonicDirectoryEntry) => {
     if (item.isDir) {
@@ -376,14 +430,33 @@ export default function FolderBrowser() {
 
   const onColumnsKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (isContextMenuOpen) return;
+    const target = e.target as HTMLElement;
+    const inFilterInput =
+      target instanceof HTMLInputElement && target.dataset.folderFilterInput === 'true';
+    if (inFilterInput) return;
     const key = e.key;
+    if (e.ctrlKey && e.code === 'KeyF') {
+      e.preventDefault();
+      const current = keyboardPos ?? fallbackNavPos(columns);
+      if (!current) return;
+      const colIndex = current.colIndex;
+      setFilterFocusCol(colIndex);
+      requestAnimationFrame(() => {
+        const input = filterInputRefs.current[colIndex];
+        if (!input) return;
+        input.focus();
+        input.select();
+      });
+      return;
+    }
     if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) return;
     setKeyboardNavActive(true);
     const current = keyboardPos ?? fallbackNavPos(columns);
     if (!current) return;
 
     const col = columns[current.colIndex];
-    const item = col?.items[current.rowIndex];
+    const visibleItems = filteredItemsByCol[current.colIndex] ?? [];
+    const item = visibleItems[current.rowIndex];
     if (!col || !item) return;
 
     e.preventDefault();
@@ -403,17 +476,28 @@ export default function FolderBrowser() {
     if (key === 'ArrowUp') {
       if (current.rowIndex > 0) {
         const nextRowIndex = current.rowIndex - 1;
-        const nextItem = col.items[nextRowIndex];
+        const nextItem = visibleItems[nextRowIndex];
         setKeyboardPos({ colIndex: current.colIndex, rowIndex: nextRowIndex });
         if (nextItem.isDir) handleDirClick(current.colIndex, nextItem);
         else setSelectedInColumn(current.colIndex, nextItem.id);
+      } else if (
+        current.rowIndex === 0 &&
+        (filterFocusCol === current.colIndex || !!columnFilters[current.colIndex])
+      ) {
+        setFilterFocusCol(current.colIndex);
+        requestAnimationFrame(() => {
+          const input = filterInputRefs.current[current.colIndex];
+          if (!input) return;
+          input.focus();
+          input.select();
+        });
       }
       return;
     }
     if (key === 'ArrowDown') {
-      if (current.rowIndex < col.items.length - 1) {
+      if (current.rowIndex < visibleItems.length - 1) {
         const nextRowIndex = current.rowIndex + 1;
-        const nextItem = col.items[nextRowIndex];
+        const nextItem = visibleItems[nextRowIndex];
         setKeyboardPos({ colIndex: current.colIndex, rowIndex: nextRowIndex });
         if (nextItem.isDir) handleDirClick(current.colIndex, nextItem);
         else setSelectedInColumn(current.colIndex, nextItem.id);
@@ -424,7 +508,8 @@ export default function FolderBrowser() {
       if (current.colIndex > 0) {
         clearSelectedInColumn(current.colIndex);
         const nextColIndex = current.colIndex - 1;
-        const rowIndex = preferredRowIndex(columns[nextColIndex]);
+        clearFiltersRightOf(nextColIndex);
+        const rowIndex = preferredRowIndex(nextColIndex);
         if (rowIndex >= 0) setKeyboardPos({ colIndex: nextColIndex, rowIndex });
       }
       return;
@@ -432,9 +517,10 @@ export default function FolderBrowser() {
     if (key === 'ArrowRight') {
       const nextColIndex = current.colIndex + 1;
       if (nextColIndex < columns.length) {
-        const rowIndex = preferredRowIndex(columns[nextColIndex]);
+        const nextVisibleItems = filteredItemsByCol[nextColIndex] ?? [];
+        const rowIndex = Math.min(preferredRowIndex(nextColIndex), nextVisibleItems.length - 1);
         if (rowIndex >= 0) {
-          const nextItem = columns[nextColIndex].items[rowIndex];
+          const nextItem = nextVisibleItems[rowIndex];
           setSelectedInColumn(nextColIndex, nextItem.id);
           setKeyboardPos({ colIndex: nextColIndex, rowIndex });
           return;
@@ -444,9 +530,16 @@ export default function FolderBrowser() {
       return;
     }
     if (key === 'Enter') {
+      if (e.shiftKey && !item.isDir) {
+        const toAppend = (filteredItemsByCol[current.colIndex] ?? [])
+          .filter(it => !it.isDir)
+          .map(entryToTrack);
+        if (toAppend.length > 0) enqueue(toAppend);
+        return;
+      }
       handleActivate(current.colIndex, item);
     }
-  }, [keyboardPos, fallbackNavPos, columns, preferredRowIndex, handleActivate, handleDirClick, setSelectedInColumn, clearSelectedInColumn, openContextMenuForEntry, isContextMenuOpen]);
+  }, [keyboardPos, fallbackNavPos, columns, preferredRowIndex, handleActivate, handleDirClick, setSelectedInColumn, clearSelectedInColumn, openContextMenuForEntry, isContextMenuOpen, filteredItemsByCol, filterFocusCol, columnFilters, enqueue, clearFiltersRightOf]);
 
   const onRowContextMenu = useCallback(
     (e: React.MouseEvent, colIndex: number, rowIndex: number, col: Column, item: SubsonicDirectoryEntry) => {
@@ -602,6 +695,55 @@ export default function FolderBrowser() {
             className={`folder-col${isColumnCompact(col, colIndex) ? ' folder-col--compact' : ''}`}
             data-folder-col-index={colIndex}
           >
+            {(filterFocusCol === colIndex || !!columnFilters[colIndex]) && (
+              <div className="folder-col-filter">
+                <input
+                  ref={el => { filterInputRefs.current[colIndex] = el; }}
+                  data-folder-filter-input="true"
+                  className="folder-col-filter-input"
+                  value={columnFilters[colIndex] ?? ''}
+                  placeholder={t('playlists.searchPlaceholder')}
+                  onFocus={() => setFilterFocusCol(colIndex)}
+                  onBlur={() => {
+                    if (!(columnFilters[colIndex] ?? '').trim()) {
+                      setFilterFocusCol(prev => (prev === colIndex ? null : prev));
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setColumnFilters(prev => ({ ...prev, [colIndex]: '' }));
+                      setFilterFocusCol(null);
+                      requestAnimationFrame(() => wrapperRef.current?.focus({ preventScroll: true }));
+                      return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const rowIndex = preferredRowIndex(colIndex);
+                      if (rowIndex >= 0) {
+                        const nextItem = (filteredItemsByCol[colIndex] ?? [])[rowIndex];
+                        if (nextItem) {
+                          if (nextItem.isDir) handleDirClick(colIndex, nextItem);
+                          else setSelectedInColumn(colIndex, nextItem.id);
+                        }
+                        setKeyboardPos({ colIndex, rowIndex });
+                        requestAnimationFrame(() => wrapperRef.current?.focus({ preventScroll: true }));
+                      }
+                    }
+                  }}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setColumnFilters(prev => ({ ...prev, [colIndex]: value }));
+                    setKeyboardPos(prev => {
+                      if (!prev || prev.colIndex !== colIndex) return prev;
+                      return { colIndex, rowIndex: 0 };
+                    });
+                  }}
+                />
+              </div>
+            )}
             {col.loading ? (
               <div className="folder-col-status">
                 <div className="spinner" style={{ width: 20, height: 20 }} />
@@ -610,12 +752,11 @@ export default function FolderBrowser() {
               <div className="folder-col-status folder-col-error">
                 {t('folderBrowser.error')}
               </div>
-            ) : col.items.length === 0 ? (
+            ) : (filteredItemsByCol[colIndex]?.length ?? 0) === 0 ? (
               <div className="folder-col-status">{t('folderBrowser.empty')}</div>
             ) : (
-              col.items.map(item => {
+              (filteredItemsByCol[colIndex] ?? []).map((item, rowIndex) => {
                 const isSelected = col.selectedId === item.id;
-                const rowIndex = col.items.findIndex(it => it.id === item.id);
                 const isContextRow =
                   contextAnchorPos?.colIndex === colIndex && contextAnchorPos.rowIndex === rowIndex;
                 const isKeyboardRow =
