@@ -211,6 +211,8 @@ export default function PlaylistDetail() {
   const [searchResults, setSearchResults] = useState<SubsonicSong[]>([]);
   const [searching, setSearching] = useState(false);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedSearchIds, setSelectedSearchIds] = useState<Set<string>>(new Set());
+  const [searchPlPickerOpen, setSearchPlPickerOpen] = useState(false);
 
   // Suggestions
   const [suggestions, setSuggestions] = useState<SubsonicSong[]>([]);
@@ -439,7 +441,6 @@ export default function PlaylistDetail() {
   // ── Row mousedown: threshold drag for reorder (from anywhere on the row) ──
   const handleRowMouseDown = (e: React.MouseEvent, idx: number) => {
     if (e.button !== 0) return;
-    if (isFiltered) return;
     if ((e.target as HTMLElement).closest('button, input')) return;
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY;
@@ -447,10 +448,21 @@ export default function PlaylistDetail() {
       if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        startDrag(
-          { data: JSON.stringify({ type: 'playlist_reorder', index: idx }), label: songs[idx]?.title ?? '' },
-          me.clientX, me.clientY
-        );
+        if (!isFiltered && selectedIds.has(songs[idx]?.id) && selectedIds.size > 1) {
+          const bulkTracks = songs.filter(s => selectedIds.has(s.id)).map(songToTrack);
+          startDrag({ data: JSON.stringify({ type: 'songs', tracks: bulkTracks }), label: `${bulkTracks.length} Songs` }, me.clientX, me.clientY);
+        } else if (!isFiltered) {
+          startDrag(
+            { data: JSON.stringify({ type: 'playlist_reorder', index: idx }), label: songs[idx]?.title ?? '' },
+            me.clientX, me.clientY
+          );
+        } else {
+          // filtered view: single-song drag to queue
+          startDrag(
+            { data: JSON.stringify({ type: 'song', track: songToTrack(songs[idx]) }), label: songs[idx]?.title ?? '' },
+            me.clientX, me.clientY
+          );
+        }
       }
     };
     const onUp = () => {
@@ -624,10 +636,11 @@ export default function PlaylistDetail() {
                 </div>
                 <button
                   className={`btn btn-ghost ${searchOpen ? 'active' : ''}`}
-                  onClick={() => { setSearchOpen(v => !v); setSearchQuery(''); setSearchResults([]); }}
+                  onClick={() => { setSearchOpen(v => !v); setSearchQuery(''); setSearchResults([]); setSelectedSearchIds(new Set()); setSearchPlPickerOpen(false); }}
                 >
                   <Search size={16} /> {t('playlists.addSongs')}
                 </button>
+                {/* search close resets selection */}
                 {songs.length > 0 && id && (
                   <button
                     className={`btn btn-ghost${isCached ? ' btn-danger' : ''}`}
@@ -690,16 +703,77 @@ export default function PlaylistDetail() {
           {!searching && searchQuery && searchResults.length === 0 && (
             <div className="empty-state" style={{ padding: '0.5rem 0' }}>{t('playlists.noResults')}</div>
           )}
-          {searchResults.map(song => (
-            <div key={song.id} className="playlist-search-row" style={{ cursor: 'pointer' }} onClick={() => addSong(song)}>
-              <CachedImage src={buildCoverArtUrl(song.coverArt ?? '', 40)} cacheKey={coverArtCacheKey(song.coverArt ?? '', 40)} alt="" className="playlist-search-thumb" />
-              <div className="playlist-search-info">
-                <span className="playlist-search-title">{song.title}</span>
-                <span className="playlist-search-artist">{song.artist} · <span className="playlist-search-album">{song.album}</span></span>
+          {selectedSearchIds.size > 0 && (
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', background: 'color-mix(in srgb, var(--accent) 10%, transparent)', borderRadius: 'var(--radius-sm)', margin: '0.25rem 0' }}>
+              <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, flex: 1 }}>
+                {t('common.bulkSelected', { count: selectedSearchIds.size })}
+              </span>
+              <button
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: 12 }}
+                onClick={() => setSelectedSearchIds(new Set())}
+              >
+                {t('common.clearSelection')}
+              </button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="btn btn-sm btn-primary"
+                  style={{ fontSize: 12 }}
+                  onClick={() => setSearchPlPickerOpen(v => !v)}
+                >
+                  <ListPlus size={13} /> {t('contextMenu.addToPlaylist')}
+                </button>
+                {searchPlPickerOpen && (
+                  <AddToPlaylistSubmenu
+                    songIds={[...selectedSearchIds]}
+                    dropDown
+                    onDone={() => { setSearchPlPickerOpen(false); setSelectedSearchIds(new Set()); }}
+                  />
+                )}
               </div>
-              <span className="playlist-search-duration">{formatDuration(song.duration ?? 0)}</span>
+              <button
+                className="btn btn-sm btn-primary"
+                style={{ fontSize: 12 }}
+                onClick={() => {
+                  searchResults
+                    .filter(s => selectedSearchIds.has(s.id))
+                    .forEach(s => addSong(s));
+                  setSelectedSearchIds(new Set());
+                }}
+              >
+                <Check size={13} /> {t('playlists.addSelected')}
+              </button>
             </div>
-          ))}
+          )}
+          {searchResults.map(song => {
+            const isSelected = selectedSearchIds.has(song.id);
+            return (
+              <div
+                key={song.id}
+                className={`playlist-search-row${isSelected ? ' playlist-search-row--selected' : ''}`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => addSong(song)}
+              >
+                <input
+                  type="checkbox"
+                  className="playlist-search-checkbox"
+                  checked={isSelected}
+                  onClick={e => e.stopPropagation()}
+                  onChange={() => setSelectedSearchIds(prev => {
+                    const next = new Set(prev);
+                    next.has(song.id) ? next.delete(song.id) : next.add(song.id);
+                    return next;
+                  })}
+                />
+                <CachedImage src={buildCoverArtUrl(song.coverArt ?? '', 40)} cacheKey={coverArtCacheKey(song.coverArt ?? '', 40)} alt="" className="playlist-search-thumb" />
+                <div className="playlist-search-info">
+                  <span className="playlist-search-title">{song.title}</span>
+                  <span className="playlist-search-artist">{song.artist} · <span className="playlist-search-album">{song.album}</span></span>
+                </div>
+                <span className="playlist-search-duration">{formatDuration(song.duration ?? 0)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -933,7 +1007,9 @@ export default function PlaylistDetail() {
               onMouseDown={e => handleRowMouseDown(e, realIdx)}
               onClick={e => {
                 if ((e.target as HTMLElement).closest('button, a, input')) return;
-                if (selectedIds.size > 0) {
+                if (e.ctrlKey || e.metaKey) {
+                  toggleSelect(song.id, i, false);
+                } else if (selectedIds.size > 0) {
                   toggleSelect(song.id, i, e.shiftKey);
                 } else {
                   playTrack(displayedTracks[i], displayedTracks);

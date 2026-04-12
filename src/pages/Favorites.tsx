@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTracklistColumns, type ColDef } from '../utils/useTracklistColumns';
 import AlbumRow from '../components/AlbumRow';
 import ArtistRow from '../components/ArtistRow';
@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { unstar } from '../api/subsonic';
 import { useDragDrop } from '../contexts/DragDropContext';
 import { useAuthStore } from '../store/authStore';
+import { useSelectionStore } from '../store/selectionStore';
+import { AddToPlaylistSubmenu } from '../components/ContextMenu';
 
 const FAV_COLUMNS: readonly ColDef[] = [
   { key: 'num',      i18nKey: null,            minWidth: 60,  defaultWidth: 60,  required: true  },
@@ -42,6 +44,12 @@ export default function Favorites() {
   } = useTracklistColumns(FAV_COLUMNS, 'psysonic_favorites_columns');
 
   const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [showPlPicker, setShowPlPicker] = useState(false);
+
+  const selectedCount = useSelectionStore(s => s.selectedIds.size);
+  const selectedIds = useSelectionStore(s => s.selectedIds);
+  const inSelectMode = selectedCount > 0;
+  const lastSelectedIdxRef = useRef<number | null>(null);
 
   const playTrack = usePlayerStore(s => s.playTrack);
   const enqueue = usePlayerStore(s => s.enqueue);
@@ -79,6 +87,44 @@ export default function Favorites() {
   const openContextMenu = usePlayerStore(s => s.openContextMenu);
   const navigate = useNavigate();
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
+
+  // Clear selection when song list changes
+  useEffect(() => {
+    useSelectionStore.getState().clearAll();
+    lastSelectedIdxRef.current = null;
+  }, [songs]);
+
+  // Clear selection on click outside tracklist
+  useEffect(() => {
+    if (!inSelectMode) return;
+    const handler = (e: MouseEvent) => {
+      if (tracklistRef.current && !tracklistRef.current.contains(e.target as Node)) {
+        useSelectionStore.getState().clearAll();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [inSelectMode]);
+
+  const toggleSelect = useCallback((id: string, idx: number, shift: boolean) => {
+    useSelectionStore.getState().setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (shift && lastSelectedIdxRef.current !== null) {
+        const from = Math.min(lastSelectedIdxRef.current, idx);
+        const to = Math.max(lastSelectedIdxRef.current, idx);
+        // we need visibleSongs here — read from latest closure via ref trick
+        // Instead, just toggle range based on idx into songs array
+        for (let j = from; j <= to; j++) {
+          const sid = songs[j]?.id;
+          if (sid) next.add(sid);
+        }
+      } else {
+        if (next.has(id)) { next.delete(id); }
+        else { next.add(id); lastSelectedIdxRef.current = idx; }
+      }
+      return next;
+    });
+  }, [songs]);
 
   useEffect(() => {
     const loadAll = async () => {
@@ -173,14 +219,68 @@ export default function Favorites() {
                   {t('favorites.enqueueAll')}
                 </button>
               </div>
-              <div className="tracklist" style={{ padding: 0 }} ref={tracklistRef}>
+              <div className="tracklist" style={{ padding: 0 }} ref={tracklistRef} onClick={e => {
+                if (inSelectMode && e.target === e.currentTarget) useSelectionStore.getState().clearAll();
+              }}>
+
+                {/* ── Bulk action bar ── */}
+                {inSelectMode && (
+                  <div className="bulk-action-bar">
+                    <span className="bulk-action-count">
+                      {t('common.bulkSelected', { count: selectedCount })}
+                    </span>
+                    <div className="bulk-pl-picker-wrap">
+                      <button
+                        className="btn btn-surface btn-sm"
+                        onClick={() => setShowPlPicker(v => !v)}
+                      >
+                        <ListPlus size={14} />
+                        {t('common.bulkAddToPlaylist')}
+                      </button>
+                      {showPlPicker && (
+                        <AddToPlaylistSubmenu
+                          songIds={[...useSelectionStore.getState().selectedIds]}
+                          onDone={() => { setShowPlPicker(false); useSelectionStore.getState().clearAll(); }}
+                          dropDown
+                        />
+                      )}
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => useSelectionStore.getState().clearAll()}
+                    >
+                      <X size={13} />
+                      {t('common.bulkClear')}
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ position: 'relative' }}>
                   <div className="tracklist-header tracklist-va" style={gridStyle}>
                     {visibleCols.map((colDef, colIndex) => {
                       const key = colDef.key;
                       const isLastCol = colIndex === visibleCols.length - 1;
                       const label = colDef.i18nKey ? t(`albumDetail.${colDef.i18nKey}`) : '';
-                      if (key === 'num') return <div key="num" className="track-num"><span className="track-num-number">#</span></div>;
+                      if (key === 'num') {
+                        const allSelected = selectedCount === visibleSongs.length && visibleSongs.length > 0;
+                        return (
+                          <div key="num" className="track-num">
+                            <span
+                              className={`bulk-check${allSelected ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`}
+                              style={{ cursor: 'pointer' }}
+                              onClick={e => {
+                                e.stopPropagation();
+                                if (allSelected) {
+                                  useSelectionStore.getState().clearAll();
+                                } else {
+                                  useSelectionStore.getState().setSelectedIds(() => new Set(visibleSongs.map(s => s.id)));
+                                }
+                              }}
+                            />
+                            <span className="track-num-number">#</span>
+                          </div>
+                        );
+                      }
                       if (key === 'title') {
                         const hasNextCol = colIndex + 1 < visibleCols.length;
                         return (
@@ -236,14 +336,21 @@ export default function Favorites() {
                 </div>
                 {visibleSongs.map((song, i) => {
                   const track = songToTrack(song);
+                  const isSelected = selectedIds.has(song.id);
                   return (
                     <div
                       key={song.id}
-                      className="track-row track-row-va"
+                      className={`track-row track-row-va${currentTrack?.id === song.id ? ' active' : ''}${isSelected ? ' bulk-selected' : ''}`}
                       style={gridStyle}
                       onClick={e => {
                         if ((e.target as HTMLElement).closest('button, a, input')) return;
-                        playTrack(track, visibleSongs.map(songToTrack));
+                        if (e.ctrlKey || e.metaKey) {
+                          toggleSelect(song.id, i, false);
+                        } else if (inSelectMode) {
+                          toggleSelect(song.id, i, e.shiftKey);
+                        } else {
+                          playTrack(track, visibleSongs.map(songToTrack));
+                        }
                       }}
                       onContextMenu={e => { e.preventDefault(); openContextMenu(e.clientX, e.clientY, track, 'song'); }}
                       role="row"
@@ -255,7 +362,13 @@ export default function Favorites() {
                           if (Math.abs(me.clientX - sx) > 5 || Math.abs(me.clientY - sy) > 5) {
                             document.removeEventListener('mousemove', onMove);
                             document.removeEventListener('mouseup', onUp);
-                            psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track }), label: song.title }, me.clientX, me.clientY);
+                            const { selectedIds: selIds } = useSelectionStore.getState();
+                            if (selIds.has(song.id) && selIds.size > 1) {
+                              const bulkTracks = visibleSongs.filter(s => selIds.has(s.id)).map(songToTrack);
+                              psyDrag.startDrag({ data: JSON.stringify({ type: 'songs', tracks: bulkTracks }), label: `${bulkTracks.length} Songs` }, me.clientX, me.clientY);
+                            } else {
+                              psyDrag.startDrag({ data: JSON.stringify({ type: 'song', track }), label: song.title }, me.clientX, me.clientY);
+                            }
                           }
                         };
                         const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
@@ -267,6 +380,7 @@ export default function Favorites() {
                         switch (colDef.key) {
                           case 'num': return (
                             <div key="num" className={`track-num${currentTrack?.id === song.id ? ' track-num-active' : ''}${currentTrack?.id === song.id && !isPlaying ? ' track-num-paused' : ''}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); playTrack(track, visibleSongs.map(songToTrack)); }}>
+                              <span className={`bulk-check${isSelected ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`} onClick={e => { e.stopPropagation(); toggleSelect(song.id, i, e.shiftKey); }} />
                               {currentTrack?.id === song.id && isPlaying && <span className="track-num-eq"><div className="eq-bars"><span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" /></div></span>}
                               <span className="track-num-play"><Play size={13} fill="currentColor" /></span>
                               <span className="track-num-number">{i + 1}</span>
