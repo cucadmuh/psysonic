@@ -64,6 +64,52 @@ export function songToTrack(song: SubsonicSong): Track {
   };
 }
 
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Infinite queue source strategy (Instant Mix-like):
+ * 1) Prefer artist-driven candidates (Top + Similar) around the current track.
+ * 2) Fallback to random songs when artist-driven fetches are empty.
+ */
+async function buildInfiniteQueueCandidates(
+  seedTrack: Track | null,
+  existingIds: Set<string>,
+  count = 5,
+): Promise<Track[]> {
+  const artistId = seedTrack?.artistId?.trim() || null;
+  const artistName = seedTrack?.artist?.trim() || null;
+
+  const [similar, top] = await Promise.all([
+    artistId ? getSimilarSongs2(artistId).catch(() => []) : Promise.resolve([]),
+    artistName ? getTopSongs(artistName).catch(() => []) : Promise.resolve([]),
+  ]);
+
+  const seedId = seedTrack?.id ?? null;
+  const mixCandidates = shuffleArray(
+    [...top, ...similar]
+      .map(songToTrack)
+      .filter(t => t.id !== seedId && !existingIds.has(t.id)),
+  )
+    .slice(0, count)
+    .map(t => ({ ...t, autoAdded: true as const }));
+
+  if (mixCandidates.length > 0) return mixCandidates;
+
+  const random = await getRandomSongs(count, seedTrack?.genre).catch(() => []);
+  return random
+    .map(songToTrack)
+    .filter(t => t.id !== seedId && !existingIds.has(t.id))
+    .slice(0, count)
+    .map(t => ({ ...t, autoAdded: true as const }));
+}
+
 interface PlayerState {
   currentTrack: Track | null;
   currentRadio: InternetRadioStation | null;
@@ -1017,9 +1063,9 @@ export const usePlayerStore = create<PlayerState>()(
             const remainingAuto = queue.slice(nextIdx + 1).filter(t => t.autoAdded).length;
             if (remainingAuto <= 2) {
               infiniteQueueFetching = true;
-              getRandomSongs(5, currentTrack?.genre).then(songs => {
-                if (songs.length > 0) {
-                  const newTracks: Track[] = songs.map(s => ({ ...songToTrack(s), autoAdded: true }));
+              const existingIds = new Set(get().queue.map(t => t.id));
+              buildInfiniteQueueCandidates(currentTrack, existingIds, 5).then(newTracks => {
+                if (newTracks.length > 0) {
                   set(state => ({ queue: [...state.queue, ...newTracks] }));
                 }
               }).catch(() => {}).finally(() => { infiniteQueueFetching = false; });
@@ -1105,15 +1151,15 @@ export const usePlayerStore = create<PlayerState>()(
           if (infiniteQueueEnabled && repeatMode === 'off') {
             if (infiniteQueueFetching) return;
             infiniteQueueFetching = true;
-            getRandomSongs(5, currentTrack?.genre).then(songs => {
+            const existingIds = new Set(get().queue.map(t => t.id));
+            buildInfiniteQueueCandidates(currentTrack, existingIds, 5).then(newTracks => {
               infiniteQueueFetching = false;
-              if (songs.length === 0) {
+              if (newTracks.length === 0) {
                 invoke('audio_stop').catch(console.error);
                 isAudioPaused = false;
                 set({ isPlaying: false, progress: 0, buffered: 0, currentTime: 0 });
                 return;
               }
-              const newTracks: Track[] = songs.map(s => ({ ...songToTrack(s), autoAdded: true }));
               const currentQueue = get().queue;
               const newQueue = [...currentQueue, ...newTracks];
               get().playTrack(newTracks[0], newQueue, false);
