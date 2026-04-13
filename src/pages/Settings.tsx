@@ -221,10 +221,6 @@ function snapHotCacheMb(v: number): number {
   return Math.round((x - 32) / 32) * 32 + 32;
 }
 
-// Module-level cache — device enumeration triggers ALSA probing on Linux (stderr noise),
-// so we only enumerate once per app session.
-let _audioDevicesCache: string[] | null = null;
-
 export default function Settings() {
   const auth = useAuthStore();
   const theme = useThemeStore();
@@ -266,6 +262,7 @@ export default function Settings() {
   const [hotCacheBytes, setHotCacheBytes] = useState<number | null>(null);
   const [audioDevices, setAudioDevices] = useState<string[]>([]);
   const [deviceSwitching, setDeviceSwitching] = useState(false);
+  const [devicesLoading, setDevicesLoading] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [contributorsOpen, setContributorsOpen] = useState(false);
@@ -282,15 +279,18 @@ export default function Settings() {
     invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null }).then(setHotCacheBytes).catch(() => setHotCacheBytes(0));
   }, [activeTab, auth.offlineDownloadDir, auth.hotCacheDownloadDir]);
 
-  // Load available audio output devices when Audio tab is first opened.
-  // Uses a module-level cache so ALSA enumeration (noisy on Linux) only happens once per session.
+  const refreshAudioDevices = () => {
+    setDevicesLoading(true);
+    invoke<string[]>('audio_list_devices')
+      .then(setAudioDevices)
+      .catch(() => {})
+      .finally(() => setDevicesLoading(false));
+  };
+
+  // Load available audio output devices when Audio tab opens.
   useEffect(() => {
     if (activeTab !== 'audio') return;
-    if (_audioDevicesCache) { setAudioDevices(_audioDevicesCache); return; }
-    invoke<string[]>('audio_list_devices').then(devices => {
-      _audioDevicesCache = devices;
-      setAudioDevices(devices);
-    }).catch(() => {});
+    refreshAudioDevices();
   }, [activeTab]);
 
   /** Live disk usage for hot cache while Audio settings are open (interval + refresh when index changes). */
@@ -517,23 +517,34 @@ export default function Settings() {
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
                 {t('settings.audioOutputDeviceDesc')}
               </div>
-              <CustomSelect
-                value={auth.audioOutputDevice ?? ''}
-                disabled={deviceSwitching}
-                onChange={async (val) => {
-                  const device = val || null;
-                  setDeviceSwitching(true);
-                  try {
-                    await invoke('audio_set_device', { deviceName: device });
-                    auth.setAudioOutputDevice(device);
-                  } catch { /* device open failed — don't persist */ }
-                  setDeviceSwitching(false);
-                }}
-                options={[
-                  { value: '', label: t('settings.audioOutputDeviceDefault') },
-                  ...audioDevices.map(d => ({ value: d, label: d })),
-                ]}
-              />
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <CustomSelect
+                  style={{ flex: 1 }}
+                  value={auth.audioOutputDevice ?? ''}
+                  disabled={deviceSwitching || devicesLoading}
+                  onChange={async (val) => {
+                    const device = val || null;
+                    setDeviceSwitching(true);
+                    try {
+                      await invoke('audio_set_device', { deviceName: device });
+                      auth.setAudioOutputDevice(device);
+                    } catch { /* device open failed — don't persist */ }
+                    setDeviceSwitching(false);
+                  }}
+                  options={[
+                    { value: '', label: t('settings.audioOutputDeviceDefault') },
+                    ...audioDevices.map(d => ({ value: d, label: d })),
+                  ]}
+                />
+                <button
+                  className="icon-btn"
+                  onClick={refreshAudioDevices}
+                  disabled={devicesLoading || deviceSwitching}
+                  data-tooltip={t('common.refresh')}
+                >
+                  <RotateCcw size={15} className={devicesLoading ? 'spin' : ''} />
+                </button>
+              </div>
             </div>
           </section>
 
