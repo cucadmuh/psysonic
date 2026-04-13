@@ -2,6 +2,8 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+#[cfg(unix)]
+use libc;
 
 use ringbuf::{HeapConsumer, HeapProducer, HeapRb};
 
@@ -2896,9 +2898,29 @@ pub async fn audio_play_radio(
 }
 
 /// Returns the names of all available audio output devices on the current host.
+/// On Linux, ALSA probes unavailable backends (JACK, OSS, dmix) and prints errors to
+/// stderr. We suppress fd 2 for the duration of enumeration to keep the terminal clean.
 #[tauri::command]
 pub fn audio_list_devices() -> Vec<String> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+    #[cfg(unix)]
+    let _guard = {
+        struct StderrGuard(i32);
+        impl Drop for StderrGuard {
+            fn drop(&mut self) {
+                unsafe { libc::dup2(self.0, 2); libc::close(self.0); }
+            }
+        }
+        unsafe {
+            let saved = libc::dup(2);
+            let devnull = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
+            libc::dup2(devnull, 2);
+            libc::close(devnull);
+            StderrGuard(saved)
+        }
+    };
+
     let host = rodio::cpal::default_host();
     host.output_devices()
         .map(|iter| iter.filter_map(|d| d.name().ok()).collect())
@@ -2975,8 +2997,21 @@ pub fn start_device_watcher(engine: &AudioEngine, app: tauri::AppHandle) {
             tokio::time::sleep(Duration::from_secs(3)).await;
 
             // Enumerate all available output devices and the current default.
+            // Suppress stderr on Unix to avoid ALSA probing noise (JACK, OSS, dmix).
             let (current_default, available) = tauri::async_runtime::spawn_blocking(|| {
                 use rodio::cpal::traits::{DeviceTrait, HostTrait};
+                #[cfg(unix)]
+                let _guard = unsafe {
+                    struct StderrGuard(i32);
+                    impl Drop for StderrGuard {
+                        fn drop(&mut self) { unsafe { libc::dup2(self.0, 2); libc::close(self.0); } }
+                    }
+                    let saved = libc::dup(2);
+                    let devnull = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
+                    libc::dup2(devnull, 2);
+                    libc::close(devnull);
+                    StderrGuard(saved)
+                };
                 let host = rodio::cpal::default_host();
                 let default = host.default_output_device().and_then(|d| d.name().ok());
                 let available: Vec<String> = host

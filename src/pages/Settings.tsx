@@ -221,6 +221,10 @@ function snapHotCacheMb(v: number): number {
   return Math.round((x - 32) / 32) * 32 + 32;
 }
 
+// Module-level cache — device enumeration triggers ALSA probing on Linux (stderr noise),
+// so we only enumerate once per app session.
+let _audioDevicesCache: string[] | null = null;
+
 export default function Settings() {
   const auth = useAuthStore();
   const theme = useThemeStore();
@@ -278,10 +282,15 @@ export default function Settings() {
     invoke<number>('get_hot_cache_size', { customDir: auth.hotCacheDownloadDir || null }).then(setHotCacheBytes).catch(() => setHotCacheBytes(0));
   }, [activeTab, auth.offlineDownloadDir, auth.hotCacheDownloadDir]);
 
-  // Load available audio output devices when Audio tab is open.
+  // Load available audio output devices when Audio tab is first opened.
+  // Uses a module-level cache so ALSA enumeration (noisy on Linux) only happens once per session.
   useEffect(() => {
     if (activeTab !== 'audio') return;
-    invoke<string[]>('audio_list_devices').then(setAudioDevices).catch(() => {});
+    if (_audioDevicesCache) { setAudioDevices(_audioDevicesCache); return; }
+    invoke<string[]>('audio_list_devices').then(devices => {
+      _audioDevicesCache = devices;
+      setAudioDevices(devices);
+    }).catch(() => {});
   }, [activeTab]);
 
   /** Live disk usage for hot cache while Audio settings are open (interval + refresh when index changes). */
