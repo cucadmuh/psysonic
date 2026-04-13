@@ -1,7 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Track, usePlayerStore, songToTrack } from '../store/playerStore';
 import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus, ArrowUpToLine, Radio } from 'lucide-react';
-import { buildCoverArtUrl, coverArtCacheKey, getAlbum, getPlaylists, getPlaylist, createPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
+import { buildCoverArtUrl, coverArtCacheKey, getAlbum, getPlaylists, getPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
+import { usePlaylistStore } from '../store/playlistStore';
 import { useCachedUrl } from './CachedImage';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -655,10 +656,9 @@ export default function QueuePanel() {
           onClose={() => setSaveModalOpen(false)}
           onSave={async (name) => {
             try {
-              await createPlaylist(name, queue.map(t => t.id));
-              const playlists = await getPlaylists();
-              const created = playlists.find(p => p.name === name);
-              if (created) setActivePlaylist({ id: created.id, name: created.name });
+              const createPlaylist = usePlaylistStore.getState().createPlaylist;
+              const pl = await createPlaylist(name, queue.map(t => t.id));
+              if (pl) setActivePlaylist({ id: pl.id, name: pl.name });
               setSaveModalOpen(false);
             } catch (e) {
               console.error('Failed to save playlist', e);

@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Play, ListPlus, Radio, Heart, Download, ChevronRight, User, Disc3, ListMusic, Plus, Info, Sparkles, Star, Trash2 } from 'lucide-react';
 import LastfmIcon from './LastfmIcon';
 import StarRating from './StarRating';
 import { lastfmLoveTrack, lastfmUnloveTrack } from '../api/lastfm';
 import { usePlayerStore, Track, songToTrack } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
-import { SubsonicAlbum, SubsonicArtist, star, unstar, getSimilarSongs2, getSimilarSongs, getTopSongs, buildDownloadUrl, getAlbum, getArtist, getPlaylists, getPlaylist, createPlaylist, updatePlaylist, SubsonicPlaylist, setRating } from '../api/subsonic';
+import { SubsonicAlbum, SubsonicArtist, star, unstar, getSimilarSongs2, getSimilarSongs, getTopSongs, buildDownloadUrl, getAlbum, getArtist, getPlaylists, getPlaylist, updatePlaylist, SubsonicPlaylist, setRating } from '../api/subsonic';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useDownloadModalStore } from '../store/downloadModalStore';
@@ -40,34 +40,42 @@ export function AddToPlaylistSubmenu({ songIds, onDone, dropDown, triggerId }: {
   const { t } = useTranslation();
   const subRef = useRef<HTMLDivElement>(null);
   const newNameRef = useRef<HTMLInputElement>(null);
-  const [playlists, setPlaylists] = useState<SubsonicPlaylist[]>([]);
   const [adding, setAdding] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [flipLeft, setFlipLeft] = useState(false);
-  const touchPlaylist = usePlaylistStore((s) => s.touchPlaylist);
+  const [flipUp, setFlipUp] = useState(false);
+  const storePlaylists = usePlaylistStore((s) => s.playlists);
   const recentIds = usePlaylistStore((s) => s.recentIds);
+  const createPlaylist = usePlaylistStore((s) => s.createPlaylist);
+  const touchPlaylist = usePlaylistStore((s) => s.touchPlaylist);
+  const fetchPlaylists = usePlaylistStore((s) => s.fetchPlaylists);
 
+  // Fetch playlists on first open if the store hasn't been populated yet
   useEffect(() => {
-    getPlaylists().then((all) => {
-      const sorted = [...all].sort((a, b) => {
-        const ai = recentIds.indexOf(a.id);
-        const bi = recentIds.indexOf(b.id);
-        if (ai === -1 && bi === -1) return a.name.localeCompare(b.name);
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-      });
-      setPlaylists(sorted);
-    }).catch(() => {});
+    if (storePlaylists.length === 0) fetchPlaylists();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Sort playlists by recent usage
+  const playlists = useMemo(() => {
+    return [...storePlaylists].sort((a, b) => {
+      const ai = recentIds.indexOf(a.id);
+      const bi = recentIds.indexOf(b.id);
+      if (ai === -1 && bi === -1) return a.name.localeCompare(b.name);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [storePlaylists, recentIds]);
+
   // Flip submenu left if it would overflow the right edge of the viewport
+  // Flip submenu up if it would overflow the bottom of the viewport
   useLayoutEffect(() => {
     if (subRef.current) {
       const rect = subRef.current.getBoundingClientRect();
       if (rect.right > window.innerWidth - 8) setFlipLeft(true);
+      if (rect.bottom > window.innerHeight - 8) setFlipUp(true);
     }
   }, []);
 
@@ -92,18 +100,15 @@ export function AddToPlaylistSubmenu({ songIds, onDone, dropDown, triggerId }: {
 
   const handleCreate = async () => {
     const name = newName.trim() || t('playlists.unnamed');
-    try {
-      const pl = await createPlaylist(name, songIds);
-      if (pl?.id) touchPlaylist(pl.id);
-    } catch {}
+    await createPlaylist(name, songIds);
     onDone();
   };
 
   const subStyle: React.CSSProperties = dropDown
     ? { top: 'calc(100% + 4px)', left: 0, right: 'auto' }
     : flipLeft
-      ? { right: 'calc(100% + 4px)', left: 'auto' }
-      : { left: 'calc(100% + 4px)', right: 'auto' };
+      ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+      : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
 
   return (
     <div className="context-submenu" data-parent-trigger-id={triggerId ?? ''} ref={subRef} style={subStyle}>
@@ -139,7 +144,7 @@ export function AddToPlaylistSubmenu({ songIds, onDone, dropDown, triggerId }: {
       {playlists.length === 0 && (
         <div className="context-submenu-empty">{t('playlists.empty')}</div>
       )}
-      {playlists.map((pl) => (
+      {playlists.map((pl: SubsonicPlaylist) => (
         <div
           key={pl.id}
           className="context-menu-item"
@@ -196,6 +201,749 @@ function ArtistToPlaylistSubmenu({ artistId, onDone, triggerId }: { artistId: st
   }
   if (resolvedIds.length === 0) return null;
   return <AddToPlaylistSubmenu songIds={resolvedIds} onDone={onDone} triggerId={triggerId} />;
+}
+
+// Resolves all songs from multiple albums and adds them to playlist with detailed toast notifications
+function MultiAlbumToPlaylistSubmenu({ albumIds, onDone, triggerId }: { albumIds: string[]; onDone: () => void; triggerId?: string }) {
+  const { t } = useTranslation();
+  const [resolvedIds, setResolvedIds] = useState<string[] | null>(null);
+  const [totalAlbums, setTotalAlbums] = useState(0);
+  const [showLoading, setShowLoading] = useState(false);
+
+  useEffect(() => {
+    setTotalAlbums(albumIds.length);
+    // Delay showing loading state to avoid flash for fast loads
+    const loadingTimeout = setTimeout(() => setShowLoading(true), 300);
+    (async () => {
+      const albumSongs = await Promise.all(albumIds.map(id => getAlbum(id).then(r => r.songs).catch(() => [])));
+      const allSongs = albumSongs.flat();
+      setResolvedIds(allSongs.map(s => s.id));
+    })().catch(() => setResolvedIds([]));
+    return () => clearTimeout(loadingTimeout);
+  }, [albumIds]);
+
+  const handleAddWithToast = async (pl: SubsonicPlaylist, songIds: string[]) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const { songs: existingSongs } = await getPlaylist(pl.id);
+      const existingIds = new Set(existingSongs.map((s) => s.id));
+
+      const newIds: string[] = [];
+      const duplicateIds: string[] = [];
+
+      for (const id of songIds) {
+        if (existingIds.has(id)) {
+          duplicateIds.push(id);
+        } else {
+          newIds.push(id);
+        }
+      }
+
+      if (newIds.length > 0) {
+        await updatePlaylist(pl.id, [...existingSongs.map((s) => s.id), ...newIds]);
+        touchPlaylist(pl.id);
+      }
+
+      // Show detailed toast notification
+      const totalSongs = songIds.length;
+      const addedCount = newIds.length;
+      const duplicateCount = duplicateIds.length;
+
+      if (addedCount === 0 && duplicateCount > 0) {
+        showToast(
+          t('playlists.addAllSkipped', { count: duplicateCount, playlist: pl.name }),
+          4000,
+          'info'
+        );
+      } else if (duplicateCount > 0) {
+        showToast(
+          t('playlists.addPartial', { added: addedCount, skipped: duplicateCount, playlist: pl.name }),
+          4000,
+          'info'
+        );
+      } else {
+        showToast(
+          t('playlists.addSuccess', { count: addedCount, playlist: pl.name }),
+          3000,
+          'info'
+        );
+      }
+    } catch (err) {
+      showToast(t('playlists.addError'), 4000, 'error');
+    }
+    onDone();
+  };
+
+  const handleCreateWithToast = async (songIds: string[]) => {
+    const { createPlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const name = t('playlists.unnamed');
+      const pl = await createPlaylist(name, songIds);
+      if (pl?.id) {
+        touchPlaylist(pl.id);
+        showToast(
+          t('playlists.createAndAddSuccess', { count: songIds.length, playlist: pl.name || name }),
+          3000,
+          'info'
+        );
+      }
+    } catch {
+      showToast(t('playlists.createError'), 4000, 'error');
+    }
+    onDone();
+  };
+
+  // Custom AddToPlaylistSubmenu with toast notifications for multiple albums
+  function MultiAddToPlaylistSubmenu({ songIds, onDone }: { songIds: string[]; onDone: () => void }) {
+    const { t } = useTranslation();
+    const subRef = useRef<HTMLDivElement>(null);
+    const newNameRef = useRef<HTMLInputElement>(null);
+    const [adding, setAdding] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [flipLeft, setFlipLeft] = useState(false);
+    const [flipUp, setFlipUp] = useState(false);
+    const [visible, setVisible] = useState(false);
+    const storePlaylists = usePlaylistStore((s) => s.playlists);
+
+    // Sort playlists from store (no fetch needed, prevents flash)
+    const playlists = useMemo(() => {
+      return [...storePlaylists].sort((a, b) => a.name.localeCompare(b.name));
+    }, [storePlaylists]);
+
+    useLayoutEffect(() => {
+      if (subRef.current) {
+        const rect = subRef.current.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) setFlipLeft(true);
+        if (rect.bottom > window.innerHeight - 8) setFlipUp(true);
+        // Show after position is calculated to prevent flash
+        setVisible(true);
+      }
+    }, []);
+
+    useEffect(() => {
+      if (creating) newNameRef.current?.focus();
+    }, [creating]);
+
+    const handleAdd = async (pl: SubsonicPlaylist) => {
+      setAdding(pl.id);
+      await handleAddWithToast(pl, songIds);
+      setAdding(null);
+    };
+
+    const handleCreate = async () => {
+      const name = newName.trim() || t('playlists.unnamed');
+      try {
+        const { createPlaylist } = await import('../api/subsonic');
+        const pl = await createPlaylist(name, songIds);
+        if (pl?.id) {
+          const { usePlaylistStore } = await import('../store/playlistStore');
+          usePlaylistStore.getState().touchPlaylist(pl.id);
+          showToast(
+            t('playlists.createAndAddSuccess', { count: songIds.length, playlist: pl.name || name }),
+            3000,
+            'info'
+          );
+        }
+      } catch {
+        showToast(t('playlists.createError'), 4000, 'error');
+      }
+      onDone();
+    };
+
+    const subStyle: React.CSSProperties = flipLeft
+      ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+      : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
+
+    return (
+      <div className="context-submenu" ref={subRef} style={{ ...subStyle, visibility: visible ? 'visible' : 'hidden' }}>
+        {!creating ? (
+          <div
+            className="context-menu-item context-submenu-new"
+            onClick={e => { e.stopPropagation(); setCreating(true); }}
+          >
+            <Plus size={13} /> {t('playlists.newPlaylist')}
+          </div>
+        ) : (
+          <div className="context-submenu-create" onClick={e => e.stopPropagation()}>
+            <input
+              ref={newNameRef}
+              className="context-submenu-input"
+              placeholder={t('playlists.createName')}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleCreate();
+                if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+              }}
+            />
+            <button className="context-submenu-create-btn" onClick={handleCreate}>
+              <Plus size={13} />
+            </button>
+          </div>
+        )}
+
+        <div className="context-menu-divider" />
+
+        {playlists.length === 0 && (
+          <div className="context-submenu-empty">{t('playlists.empty')}</div>
+        )}
+        {playlists.map((pl) => (
+          <div
+            key={pl.id}
+            className="context-menu-item"
+            onClick={() => handleAdd(pl)}
+            style={{ opacity: adding === pl.id ? 0.5 : 1, pointerEvents: adding ? 'none' : undefined }}
+          >
+            <ListMusic size={13} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (resolvedIds === null) {
+    // Only show loading UI if it takes more than 300ms (avoid flash)
+    if (!showLoading) {
+      return <div className="context-submenu" style={{ minWidth: 190 }} />;
+    }
+    return (
+      <div className="context-submenu" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0.75rem', gap: '0.5rem', minWidth: 190 }}>
+        <div className="spinner" style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          {t('playlists.loadingAlbums', { count: totalAlbums })}
+        </span>
+      </div>
+    );
+  }
+  if (resolvedIds.length === 0) return null;
+  return <MultiAddToPlaylistSubmenu songIds={resolvedIds} onDone={onDone} />;
+}
+
+// Resolves all songs from multiple artists and adds them to playlist with detailed toast notifications
+function MultiArtistToPlaylistSubmenu({ artistIds, onDone, triggerId }: { artistIds: string[]; onDone: () => void; triggerId?: string }) {
+  const { t } = useTranslation();
+  const [resolvedIds, setResolvedIds] = useState<string[] | null>(null);
+  const [totalArtists, setTotalArtists] = useState(0);
+  const [showLoading, setShowLoading] = useState(false);
+
+  useEffect(() => {
+    setTotalArtists(artistIds.length);
+    // Delay showing loading state to avoid flash for fast loads
+    const loadingTimeout = setTimeout(() => setShowLoading(true), 300);
+    (async () => {
+      const allSongs: string[] = [];
+      for (const artistId of artistIds) {
+        try {
+          const { albums } = await getArtist(artistId);
+          const albumSongs = await Promise.all(albums.map(a => getAlbum(a.id).then(r => r.songs).catch(() => [])));
+          allSongs.push(...albumSongs.flat().map(s => s.id));
+        } catch {
+          // Skip failed artists
+        }
+      }
+      setResolvedIds(allSongs);
+    })().catch(() => setResolvedIds([]));
+    return () => clearTimeout(loadingTimeout);
+  }, [artistIds]);
+
+  const handleAddWithToast = async (pl: SubsonicPlaylist, songIds: string[]) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const { songs: existingSongs } = await getPlaylist(pl.id);
+      const existingIds = new Set(existingSongs.map((s) => s.id));
+
+      const newIds: string[] = [];
+      const duplicateIds: string[] = [];
+
+      for (const id of songIds) {
+        if (existingIds.has(id)) {
+          duplicateIds.push(id);
+        } else {
+          newIds.push(id);
+        }
+      }
+
+      if (newIds.length > 0) {
+        await updatePlaylist(pl.id, [...existingSongs.map((s) => s.id), ...newIds]);
+        touchPlaylist(pl.id);
+      }
+
+      // Show detailed toast notification
+      const addedCount = newIds.length;
+      const duplicateCount = duplicateIds.length;
+
+      if (addedCount === 0 && duplicateCount > 0) {
+        showToast(
+          t('playlists.addAllSkipped', { count: duplicateCount, playlist: pl.name }),
+          4000,
+          'info'
+        );
+      } else if (duplicateCount > 0) {
+        showToast(
+          t('playlists.addPartial', { added: addedCount, skipped: duplicateCount, playlist: pl.name }),
+          4000,
+          'info'
+        );
+      } else {
+        showToast(
+          t('playlists.addSuccess', { count: addedCount, playlist: pl.name }),
+          3000,
+          'info'
+        );
+      }
+    } catch (err) {
+      showToast(t('playlists.addError'), 4000, 'error');
+    }
+    onDone();
+  };
+
+  // Custom AddToPlaylistSubmenu with toast notifications for multiple artists
+  function MultiAddToPlaylistSubmenu({ songIds, onDone }: { songIds: string[]; onDone: () => void }) {
+    const { t } = useTranslation();
+    const subRef = useRef<HTMLDivElement>(null);
+    const newNameRef = useRef<HTMLInputElement>(null);
+    const [playlists, setPlaylists] = useState<SubsonicPlaylist[]>([]);
+    const [adding, setAdding] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [flipLeft, setFlipLeft] = useState(false);
+    const [flipUp, setFlipUp] = useState(false);
+
+    useEffect(() => {
+      getPlaylists().then((all) => {
+        setPlaylists(all.sort((a, b) => a.name.localeCompare(b.name)));
+      }).catch(() => {});
+    }, []);
+
+    useLayoutEffect(() => {
+      if (subRef.current) {
+        const rect = subRef.current.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) setFlipLeft(true);
+        if (rect.bottom > window.innerHeight - 8) setFlipUp(true);
+      }
+    }, []);
+
+    useEffect(() => {
+      if (creating) newNameRef.current?.focus();
+    }, [creating]);
+
+    const handleAdd = async (pl: SubsonicPlaylist) => {
+      setAdding(pl.id);
+      await handleAddWithToast(pl, songIds);
+      setAdding(null);
+    };
+
+    const handleCreate = async () => {
+      const name = newName.trim() || t('playlists.unnamed');
+      try {
+        const { createPlaylist } = await import('../api/subsonic');
+        const pl = await createPlaylist(name, songIds);
+        if (pl?.id) {
+          const { usePlaylistStore } = await import('../store/playlistStore');
+          usePlaylistStore.getState().touchPlaylist(pl.id);
+          showToast(
+            t('playlists.createAndAddSuccess', { count: songIds.length, playlist: pl.name || name }),
+            3000,
+            'info'
+          );
+        }
+      } catch {
+        showToast(t('playlists.createError'), 4000, 'error');
+      }
+      onDone();
+    };
+
+    const subStyle: React.CSSProperties = flipLeft
+      ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+      : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
+
+    return (
+      <div className="context-submenu" ref={subRef} style={subStyle}>
+        {!creating ? (
+          <div
+            className="context-menu-item context-submenu-new"
+            onClick={e => { e.stopPropagation(); setCreating(true); }}
+          >
+            <Plus size={13} /> {t('playlists.newPlaylist')}
+          </div>
+        ) : (
+          <div className="context-submenu-create" onClick={e => e.stopPropagation()}>
+            <input
+              ref={newNameRef}
+              className="context-submenu-input"
+              placeholder={t('playlists.createName')}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleCreate();
+                if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+              }}
+            />
+            <button className="context-submenu-create-btn" onClick={handleCreate}>
+              <Plus size={13} />
+            </button>
+          </div>
+        )}
+
+        <div className="context-menu-divider" />
+
+        {playlists.length === 0 && (
+          <div className="context-submenu-empty">{t('playlists.empty')}</div>
+        )}
+        {playlists.map((pl) => (
+          <div
+            key={pl.id}
+            className="context-menu-item"
+            onClick={() => handleAdd(pl)}
+            style={{ opacity: adding === pl.id ? 0.5 : 1, pointerEvents: adding ? 'none' : undefined }}
+          >
+            <ListMusic size={13} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (resolvedIds === null) {
+    // Only show loading UI if it takes more than 300ms (avoid flash)
+    if (!showLoading) {
+      return <div className="context-submenu" style={{ minWidth: 190 }} />;
+    }
+    return (
+      <div className="context-submenu" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0.75rem', gap: '0.5rem', minWidth: 190 }}>
+        <div className="spinner" style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          {t('playlists.loadingArtists', { count: totalArtists })}
+        </span>
+      </div>
+    );
+  }
+  if (resolvedIds.length === 0) return null;
+  return <MultiAddToPlaylistSubmenu songIds={resolvedIds} onDone={onDone} />;
+}
+
+// Submenu for adding a single playlist to another playlist
+function SinglePlaylistToPlaylistSubmenu({ playlist, onDone, triggerId }: { playlist: { id: string; name: string }; onDone: () => void; triggerId?: string }) {
+  const { t } = useTranslation();
+  const subRef = useRef<HTMLDivElement>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const newNameRef = useRef<HTMLInputElement>(null);
+  const [flipLeft, setFlipLeft] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const storePlaylists = usePlaylistStore((s) => s.playlists);
+
+  // Filter out the current playlist from the list
+  const allPlaylists = useMemo(() => {
+    return storePlaylists.filter((p) => p.id !== playlist.id);
+  }, [storePlaylists, playlist.id]);
+
+  useLayoutEffect(() => {
+    if (subRef.current) {
+      const rect = subRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) setFlipLeft(true);
+      if (rect.bottom > window.innerHeight - 8) setFlipUp(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (creating && newNameRef.current) {
+      newNameRef.current.focus();
+    }
+  }, [creating]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    const { createPlaylist } = await import('../api/subsonic');
+    const { showToast } = await import('../utils/toast');
+    try {
+      const newPl = await createPlaylist(newName.trim(), []);
+      if (newPl?.id) {
+        await handleAddToNewPlaylist(newPl.id, newPl.name || newName.trim());
+      }
+      setCreating(false);
+      setNewName('');
+    } catch {
+      showToast(t('playlists.createError'), 3000, 'error');
+    }
+  };
+
+  const handleAddToNewPlaylist = async (targetId: string, targetName: string) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const { songs: sourceSongs } = await getPlaylist(playlist.id);
+      if (sourceSongs.length > 0) {
+        await updatePlaylist(targetId, sourceSongs.map((s: { id: string }) => s.id));
+        touchPlaylist(targetId);
+        showToast(t('playlists.createAndAddSuccess', { count: sourceSongs.length, playlist: targetName }), 3000, 'info');
+      }
+      onDone();
+    } catch {
+      showToast(t('playlists.addToPlaylistError'), 4000, 'error');
+      onDone();
+    }
+  };
+
+  const handleAdd = async (targetId: string, targetName: string) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const { songs: targetSongs } = await getPlaylist(targetId);
+      const targetIds = new Set(targetSongs.map((s: { id: string }) => s.id));
+      const { songs: sourceSongs } = await getPlaylist(playlist.id);
+      const newSongs = sourceSongs.filter((s: { id: string }) => !targetIds.has(s.id));
+
+      if (newSongs.length > 0) {
+        newSongs.forEach((s: { id: string }) => targetIds.add(s.id));
+        await updatePlaylist(targetId, Array.from(targetIds));
+        touchPlaylist(targetId);
+        showToast(t('playlists.addToPlaylistSuccess', { count: newSongs.length, playlist: targetName }), 3000, 'info');
+      } else {
+        showToast(t('playlists.addToPlaylistNoNew', { playlist: targetName }), 3000, 'info');
+      }
+      onDone();
+    } catch {
+      showToast(t('playlists.addToPlaylistError'), 4000, 'error');
+      onDone();
+    }
+  };
+
+  const subStyle: React.CSSProperties = flipLeft
+    ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+    : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
+
+  return (
+    <div ref={subRef} className="context-submenu" data-submenu-for={triggerId} style={{ ...subStyle, minWidth: 190 }}>
+      {/* New Playlist row */}
+      {!creating ? (
+        <div
+          className="context-menu-item context-submenu-new"
+          onClick={e => { e.stopPropagation(); setCreating(true); }}
+        >
+          <Plus size={13} /> {t('playlists.newPlaylist')}
+        </div>
+      ) : (
+        <div className="context-submenu-create" onClick={e => e.stopPropagation()}>
+          <input
+            ref={newNameRef}
+            className="context-submenu-input"
+            placeholder={t('playlists.createName')}
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleCreate();
+              if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+            }}
+          />
+          <button className="context-submenu-create-btn" onClick={handleCreate}>
+            <Plus size={13} />
+          </button>
+        </div>
+      )}
+
+      <div className="context-menu-divider" />
+
+      {allPlaylists.length === 0 && (
+        <div className="context-submenu-empty">{t('playlists.noOtherPlaylists')}</div>
+      )}
+      {allPlaylists.map(pl => (
+        <div
+          key={pl.id}
+          className="context-menu-item"
+          onClick={() => handleAdd(pl.id, pl.name)}
+        >
+          <ListMusic size={13} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Submenu for merging multiple playlists into another playlist
+function MultiPlaylistToPlaylistSubmenu({ playlists, onDone, triggerId }: { playlists: { id: string; name: string }[]; onDone: () => void; triggerId?: string }) {
+  const { t } = useTranslation();
+  const subRef = useRef<HTMLDivElement>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const newNameRef = useRef<HTMLInputElement>(null);
+  const [flipLeft, setFlipLeft] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const storePlaylists = usePlaylistStore((s) => s.playlists);
+
+  // Filter out the selected playlists from the list
+  const allPlaylists = useMemo(() => {
+    const selectedIds = new Set(playlists.map(p => p.id));
+    return storePlaylists.filter((p) => !selectedIds.has(p.id));
+  }, [storePlaylists, playlists]);
+
+  useLayoutEffect(() => {
+    if (subRef.current) {
+      const rect = subRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) setFlipLeft(true);
+      if (rect.bottom > window.innerHeight - 8) setFlipUp(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (creating && newNameRef.current) {
+      newNameRef.current.focus();
+    }
+  }, [creating]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    const { createPlaylist } = await import('../api/subsonic');
+    const { showToast } = await import('../utils/toast');
+    try {
+      const newPl = await createPlaylist(newName.trim(), []);
+      if (newPl?.id) {
+        await handleMergeToNewPlaylist(newPl.id, newPl.name || newName.trim());
+      }
+      setCreating(false);
+      setNewName('');
+    } catch {
+      showToast(t('playlists.createError'), 3000, 'error');
+    }
+  };
+
+  const handleMergeToNewPlaylist = async (targetId: string, targetName: string) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const targetIds = new Set<string>();
+      let totalAdded = 0;
+
+      for (const pl of playlists) {
+        const { songs } = await getPlaylist(pl.id);
+        const newSongs = songs.filter((s: { id: string }) => !targetIds.has(s.id));
+        if (newSongs.length > 0) {
+          newSongs.forEach((s: { id: string }) => targetIds.add(s.id));
+          totalAdded += newSongs.length;
+        }
+      }
+
+      if (totalAdded > 0) {
+        await updatePlaylist(targetId, Array.from(targetIds));
+        touchPlaylist(targetId);
+        showToast(t('playlists.createAndAddSuccess', { count: totalAdded, playlist: targetName }), 3000, 'info');
+      }
+      onDone();
+    } catch {
+      showToast(t('playlists.mergeError'), 4000, 'error');
+      onDone();
+    }
+  };
+
+  const handleMerge = async (targetId: string, targetName: string) => {
+    const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+    const { usePlaylistStore } = await import('../store/playlistStore');
+    const { showToast } = await import('../utils/toast');
+    const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+
+    try {
+      const { songs: targetSongs } = await getPlaylist(targetId);
+      const targetIds = new Set(targetSongs.map((s: { id: string }) => s.id));
+      let totalAdded = 0;
+
+      for (const pl of playlists) {
+        const { songs } = await getPlaylist(pl.id);
+        const newSongs = songs.filter((s: { id: string }) => !targetIds.has(s.id));
+        if (newSongs.length > 0) {
+          newSongs.forEach((s: { id: string }) => targetIds.add(s.id));
+          totalAdded += newSongs.length;
+        }
+      }
+
+      if (totalAdded > 0) {
+        await updatePlaylist(targetId, Array.from(targetIds));
+        touchPlaylist(targetId);
+        showToast(t('playlists.mergeSuccess', { count: totalAdded, playlist: targetName }), 3000, 'info');
+      } else {
+        showToast(t('playlists.mergeNoNewSongs'), 3000, 'info');
+      }
+      onDone();
+    } catch {
+      showToast(t('playlists.mergeError'), 4000, 'error');
+      onDone();
+    }
+  };
+
+  const subStyle: React.CSSProperties = flipLeft
+    ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+    : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
+
+  return (
+    <div ref={subRef} className="context-submenu" data-submenu-for={triggerId} style={{ ...subStyle, minWidth: 190 }}>
+      {/* New Playlist row */}
+      {!creating ? (
+        <div
+          className="context-menu-item context-submenu-new"
+          onClick={e => { e.stopPropagation(); setCreating(true); }}
+        >
+          <Plus size={13} /> {t('playlists.newPlaylist')}
+        </div>
+      ) : (
+        <div className="context-submenu-create" onClick={e => e.stopPropagation()}>
+          <input
+            ref={newNameRef}
+            className="context-submenu-input"
+            placeholder={t('playlists.createName')}
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleCreate();
+              if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+            }}
+          />
+          <button className="context-submenu-create-btn" onClick={handleCreate}>
+            <Plus size={13} />
+          </button>
+        </div>
+      )}
+
+      <div className="context-menu-divider" />
+
+      {allPlaylists.length === 0 && (
+        <div className="context-submenu-empty">{t('playlists.noOtherPlaylists')}</div>
+      )}
+      {allPlaylists.map(pl => (
+        <div
+          key={pl.id}
+          className="context-menu-item"
+          onClick={() => handleMerge(pl.id, pl.name)}
+        >
+          <ListMusic size={13} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function ContextMenu() {
@@ -263,6 +1011,10 @@ export default function ContextMenu() {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
       return;
     }
+    // Clean up any keyboard focus styling when menu closes
+    menuRef.current
+      ?.querySelectorAll<HTMLElement>('.context-menu-keyboard-active')
+      .forEach(el => el.classList.remove('context-menu-keyboard-active'));
     const prev = previousFocusRef.current;
     previousFocusRef.current = null;
     if (prev?.isConnected) {
@@ -338,7 +1090,7 @@ export default function ContextMenu() {
     };
   }, [pendingSubmenuKeyboardFocus, playlistSubmenuOpen, getMenuNavItems, focusMenuItemAt]);
 
-  const { type, item, queueIndex } = contextMenu;
+  const { type, item, queueIndex, playlistId, playlistSongIndex } = contextMenu;
 
   const isStarred = (id: string, itemStarred?: string) =>
     id in starredOverrides ? starredOverrides[id] : !!itemStarred;
@@ -759,6 +1511,26 @@ export default function ContextMenu() {
               <div className="context-menu-item" onClick={() => handleAction(() => openSongInfo(song.id))}>
                 <Info size={14} /> {t('contextMenu.songInfo')}
               </div>
+              {playlistId && playlistSongIndex !== undefined && (
+                <div className="context-menu-item" style={{ color: 'var(--danger)' }} onClick={() => handleAction(async () => {
+                  const { getPlaylist, updatePlaylist } = await import('../api/subsonic');
+                  const { usePlaylistStore } = await import('../store/playlistStore');
+                  const { showToast } = await import('../utils/toast');
+                  const touchPlaylist = usePlaylistStore.getState().touchPlaylist;
+                  try {
+                    const { songs } = await getPlaylist(playlistId);
+                    const prevCount = songs.length;
+                    const updatedIds = songs.filter((_, i) => i !== playlistSongIndex).map(s => s.id);
+                    await updatePlaylist(playlistId, updatedIds, prevCount);
+                    touchPlaylist(playlistId);
+                    showToast(t('playlists.removeSuccess'), 3000, 'info');
+                  } catch {
+                    showToast(t('playlists.removeError'), 4000, 'error');
+                  }
+                })}>
+                  <Trash2 size={14} /> {t('contextMenu.removeFromPlaylist')}
+                </div>
+              )}
             </>
           );
         })()}
@@ -820,6 +1592,75 @@ export default function ContextMenu() {
           );
         })()}
 
+        {type === 'playlist' && (() => {
+          const playlist = item as SubsonicPlaylist;
+          return (
+            <>
+              <div className="context-menu-item" onClick={() => handleAction(() => navigate(`/playlists/${playlist.id}`))}>
+                <Play size={14} /> {t('contextMenu.playNow')}
+              </div>
+              <div className="context-menu-divider" />
+              <div
+                className={`context-menu-item context-menu-item--submenu ${playlistSubmenuOpen && playlistSongIds[0] === `playlist:${playlist.id}` ? 'active' : ''}`}
+                data-playlist-trigger-id={`playlist:${playlist.id}`}
+                onMouseEnter={() => { setPlaylistSongIds([`playlist:${playlist.id}`]); setPlaylistSubmenuOpen(true); }}
+                onMouseLeave={() => setPlaylistSubmenuOpen(false)}
+              >
+                <ListMusic size={14} /> {t('contextMenu.addToPlaylist')}
+                <ChevronRight size={13} style={{ marginLeft: 'auto' }} />
+                {playlistSubmenuOpen && playlistSongIds[0] === `playlist:${playlist.id}` && (
+                  <SinglePlaylistToPlaylistSubmenu playlist={playlist} triggerId={`playlist:${playlist.id}`} onDone={() => { setPlaylistSubmenuOpen(false); closeContextMenu(); }} />
+                )}
+              </div>
+              <div className="context-menu-divider" />
+              <div className="context-menu-item" style={{ color: 'var(--danger)' }} onClick={() => handleAction(async () => {
+                const { showToast } = await import('../utils/toast');
+                const { deletePlaylist } = await import('../api/subsonic');
+                const { usePlaylistStore } = await import('../store/playlistStore');
+                const { removeId } = usePlaylistStore.getState();
+                try {
+                  await deletePlaylist(playlist.id);
+                  removeId(playlist.id);
+                  // Update local playlist state without page reload to preserve audio playback state
+                  usePlaylistStore.setState((s) => ({
+                    playlists: s.playlists.filter((p) => p.id !== playlist.id),
+                  }));
+                  showToast(t('playlists.deleteSuccess', { count: 1 }), 3000, 'info');
+                } catch {
+                  showToast(t('playlists.deleteFailed', { name: playlist.name }), 3000, 'error');
+                }
+              })}>
+                <Trash2 size={14} /> {t('playlists.deletePlaylist')}
+              </div>
+            </>
+          );
+        })()}
+
+        {type === 'multi-album' && (() => {
+          const albums = item as SubsonicAlbum[];
+          const albumIds = albums.map(a => a.id);
+          return (
+            <>
+              <div className="context-menu-header" style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
+                {t('contextMenu.selectedAlbums', { count: albums.length })}
+              </div>
+              <div className="context-menu-divider" />
+              <div
+                className={`context-menu-item context-menu-item--submenu ${playlistSubmenuOpen && playlistSongIds[0] === `multi-album:${albumIds.join(',')}` ? 'active' : ''}`}
+                data-playlist-trigger-id={`multi-album:${albumIds.join(',')}`}
+                onMouseEnter={() => { setPlaylistSongIds([`multi-album:${albumIds.join(',')}`]); setPlaylistSubmenuOpen(true); }}
+                onMouseLeave={() => setPlaylistSubmenuOpen(false)}
+              >
+                <ListMusic size={14} /> {t('contextMenu.addToPlaylist')}
+                <ChevronRight size={13} style={{ marginLeft: 'auto' }} />
+                {playlistSubmenuOpen && playlistSongIds[0] === `multi-album:${albumIds.join(',')}` && (
+                  <MultiAlbumToPlaylistSubmenu albumIds={albumIds} triggerId={`multi-album:${albumIds.join(',')}`} onDone={() => { setPlaylistSubmenuOpen(false); closeContextMenu(); }} />
+                )}
+              </div>
+            </>
+          );
+        })()}
+
         {type === 'artist' && (() => {
           const artist = item as SubsonicArtist;
           const artistRatingDisabled = entityRatingSupport === 'track_only';
@@ -865,6 +1706,81 @@ export default function ContextMenu() {
                   labelKey="entityRating.artistAriaLabel"
                   onChange={r => { setKeyboardRating({ kind: 'artist', id: artist.id, value: r }); applyArtistRating(artist, r); }}
                 />
+              </div>
+            </>
+          );
+        })()}
+
+        {type === 'multi-artist' && (() => {
+          const artists = item as SubsonicArtist[];
+          const artistIds = artists.map(a => a.id);
+          return (
+            <>
+              <div className="context-menu-header" style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
+                {t('contextMenu.selectedArtists', { count: artists.length })}
+              </div>
+              <div className="context-menu-divider" />
+              <div
+                className={`context-menu-item context-menu-item--submenu ${playlistSubmenuOpen && playlistSongIds[0] === `multi-artist:${artistIds.join(',')}` ? 'active' : ''}`}
+                data-playlist-trigger-id={`multi-artist:${artistIds.join(',')}`}
+                onMouseEnter={() => { setPlaylistSongIds([`multi-artist:${artistIds.join(',')}`]); setPlaylistSubmenuOpen(true); }}
+                onMouseLeave={() => setPlaylistSubmenuOpen(false)}
+              >
+                <ListMusic size={14} /> {t('contextMenu.addToPlaylist')}
+                <ChevronRight size={13} style={{ marginLeft: 'auto' }} />
+                {playlistSubmenuOpen && playlistSongIds[0] === `multi-artist:${artistIds.join(',')}` && (
+                  <MultiArtistToPlaylistSubmenu artistIds={artistIds} triggerId={`multi-artist:${artistIds.join(',')}`} onDone={() => { setPlaylistSubmenuOpen(false); closeContextMenu(); }} />
+                )}
+              </div>
+            </>
+          );
+        })()}
+
+        {type === 'multi-playlist' && (() => {
+          const selectedPlaylists = item as SubsonicPlaylist[];
+          const playlistIds = selectedPlaylists.map(p => p.id);
+          return (
+            <>
+              <div className="context-menu-header" style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
+                {t('contextMenu.selectedPlaylists', { count: selectedPlaylists.length })}
+              </div>
+              <div className="context-menu-divider" />
+              <div
+                className={`context-menu-item context-menu-item--submenu ${playlistSubmenuOpen && playlistSongIds[0] === `multi-playlist:${playlistIds.join(',')}` ? 'active' : ''}`}
+                data-playlist-trigger-id={`multi-playlist:${playlistIds.join(',')}`}
+                onMouseEnter={() => { setPlaylistSongIds([`multi-playlist:${playlistIds.join(',')}`]); setPlaylistSubmenuOpen(true); }}
+                onMouseLeave={() => setPlaylistSubmenuOpen(false)}
+              >
+                <ListMusic size={14} /> {t('contextMenu.addToPlaylist')}
+                <ChevronRight size={13} style={{ marginLeft: 'auto' }} />
+                {playlistSubmenuOpen && playlistSongIds[0] === `multi-playlist:${playlistIds.join(',')}` && (
+                  <MultiPlaylistToPlaylistSubmenu playlists={selectedPlaylists} triggerId={`multi-playlist:${playlistIds.join(',')}`} onDone={() => { setPlaylistSubmenuOpen(false); closeContextMenu(); }} />
+                )}
+              </div>
+              <div className="context-menu-item" style={{ color: 'var(--danger)' }} onClick={() => handleAction(async () => {
+                const { showToast } = await import('../utils/toast');
+                const { usePlaylistStore } = await import('../store/playlistStore');
+                const { deletePlaylist } = await import('../api/subsonic');
+                const { removeId } = usePlaylistStore.getState();
+                const deletedIds: string[] = [];
+                for (const pl of selectedPlaylists) {
+                  try {
+                    await deletePlaylist(pl.id);
+                    removeId(pl.id);
+                    deletedIds.push(pl.id);
+                  } catch {
+                    showToast(t('playlists.deleteFailed', { name: pl.name }), 3000, 'error');
+                  }
+                }
+                if (deletedIds.length > 0) {
+                  // Update local playlist state without page reload to preserve audio playback state
+                  usePlaylistStore.setState((s) => ({
+                    playlists: s.playlists.filter((p) => !deletedIds.includes(p.id)),
+                  }));
+                  showToast(t('playlists.deleteSuccess', { count: deletedIds.length }), 3000, 'info');
+                }
+              })}>
+                <Trash2 size={14} /> {t('playlists.deleteSelected')}
               </div>
             </>
           );

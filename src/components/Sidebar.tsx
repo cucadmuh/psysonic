@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlayerStore } from '../store/playerStore';
 import { useOfflineStore } from '../store/offlineStore';
@@ -10,10 +10,12 @@ import { useTranslation } from 'react-i18next';
 import {
   Disc3, Users, Music4, Radio, Settings, Heart, BarChart3,
   PanelLeftClose, PanelLeft, HelpCircle, AudioLines, HardDriveDownload, Tags, ListMusic, Cast,
-  ChevronDown, Check, Music2, TrendingUp, FolderOpen, X, Wand2,
+  ChevronDown, Check, Music2, TrendingUp, FolderOpen, X, Wand2, ChevronRight, PlayCircle,
 } from 'lucide-react';
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
+import { getPlaylists } from '../api/subsonic';
+import { usePlaylistStore } from '../store/playlistStore';
 
 // All configurable nav items — order and visibility controlled by sidebarStore.
 // Exported so Settings can render the same item metadata.
@@ -56,6 +58,14 @@ export default function Sidebar({
   const hasOfflineContent = Object.values(offlineAlbums).some(a => a.serverId === serverId);
   const sidebarItems = useSidebarStore(s => s.items);
   const [libraryDropdownOpen, setLibraryDropdownOpen] = useState(false);
+  const [playlistsExpanded, setPlaylistsExpanded] = useState(false);
+  const playlistsRaw = usePlaylistStore(s => s.playlists);
+  const playlistsLoading = usePlaylistStore(s => s.playlistsLoading);
+  const fetchPlaylists = usePlaylistStore(s => s.fetchPlaylists);
+  // Sort playlists alphabetically by name
+  const playlists = useMemo(() => {
+    return [...playlistsRaw].sort((a, b) => a.name.localeCompare(b.name));
+  }, [playlistsRaw]);
   const [dropdownRect, setDropdownRect] = useState({ top: 0, left: 0, width: 0 });
   const libraryTriggerRef = useRef<HTMLButtonElement>(null);
   const showLibraryPicker = !isCollapsed && isLoggedIn && musicFolders.length > 1;
@@ -112,6 +122,12 @@ export default function Sidebar({
     setMusicLibraryFilter(id);
     setLibraryDropdownOpen(false);
   };
+
+  // Fetch playlists when expanded
+  useEffect(() => {
+    if (!playlistsExpanded || !isLoggedIn) return;
+    fetchPlaylists();
+  }, [playlistsExpanded, isLoggedIn, fetchPlaylists]);
 
   // Resolve ordered, visible items per section from store config
   const visibleLibrary = sidebarItems
@@ -216,17 +232,69 @@ export default function Sidebar({
           <span className="nav-section-label">{t('sidebar.library')}</span>
         ))}
         {visibleLibrary.map(item => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            data-tooltip={isCollapsed ? t(item.labelKey) : undefined}
-            data-tooltip-pos="bottom"
-          >
-            <item.icon size={isCollapsed ? 22 : 18} />
-            {!isCollapsed && <span>{t(item.labelKey)}</span>}
-          </NavLink>
+          item.to === '/playlists' ? (
+            // Playlists item with expand button
+            <div key={item.to} className="sidebar-playlists-wrapper">
+              <div className="sidebar-playlists-header-row">
+                <NavLink
+                  to={item.to}
+                  className={({ isActive }) => `nav-link sidebar-playlists-main-link ${isActive ? 'active' : ''}`}
+                  data-tooltip={isCollapsed ? t(item.labelKey) : undefined}
+                  data-tooltip-pos="bottom"
+                >
+                  <item.icon size={isCollapsed ? 22 : 18} />
+                  {!isCollapsed && <span>{t(item.labelKey)}</span>}
+                </NavLink>
+                {!isCollapsed && (
+                  <button
+                    className={`sidebar-playlists-toggle ${playlistsExpanded ? 'expanded' : ''}`}
+                    onClick={() => setPlaylistsExpanded(!playlistsExpanded)}
+                    aria-expanded={playlistsExpanded}
+                    aria-label={playlistsExpanded ? t('sidebar.collapsePlaylists') : t('sidebar.expandPlaylists')}
+                    data-tooltip={playlistsExpanded ? t('sidebar.collapsePlaylists') : t('sidebar.expandPlaylists')}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                )}
+              </div>
+              {!isCollapsed && playlistsExpanded && (
+                <div className="sidebar-playlists-list">
+                  {playlistsLoading ? (
+                    <div className="sidebar-playlists-loading">
+                      <div className="spinner" style={{ width: 14, height: 14 }} />
+                    </div>
+                  ) : playlists.length === 0 ? (
+                    <div className="sidebar-playlists-empty">{t('playlists.empty')}</div>
+                  ) : (
+                    playlists.map((pl: { id: string; name: string }) => (
+                      <NavLink
+                        key={pl.id}
+                        to={`/playlists/${pl.id}`}
+                        className={({ isActive }) => `nav-link sidebar-playlist-item ${isActive ? 'active' : ''}`}
+                        data-tooltip={isCollapsed ? pl.name : undefined}
+                        data-tooltip-pos="bottom"
+                      >
+                        <PlayCircle size={12} />
+                        <span>{pl.name}</span>
+                      </NavLink>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+              data-tooltip={isCollapsed ? t(item.labelKey) : undefined}
+              data-tooltip-pos="bottom"
+            >
+              <item.icon size={isCollapsed ? 22 : 18} />
+              {!isCollapsed && <span>{t(item.labelKey)}</span>}
+            </NavLink>
+          )
         ))}
 
         {/* Now Playing — fixed, always visible */}

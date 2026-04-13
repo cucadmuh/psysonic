@@ -57,6 +57,7 @@ const PL_COLUMNS: readonly ColDef[] = [
   { key: 'num',      i18nKey: null,            minWidth: 60,  defaultWidth: 60,  required: true  },
   { key: 'title',    i18nKey: 'trackTitle',    minWidth: 150, defaultWidth: 0,   required: true,  flex: true },
   { key: 'artist',   i18nKey: 'trackArtist',   minWidth: 80,  defaultWidth: 180, required: false },
+  { key: 'album',    i18nKey: 'trackAlbum',    minWidth: 80,  defaultWidth: 180, required: false },
   { key: 'favorite', i18nKey: 'trackFavorite', minWidth: 50,  defaultWidth: 70,  required: false },
   { key: 'rating',   i18nKey: 'trackRating',   minWidth: 80,  defaultWidth: 120, required: false },
   { key: 'duration', i18nKey: 'trackDuration', minWidth: 72,  defaultWidth: 92,  required: false },
@@ -233,6 +234,8 @@ export default function PlaylistDetail() {
   }, [contextMenuOpen]);
 
   // ── Load ─────────────────────────────────────────────────────
+  const lastModified = usePlaylistStore(s => (id ? s.lastModified[id] : undefined));
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -252,7 +255,7 @@ export default function PlaylistDetail() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, lastModified]);
 
   // ── Suggestions ───────────────────────────────────────────────
   const loadSuggestions = useCallback(async (currentSongs: SubsonicSong[]) => {
@@ -1018,7 +1021,7 @@ export default function PlaylistDetail() {
               onContextMenu={e => {
                 e.preventDefault();
                 setContextMenuSongId(song.id);
-                openContextMenu(e.clientX, e.clientY, songToTrack(song), 'album-song');
+                openContextMenu(e.clientX, e.clientY, songToTrack(song), 'album-song', undefined, id, realIdx);
               }}
             >
               {visibleCols.map(colDef => {
@@ -1038,6 +1041,11 @@ export default function PlaylistDetail() {
                   case 'artist': return (
                     <div key="artist" className="track-artist-cell">
                       <span className={`track-artist${song.artistId ? ' track-artist-link' : ''}`} style={{ cursor: song.artistId ? 'pointer' : 'default' }} onClick={e => { if (song.artistId) { e.stopPropagation(); navigate(`/artist/${song.artistId}`); } }}>{song.artist}</span>
+                    </div>
+                  );
+                  case 'album': return (
+                    <div key="album" className="track-artist-cell">
+                      <span className={`track-artist${song.albumId ? ' track-artist-link' : ''}`} style={{ cursor: song.albumId ? 'pointer' : 'default' }} onClick={e => { if (song.albumId) { e.stopPropagation(); navigate(`/album/${song.albumId}`); } }}>{song.album}</span>
                     </div>
                   );
                   case 'favorite': return (
