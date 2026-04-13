@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.10] - 2026-04-13
+
+### Added
+
+- **AppImage bundle for Linux** + X11/XWayland enforcement on all Linux packages: CI now builds `.AppImage` in addition to `.deb` and `.rpm`. `GDK_BACKEND=x11` and `WEBKIT_DISABLE_COMPOSITING_MODE=1` are set automatically at startup on all Linux packages — WebKitGTK on Wayland is unstable. Both environment variables are still overridable by setting them before launch.
+
+- **Audio output device selection** *(Issue [#169](https://github.com/Psychotoxical/psysonic/issues/169))*: Settings → Audio now shows a dropdown of all available output devices. The current OS default is pinned at the top with a label; a Refresh button re-enumerates silently. A device watcher detects hot-plug events and emits `audio:device-reset` after ~9 s of consecutive misses, preventing false positives on busy ALSA devices. On Linux, technical ALSA prefixes are stripped for display (`sysdefault:CARD=U192k` → `U192k`).
+
+- **Vision Dark & Vision Navy — colorblind-safe themes** *(Issue [#166](https://github.com/Psychotoxical/psysonic/issues/166))*: Two new themes using a Purple & Gold palette designed to be safe for Deuteranopia, Protanopia, and Tritanopia. Vision Dark pairs near-black `#0D0B12` with Gold `#FFD700` (~14.7:1 WCAG AAA); Vision Navy uses deep navy `#0A1628` + Gold (~14.5:1 WCAG AAA). Both appear under a new **Accessibility** group in the Theme Picker. These themes are a first step toward proper colorblind support and will be revised and expanded in upcoming releases — structural improvements such as secondary indicators and pattern/shape cues are still on the roadmap.
+
+- **Folder Browser — per-column filter & Shift+Enter queue append** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#165](https://github.com/Psychotoxical/psysonic/pull/165))*: Press Ctrl+F to open a filter field for the active Folder Browser column. Focus hands off cleanly between the filter input and the row list. Clearing a parent-column selection clears all right-side filters automatically. Press Shift+Enter on a filtered track list to **append** the visible tracks to the queue without replacing it.
+
+- **Keybindings — in-app modifier chords** *(contributed by [@kveld9](https://github.com/kveld9), PR [#167](https://github.com/Psychotoxical/psysonic/pull/167))*: In-app keybindings now support Ctrl/Alt/Shift+Key chords in addition to bare keys. The settings capture flow uses `buildInAppBinding`; the runtime handler uses `matchInAppBinding` and skips any chord already claimed as a global shortcut. Bare-key bindings still match without modifiers. Additionally, the seek forward/backward shortcuts now correctly interpret the configured value as seconds — previously the value was treated as a 0–1 progress fraction.
+
+- **Playlist management enhancements** *(contributed by [@kveld9](https://github.com/kveld9), PR [#168](https://github.com/Psychotoxical/psysonic/pull/168))*: Multi-select context-menu actions for Albums, Artists, and Playlists now include a bulk **Add to Playlist** submenu. The sidebar playlist section is now collapsible. The Artists page gains infinite scroll via `IntersectionObserver`. Submenus flip upward automatically when they would overflow the viewport bottom. A **Remove from Playlist** entry is now available in the Playlist Detail context menu.
+
+### Fixed
+
+- **Fullscreen Player — animation overhead in no-compositing mode** *(contributed by [@kilyabin](https://github.com/kilyabin), PR [#175](https://github.com/Psychotoxical/psysonic/pull/175))*: In software-rendering mode (`WEBKIT_DISABLE_COMPOSITING_MODE=1`) the mesh blob pan animations are now stopped (static gradients are preserved), the portrait drift animation is stopped, and `box-shadow` is removed from the seekbar played bar. The seekbar played bar width changes on every playback tick; triggering a full shadow repaint in software mode caused significant CPU overhead.
+
+- **Folder Browser — arrow keys with modifier keys** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#174](https://github.com/Psychotoxical/psysonic/pull/174))*: Column and list arrow-key handling is now skipped when any modifier key is held, preventing conflicts with browser focus navigation and OS-level shortcuts. Modifier detection uses both `nativeEvent` and `getModifierState` for WebKit/WebView2 compatibility.
+
+- **Audio output device — Linux stability** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#176](https://github.com/Psychotoxical/psysonic/pull/176))*: Pinned ALSA/cpal device IDs now stay stable when enumeration temporarily omits the active sink or returns an equivalent name. The Linux device-watcher no longer clears the pin based solely on missing list entries — only macOS and Windows treat repeated absence as "device unplugged". The Settings refresh flow calls `canonicalize` and refetches the list; an i18n label is now shown when the active device is no longer in the enumerated list.
+
+- **Login — server URL field** *(Issue [#171](https://github.com/Psychotoxical/psysonic/issues/171))*: The placeholder text in the Add Server form was previously a hardcoded English string. It is now fully localised and clarifies that `https://` URLs are accepted.
+
+- **Offline mode — non-blocking banner** *(Issue [#170](https://github.com/Psychotoxical/psysonic/issues/170))*: The full-screen blocking overlay shown when Psysonic starts without a cached library is replaced with a slim banner at the top of the content area. The banner includes a direct link to Server Settings so the user can fix the connection without navigating manually.
+
+---
+
+*Special thanks to everyone who contributed to this release:*
+*[@cucadmuh](https://github.com/cucadmuh) for two significant Folder Browser improvements and the Linux audio stability fixes — three PRs in one release cycle, remarkable.*
+*[@kilyabin](https://github.com/kilyabin) for continuing to hunt down no-compositing performance issues.*
+*[@kveld9](https://github.com/kveld9) for the modifier-chord keybindings and the playlist management overhaul.*
+
+---
+
 ## [1.34.9] - 2026-04-12
 
 ### Added
