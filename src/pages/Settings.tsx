@@ -168,7 +168,7 @@ function AddServerForm({ onSave, onCancel }: { onSave: (data: Omit<ServerProfile
       </div>
       <div className="form-group" style={{ marginBottom: '0.75rem' }}>
         <label style={{ fontSize: 13 }}>{t('settings.serverUrl')}</label>
-        <input className="input" type="text" value={form.url} onChange={update('url')} placeholder="192.168.1.100:4533" autoComplete="off" />
+        <input className="input" type="text" value={form.url} onChange={update('url')} placeholder={t('settings.serverUrlPlaceholder')} autoComplete="off" />
       </div>
       <div className="form-row" style={{ marginBottom: '0.75rem' }}>
         <div className="form-group">
