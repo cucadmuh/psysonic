@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Search, X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getAlbum, getArtist, getArtistInfo, setRating, buildCoverArtUrl, coverArtCacheKey, buildDownloadUrl, star, unstar, SubsonicSong, SubsonicAlbum } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
@@ -134,6 +135,22 @@ const handleEnqueueAll = () => {
        return t;
      });
      enqueue(tracks);
+   };
+
+const handleShuffleAll = () => {
+     if (!album) return;
+     const albumGenre = album.album.genre;
+     const tracks = album.songs.map(s => {
+       const t = songToTrack(s);
+       if (!t.genre && albumGenre) t.genre = albumGenre;
+       return t;
+     });
+     const shuffled = [...tracks];
+     for (let i = shuffled.length - 1; i > 0; i--) {
+       const j = Math.floor(Math.random() * (i + 1));
+       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+     }
+     if (shuffled[0]) playTrack(shuffled[0], shuffled);
    };
 
    const handlePlaySong = (song: SubsonicSong) => {
@@ -352,6 +369,7 @@ const handleEnqueueAll = () => {
         onDownload={handleDownload}
         onPlayAll={handlePlayAll}
         onEnqueueAll={handleEnqueueAll}
+        onShuffleAll={handleShuffleAll}
         onBio={handleBio}
         onCloseBio={() => setBioOpen(false)}
         offlineStatus={resolvedOfflineStatus}
@@ -378,8 +396,9 @@ const handleEnqueueAll = () => {
       {songs.length > 0 && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 16px 8px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 160px', maxWidth: 260 }}>
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input
-              className="input"
+              className="input-search"
               style={{ width: '100%', paddingRight: filterText ? 28 : undefined }}
               placeholder={t('albumDetail.filterSongs')}
               value={filterText}
@@ -387,9 +406,12 @@ const handleEnqueueAll = () => {
             />
             {filterText && (
               <button
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, lineHeight: 1 }}
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 onClick={() => setFilterText('')}
-              >×</button>
+                aria-label="Clear filter"
+              >
+                <X size={14} />
+              </button>
             )}
           </div>
         </div>

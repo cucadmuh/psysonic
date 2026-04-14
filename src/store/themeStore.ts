@@ -16,6 +16,12 @@ interface ThemeState {
   setTimeDayStart: (v: string) => void;
   timeNightStart: string;
   setTimeNightStart: (v: string) => void;
+  enableCoverArtBackground: boolean;
+  setEnableCoverArtBackground: (v: boolean) => void;
+  enablePlaylistCoverPhoto: boolean;
+  setEnablePlaylistCoverPhoto: (v: boolean) => void;
+  showBitrate: boolean;
+  setShowBitrate: (v: boolean) => void;
 }
 
 export function getScheduledTheme(state: Pick<ThemeState, 'enableThemeScheduler' | 'theme' | 'themeDay' | 'themeNight' | 'timeDayStart' | 'timeNightStart'>): string {
@@ -47,6 +53,12 @@ export const useThemeStore = create<ThemeState>()(
       setTimeDayStart: (v) => set({ timeDayStart: v }),
       timeNightStart: '19:00',
       setTimeNightStart: (v) => set({ timeNightStart: v }),
+      enableCoverArtBackground: true,
+      setEnableCoverArtBackground: (v) => set({ enableCoverArtBackground: v }),
+      enablePlaylistCoverPhoto: true,
+      setEnablePlaylistCoverPhoto: (v) => set({ enablePlaylistCoverPhoto: v }),
+      showBitrate: false,
+      setShowBitrate: (v) => set({ showBitrate: v }),
     }),
     {
       name: 'psysonic_theme',

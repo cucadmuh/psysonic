@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronLeft, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle, Heart, HardDriveDownload, Check, Pencil, Globe, Lock, Camera, Download } from 'lucide-react';
 import { useTracklistColumns, type ColDef } from '../utils/useTracklistColumns';
@@ -14,6 +15,7 @@ import { usePlaylistStore } from '../store/playlistStore';
 import { useOfflineStore } from '../store/offlineStore';
 import { useOfflineJobStore } from '../store/offlineJobStore';
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 import { useDownloadModalStore } from '../store/downloadModalStore';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
@@ -40,15 +42,20 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function formatSize(bytes?: number): string {
+  if (!bytes) return '';
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function totalDurationLabel(songs: SubsonicSong[]): string {
   const total = songs.reduce((acc, s) => acc + (s.duration ?? 0), 0);
   return formatHumanHoursMinutes(total);
 }
 
-function codecLabel(song: SubsonicSong): string {
+function codecLabel(song: SubsonicSong, showBitrate: boolean): string {
   const parts: string[] = [];
   if (song.suffix) parts.push(song.suffix.toUpperCase());
-  if (song.bitRate) parts.push(`${song.bitRate} kbps`);
+  if (showBitrate && song.bitRate) parts.push(`${song.bitRate} kbps`);
   return parts.join(' · ');
 }
 
@@ -106,6 +113,9 @@ export default function PlaylistDetail() {
   const downloadFolder = useAuthStore(s => s.downloadFolder);
   const setDownloadFolder = useAuthStore(s => s.setDownloadFolder);
   const requestDownloadFolder = useDownloadModalStore(s => s.requestFolder);
+  const enableCoverArtBackground = useThemeStore(s => s.enableCoverArtBackground);
+  const enablePlaylistCoverPhoto = useThemeStore(s => s.enablePlaylistCoverPhoto);
+  const showBitrate = useThemeStore(s => s.showBitrate);
 
   const [playlist, setPlaylist] = useState<SubsonicPlaylist | null>(null);
   const [songs, setSongs] = useState<SubsonicSong[]>([]);
@@ -219,6 +229,11 @@ export default function PlaylistDetail() {
   const [suggestions, setSuggestions] = useState<SubsonicSong[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
+  // ── Column picker portal dropdown state ────────────────────────────────────
+  const [pickerPos, setPickerPos] = useState<{ top: number; right: number } | null>(null);
+  const pickerBtnRef = useRef<HTMLButtonElement>(null);
+  const pickerMenuRef = useRef<HTMLDivElement>(null);
+
   // ── Column resize/visibility ──────────────────────────────────────────────
   const {
     colVisible, visibleCols, gridStyle,
@@ -232,6 +247,41 @@ export default function PlaylistDetail() {
   useEffect(() => {
     if (!contextMenuOpen) setContextMenuSongId(null);
   }, [contextMenuOpen]);
+
+  // Click-outside handler for column picker portal dropdown
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        pickerBtnRef.current?.contains(target) ||
+        pickerRef.current?.contains(target) ||
+        pickerMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pickerOpen, setPickerOpen]);
+
+  // Update picker position on resize/scroll while open
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const updatePos = () => {
+      if (pickerBtnRef.current) {
+        const rect = pickerBtnRef.current.getBoundingClientRect();
+        setPickerPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      }
+    };
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [pickerOpen]);
 
   // ── Load ─────────────────────────────────────────────────────
   const lastModified = usePlaylistStore(s => (id ? s.lastModified[id] : undefined));
@@ -522,6 +572,30 @@ export default function PlaylistDetail() {
     setDropTargetIdx({ idx, before });
   };
 
+  // ── Playback actions (encapsulated like AlbumHeader) ─────────
+  const handlePlayAll = useCallback(() => {
+    if (!songs.length || !id) return;
+    touchPlaylist(id);
+    playTrack(tracks[0], tracks);
+  }, [songs.length, id, tracks, touchPlaylist, playTrack]);
+
+  const handleShuffleAll = useCallback(() => {
+    if (!songs.length || !id) return;
+    touchPlaylist(id);
+    const shuffled = [...tracks];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    playTrack(shuffled[0], shuffled);
+  }, [songs.length, id, tracks, touchPlaylist, playTrack]);
+
+  const handleEnqueueAll = useCallback(() => {
+    if (!songs.length || !id) return;
+    touchPlaylist(id);
+    enqueue(tracks);
+  }, [songs.length, id, tracks, touchPlaylist, enqueue]);
+
   // ── Render ────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -536,14 +610,16 @@ export default function PlaylistDetail() {
   }
 
   return (
-    <div className="content-body animate-fade-in">
+    <div className="album-detail animate-fade-in">
 
       {/* ── Hero ── */}
       <div className="album-detail-header">
-        {resolvedBgUrl && (
-          <div className="album-detail-bg" style={{ backgroundImage: `url(${resolvedBgUrl})` }} aria-hidden="true" />
+        {resolvedBgUrl && enableCoverArtBackground && (
+          <>
+            <div className="album-detail-bg" style={{ backgroundImage: `url(${resolvedBgUrl})` }} aria-hidden="true" />
+            <div className="album-detail-overlay" aria-hidden="true" />
+          </>
         )}
-        <div className="album-detail-overlay" aria-hidden="true" />
 
         <div className="album-detail-content">
           <button className="btn btn-ghost album-detail-back" onClick={() => navigate('/playlists')}>
@@ -552,37 +628,38 @@ export default function PlaylistDetail() {
 
           <div className="album-detail-hero">
             {/* Cover — click to open edit modal */}
-            <div
-              className="playlist-hero-cover"
-              onClick={() => setEditingMeta(true)}
-            >
-              {customCoverId && customCoverFetchUrl && customCoverCacheKey ? (
-                <CachedImage
-                  src={customCoverFetchUrl}
-                  cacheKey={customCoverCacheKey}
-                  alt=""
-                  className="playlist-cover-grid"
-                  style={{ objectFit: 'cover', display: 'block' }}
-                />
-              ) : (
-                <div className="playlist-cover-grid">
-                  {coverQuadUrls.map((entry, i) =>
-                    entry
-                      ? <CachedImage key={i} className="playlist-cover-cell" src={entry.src} cacheKey={entry.cacheKey} alt="" />
-                      : <div key={i} className="playlist-cover-cell playlist-cover-cell--empty" />
-                  )}
+            {enablePlaylistCoverPhoto && (
+              <div
+                className="playlist-hero-cover"
+                onClick={() => setEditingMeta(true)}
+              >
+                {customCoverId && customCoverFetchUrl && customCoverCacheKey ? (
+                  <CachedImage
+                    src={customCoverFetchUrl}
+                    cacheKey={customCoverCacheKey}
+                    alt=""
+                    className="playlist-cover-grid"
+                    style={{ objectFit: 'cover', display: 'block' }}
+                  />
+                ) : (
+                  <div className="playlist-cover-grid">
+                    {coverQuadUrls.map((entry, i) =>
+                      entry
+                        ? <CachedImage key={i} className="playlist-cover-cell" src={entry.src} cacheKey={entry.cacheKey} alt="" />
+                        : <div key={i} className="playlist-cover-cell playlist-cover-cell--empty" />
+                    )}
+                  </div>
+                )}
+                <div className="playlist-hero-cover-overlay">
+                  <Camera size={28} />
                 </div>
-              )}
-              <div className="playlist-hero-cover-overlay">
-                <Camera size={28} />
               </div>
-            </div>
+            )}
 
             <div className="album-detail-meta">
-              <span className="badge album-detail-badge">{t('playlists.titleBadge')}</span>
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h1 className="album-detail-title" style={{ marginBottom: 0 }}>{playlist.name}</h1>
+                  <h1 className="album-detail-title" style={{ marginBottom: 0, marginTop: 6 }}>{playlist.name}</h1>
                   <button
                     className="btn btn-ghost"
                     onClick={() => setEditingMeta(true)}
@@ -610,31 +687,24 @@ export default function PlaylistDetail() {
               </div>
               <div className="album-detail-actions">
                 <div className="album-detail-actions-primary">
-                  <button className="btn btn-primary" disabled={songs.length === 0} onClick={() => {
-                    if (!songs.length) return;
-                    touchPlaylist(id!);
-                    playTrack(tracks[0], tracks);
-                  }}>
-                    <Play size={16} fill="currentColor" /> {t('playlists.playAll')}
+                  <button className="btn btn-primary" disabled={songs.length === 0} onClick={handlePlayAll}>
+                    <Play size={15} /> {t('common.play', 'Reproducir')}
                   </button>
-                  <button className="btn btn-surface" disabled={songs.length === 0} onClick={() => {
-                    if (!songs.length) return;
-                    touchPlaylist(id!);
-                    const shuffled = [...tracks];
-                    for (let i = shuffled.length - 1; i > 0; i--) {
-                      const j = Math.floor(Math.random() * (i + 1));
-                      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-                    }
-                    playTrack(shuffled[0], shuffled);
-                  }}>
-                    <Shuffle size={16} /> {t('playlists.shuffle', 'Shuffle')}
+                  <button
+                    className="btn btn-ghost"
+                    disabled={songs.length === 0}
+                    onClick={handleShuffleAll}
+                    data-tooltip={t('playlists.shuffle', 'Shuffle')}
+                  >
+                    <Shuffle size={16} />
                   </button>
-                  <button className="btn btn-surface" disabled={songs.length === 0} onClick={() => {
-                    if (!songs.length) return;
-                    touchPlaylist(id!);
-                    enqueue(tracks);
-                  }}>
-                    <ListPlus size={16} /> {t('playlists.addToQueue')}
+                  <button
+                    className="btn btn-ghost"
+                    disabled={songs.length === 0}
+                    onClick={handleEnqueueAll}
+                    data-tooltip={t('playlists.addToQueue')}
+                  >
+                    <ListPlus size={16} />
                   </button>
                 </div>
                 <button
@@ -644,6 +714,21 @@ export default function PlaylistDetail() {
                   <Search size={16} /> {t('playlists.addSongs')}
                 </button>
                 {/* search close resets selection */}
+                {songs.length > 0 && (
+                  activeZip && !activeZip.done && !activeZip.error ? (
+                    <div className="download-progress-wrap">
+                      <Download size={14} />
+                      <div className="download-progress-bar">
+                        <div className="download-progress-fill" style={{ width: `${activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : 0}%` }} />
+                      </div>
+                      <span className="download-progress-pct">{activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : '…'}%</span>
+                    </div>
+                  ) : (
+                    <button className="btn btn-ghost" onClick={handleDownload} data-tooltip={t('playlists.downloadZip')}>
+                      <Download size={16} /> {t('playlists.downloadZip')}{songs.reduce((acc, s) => acc + (s.size ?? 0), 0) > 0 ? ` · ${formatSize(songs.reduce((acc, s) => acc + (s.size ?? 0), 0))}` : ''}
+                    </button>
+                  )
+                )}
                 {songs.length > 0 && id && (
                   <button
                     className={`btn btn-ghost${isCached ? ' btn-danger' : ''}`}
@@ -659,25 +744,23 @@ export default function PlaylistDetail() {
                       ? t('albumDetail.offlineDownloading', { n: offlineProgress?.done ?? 0, total: offlineProgress?.total ?? 0 })
                       : isCached ? t('playlists.removeOffline') : t('playlists.cacheOffline')}
                   >
-                    {isDownloading
-                      ? <div className="spinner" style={{ width: 14, height: 14, borderTopColor: 'currentColor' }} />
-                      : isCached ? <Trash2 size={16} /> : <HardDriveDownload size={16} />}
+                    {isDownloading ? (
+                      <>
+                        <div className="spinner" style={{ width: 14, height: 14, borderTopColor: 'currentColor' }} />
+                        {t('albumDetail.offlineDownloading', { n: offlineProgress?.done ?? 0, total: offlineProgress?.total ?? 0 })}
+                      </>
+                    ) : isCached ? (
+                      <>
+                        <Trash2 size={16} />
+                        {t('playlists.removeOffline')}
+                      </>
+                    ) : (
+                      <>
+                        <HardDriveDownload size={16} />
+                        {t('playlists.cacheOffline')}
+                      </>
+                    )}
                   </button>
-                )}
-                {songs.length > 0 && (
-                  activeZip && !activeZip.done && !activeZip.error ? (
-                    <div className="download-progress-wrap">
-                      <Download size={14} />
-                      <div className="download-progress-bar">
-                        <div className="download-progress-fill" style={{ width: `${activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : 0}%` }} />
-                      </div>
-                      <span className="download-progress-pct">{activeZip.total ? Math.round((activeZip.bytes / activeZip.total) * 100) : '…'}%</span>
-                    </div>
-                  ) : (
-                    <button className="btn btn-ghost" onClick={handleDownload} data-tooltip={t('playlists.downloadZip')}>
-                      <Download size={16} /> {t('playlists.downloadZip')}
-                    </button>
-                  )
                 )}
               </div>
             </div>
@@ -784,8 +867,9 @@ export default function PlaylistDetail() {
       {songs.length > 0 && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 16px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 160px', maxWidth: 260 }}>
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input
-              className="input"
+              className="input-search"
               style={{ width: '100%', paddingRight: filterText ? 28 : undefined }}
               placeholder={t('albumDetail.filterSongs')}
               value={filterText}
@@ -793,9 +877,12 @@ export default function PlaylistDetail() {
             />
             {filterText && (
               <button
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, lineHeight: 1 }}
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 onClick={() => setFilterText('')}
-              >×</button>
+                aria-label="Clear filter"
+              >
+                <X size={14} />
+              </button>
             )}
           </div>
         </div>
@@ -957,14 +1044,26 @@ export default function PlaylistDetail() {
           </div>
           <div className="tracklist-col-picker" ref={pickerRef}>
             <button
+              ref={pickerBtnRef}
               className="tracklist-col-picker-btn"
-              onClick={e => { e.stopPropagation(); setPickerOpen(v => !v); }}
+              onClick={e => {
+                e.stopPropagation();
+                if (!pickerOpen && pickerBtnRef.current) {
+                  const rect = pickerBtnRef.current.getBoundingClientRect();
+                  setPickerPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                }
+                setPickerOpen(v => !v);
+              }}
               data-tooltip={t('albumDetail.columns')}
             >
               <ChevronDown size={14} />
             </button>
-            {pickerOpen && (
-              <div className="tracklist-col-picker-menu">
+            {pickerOpen && pickerPos && createPortal(
+              <div
+                ref={pickerMenuRef}
+                className="tracklist-col-picker-menu"
+                style={{ position: 'fixed', top: pickerPos.top, right: pickerPos.right, zIndex: 9999 }}
+              >
                 <div className="tracklist-col-picker-label">{t('albumDetail.columns')}</div>
                 {PL_COLUMNS.filter(c => !c.required).map(c => {
                   const label = c.i18nKey ? t(`albumDetail.${c.i18nKey}`) : c.key;
@@ -980,7 +1079,8 @@ export default function PlaylistDetail() {
                     </button>
                   );
                 })}
-              </div>
+              </div>,
+              document.body
             )}
           </div>
         </div>
@@ -1059,7 +1159,7 @@ export default function PlaylistDetail() {
                   case 'duration': return <div key="duration" className="track-duration">{formatDuration(song.duration ?? 0)}</div>;
                   case 'format': return (
                     <div key="format" className="track-meta">
-                      {(song.suffix || song.bitRate) && <span className="track-codec">{codecLabel(song)}</span>}
+                      {(song.suffix || (showBitrate && song.bitRate)) && <span className="track-codec">{codecLabel(song, showBitrate)}</span>}
                     </div>
                   );
                   case 'delete': return (
@@ -1148,7 +1248,7 @@ export default function PlaylistDetail() {
                     case 'duration': return <div key="duration" className="track-duration">{formatDuration(song.duration ?? 0)}</div>;
                     case 'format': return (
                       <div key="format" className="track-meta">
-                        {(song.suffix || song.bitRate) && <span className="track-codec">{codecLabel(song)}</span>}
+                        {(song.suffix || (showBitrate && song.bitRate)) && <span className="track-codec">{codecLabel(song, showBitrate)}</span>}
                       </div>
                     );
                     case 'delete': return (
