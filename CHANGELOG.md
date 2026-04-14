@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.11] - 2026-04-14
+
+### Added
+
+- **Opus audio playback** *(Issue [#180](https://github.com/Psychotoxical/psysonic/issues/180), contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#183](https://github.com/Psychotoxical/psysonic/pull/183))*: Psysonic can now decode Opus audio natively via `symphonia-adapter-libopus`, which bundles and compiles libopus from source. Previously `.opus` files were sent to the server for transcoding — a workaround that never worked reliably. Native decoding is now used directly; the server is no longer involved. Note: building from source requires `cmake` to be installed (see README).
+
+- **Device Sync — synchronise your library to USB and SD card players** *(Issue [#161](https://github.com/Psychotoxical/psysonic/issues/161), by [@Psychotoxical](https://github.com/Psychotoxical))*: A fully overhauled Device Sync page lets you copy music from your Navidrome library to any mounted USB drive or SD card. Browse albums via live search (300 ms debounce) or a random album selection. Choose a filename template (Artist/Album/Track format), pick a target folder, and review a pre-sync summary showing files to add, files to delete, and available space — including a warning if the device would run out of space after accounting for pending deletions. Already-synced files are detected and skipped automatically so incremental syncs are fast.
+
+- **3 visual toggles** *(contributed by [@kveld9](https://github.com/kveld9), PR [#181](https://github.com/Psychotoxical/psysonic/pull/181))*: Three new toggles in Settings → Appearance:
+  - **Cover art background** — enables/disables the blurred album art background in Album Detail and the Hero section.
+  - **Playlist cover photo** — shows/hides the cover collage at the top of Playlist Detail pages.
+  - **Show bitrate badge** — toggles the bitrate label displayed on tracks in the queue and track lists.
+
+- **8 community themes** *(contributed by [@kveld9](https://github.com/kveld9), PR [#182](https://github.com/Psychotoxical/psysonic/pull/182))*: A new **Community** theme group appears directly below Psysonic Themes in the Theme Picker, containing eight new themes: **AMOLED Black Pure** (pure black for OLED), **Monochrome Dark** (grayscale), **Amber Night** (warm golden amber), **Phosphor Green** (classic terminal green), **Midnight Blue** (deep blue), **Rose Dark** (pink/rose accents), **Sepia Dark** (warm cream sepia), and **Ice Blue** (cool cyan). Psysonic now ships with 75 themes across 9 groups.
+
+### Fixed
+
+- **HTTPS streaming failures and server URL trailing slash** *(Issue [#178](https://github.com/Psychotoxical/psysonic/issues/178), by [@Psychotoxical](https://github.com/Psychotoxical) with fix ported from PR [#179](https://github.com/Psychotoxical/psysonic/pull/179) by [@kveld9](https://github.com/kveld9))*: Two bugs that broke HTTPS server connections are now fixed. A trailing slash in the configured server URL caused double-slash stream URLs (`//rest/stream.view`) that reverse proxies like Caddy would reject, and also caused album browsing to return 0 results. Additionally, `reqwest` now loads the OS native certificate store alongside Mozilla's root store — fixing HTTPS streaming failures when the server certificate is signed by a local CA (e.g. Caddy's internal CA) that is trusted in the system keychain but not in Mozilla's bundle.
+
+- **Server display in Settings** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: The server list in Settings → Servers now shows the URL and username on separate lines instead of a single truncated `username@url` string. Protocol prefixes (`http://`, `https://`) are stripped for cleaner display. HTTPS connections show a green lock icon.
+
+### Changed
+
+- **Waveform seekbar — live theme updates** *(contributed by [@kveld9](https://github.com/kveld9), PR [#182](https://github.com/Psychotoxical/psysonic/pull/182))*: The canvas-based seekbar now listens for `data-theme` attribute changes via `MutationObserver` and redraws immediately with the new theme colours. Switching themes no longer requires an app restart to update the waveform.
+
+---
+
+*Thank you to everyone who contributed to this release:*
+*[@cucadmuh](https://github.com/cucadmuh) for implementing native Opus decoding — a long-requested feature that finally makes `.opus` libraries fully playable.*
+*[@kveld9](https://github.com/kveld9) for three PRs in one release: the SSL/trailing-slash fix, visual customisation toggles, and eight new community themes with a live waveform update fix.*
+
+---
+
 ## [1.34.10] - 2026-04-13
 
 ### Added

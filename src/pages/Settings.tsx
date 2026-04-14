@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen,
   Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard, ChevronDown,
-  GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow, HardDrive, Upload, Download, Waves, Star, Clock, ZoomIn, Sparkles, AlertTriangle, Maximize2, AudioLines
+  GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow, HardDrive, Upload, Download, Waves, Star, Clock, ZoomIn, Sparkles, AlertTriangle, Maximize2, AudioLines, User, Lock
 } from 'lucide-react';
 import i18n from '../i18n';
 import { exportBackup, importBackup } from '../utils/backup';
@@ -114,6 +114,7 @@ const CONTRIBUTORS = [
       'Audio output device picker: clearer ALSA labels, duplicate disambiguation, system-default mark, live refresh (PR #173)',
       'Folder Browser: arrow navigation blocked when modifier keys are held (PR #174)',
       'Linux audio output device picker: stable watcher (disable false enumeration-miss resets), canonicalize ALSA name drift, ghost entry for unlisted device (PR #176)',
+      'Opus audio playback via symphonia-adapter-libopus with bundled libopus (PR #183)',
     ],
   },
   {
@@ -138,6 +139,8 @@ const CONTRIBUTORS = [
       'Spanish (es) translation — 964 strings (PR #159)',
       'Column-header sorting for albums & playlists (PR #160)',
       'Multi-select for albums, artists & playlists with bulk "Add to Playlist"; collapsible sidebar playlist section; infinite scroll on Artists page; "Remove from Playlist" in context menu (PR #168)',
+      '3 visual toggles: cover art background, playlist cover photo, show bitrate badge (PR #181)',
+      '8 community themes (AMOLED Black, Monochrome Dark, Amber Night, Phosphor Green, Midnight Blue, Rose Dark, Sepia Dark, Ice Blue) + waveform live theme update (PR #182)',
     ],
   },
   {
@@ -2023,7 +2026,18 @@ export default function Settings() {
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{srv.username}@{srv.url}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
+                            {srv.url.startsWith('https://') && (
+                              <Lock size={11} style={{ color: 'var(--positive)', flexShrink: 0 }} />
+                            )}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {srv.url.replace(/^https?:\/\//, '')}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                            <User size={11} />
+                            {srv.username}
+                          </div>
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
                           {status === 'ok' && <CheckCircle2 size={16} style={{ color: 'var(--positive)' }} />}
