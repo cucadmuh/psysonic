@@ -116,6 +116,7 @@ const CONTRIBUTORS = [
       'Folder Browser: arrow navigation blocked when modifier keys are held (PR #174)',
       'Linux audio output device picker: stable watcher (disable false enumeration-miss resets), canonicalize ALSA name drift, ghost entry for unlisted device (PR #176)',
       'Opus audio playback via symphonia-adapter-libopus with bundled libopus (PR #183)',
+      'CLI player controls with D-Bus forwarding, shell completions for bash/zsh (PR #187)',
     ],
   },
   {
@@ -142,6 +143,12 @@ const CONTRIBUTORS = [
       'Multi-select for albums, artists & playlists with bulk "Add to Playlist"; collapsible sidebar playlist section; infinite scroll on Artists page; "Remove from Playlist" in context menu (PR #168)',
       '3 visual toggles: cover art background, playlist cover photo, show bitrate badge (PR #181)',
       '8 community themes (AMOLED Black, Monochrome Dark, Amber Night, Phosphor Green, Midnight Blue, Rose Dark, Sepia Dark, Ice Blue) + waveform live theme update (PR #182)',
+      'Favorites redesign: sortable columns, genre filter, age range filter, new columns (PR #184)',
+      'Albums and playlist headers redesign with improved layout and theme integration (PR #186)',
+      'Tracklist column picker overflow fix in AlbumTrackList (PR #188)',
+      'Spotify CSV playlist import (PR #190)',
+      'Context menu for songs in AdvancedSearch and SearchResults (PR #191)',
+      'Tracklist column picker alignment and toggle fix across Favorites and PlaylistDetail (PR #192)',
     ],
   },
   {
