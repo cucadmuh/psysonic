@@ -19,6 +19,9 @@
 @import '@fontsource-variable/plus-jakarta-sans';
 @import '@fontsource-variable/plus-jakarta-sans/wght-italic.css';
 @import '@fontsource-variable/lexend';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/jetbrains-mono/wght-italic.css';
 
 /* ─── Catppuccin Mocha Variables ─── */
 :root,
@@ -6397,6 +6400,16 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-font='lexend'] {
   --font-sans: 'Lexend Variable', system-ui, sans-serif;
   --font-display: 'Lexend Variable', sans-serif;
+}
+
+[data-font='geist'] {
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-display: 'Geist Variable', sans-serif;
+}
+
+[data-font='jetbrains-mono'] {
+  --font-sans: 'JetBrains Mono Variable', monospace;
+  --font-display: 'JetBrains Mono Variable', monospace;
 }
 
 /* ─── Equalizer bars animation ─── */

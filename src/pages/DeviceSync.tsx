@@ -251,20 +251,27 @@ export default function DeviceSync() {
     });
 
     const unlistenComplete = listen<{
-      jobId: string; done: number; skipped: number; failed: number; total: number;
+      jobId: string; done: number; skipped: number; failed: number; total: number; cancelled?: boolean;
     }>('device:sync:complete', ({ payload }) => {
       const current = jobStore();
       if (current.jobId && payload.jobId === current.jobId) {
-        useDeviceSyncJobStore.getState().complete(
-          payload.done, payload.skipped, payload.failed
-        );
-        showToast(
-          t('deviceSync.syncResult', {
-            done: payload.done, skipped: payload.skipped, total: payload.total
-          }),
-          5000, 'info'
-        );
-        // Re-scan the device after sync completes
+        if (payload.cancelled) {
+          useDeviceSyncJobStore.getState().complete(payload.done, payload.skipped, payload.failed);
+          // status is already 'cancelled' from the button click; complete() would overwrite it — restore it
+          useDeviceSyncJobStore.getState().cancel();
+        } else {
+          useDeviceSyncJobStore.getState().complete(payload.done, payload.skipped, payload.failed);
+          showToast(
+            t('deviceSync.syncResult', {
+              done: payload.done, skipped: payload.skipped, total: payload.total
+            }),
+            5000, 'info'
+          );
+          // Write manifest so another machine can read the synced sources from the stick
+          const { targetDir: dir, sources: srcs } = useDeviceSyncStore.getState();
+          if (dir) invoke('write_device_manifest', { destDir: dir, sources: srcs }).catch(() => {});
+        }
+        // Re-scan the device after sync completes (cancelled or not)
         scanDevice();
       }
     });
@@ -344,7 +351,21 @@ export default function DeviceSync() {
   const handleChooseFolder = async () => {
     const sel = await openDialog({ directory: true, multiple: false, title: t('deviceSync.chooseFolder') });
     if (sel) {
-      setTargetDir(sel as string);
+      const dir = sel as string;
+      setTargetDir(dir);
+      // If the device has a psysonic-sync.json and localStorage has no sources yet,
+      // auto-import so the list is populated when switching machines.
+      if (useDeviceSyncStore.getState().sources.length === 0) {
+        try {
+          const manifest = await invoke<{ version: number; sources: DeviceSyncSource[] } | null>(
+            'read_device_manifest', { destDir: dir }
+          );
+          if (manifest?.sources?.length) {
+            manifest.sources.forEach(s => useDeviceSyncStore.getState().addSource(s));
+            showToast(t('deviceSync.manifestImported', { count: manifest.sources.length }), 4000, 'info');
+          }
+        } catch { /* no manifest, that's fine */ }
+      }
       // Trigger a device scan after folder change
       setTimeout(() => scanDevice(), 100);
     }
@@ -401,6 +422,9 @@ export default function DeviceSync() {
         
         await invoke<number>('delete_device_files', { paths: allPaths });
         removeSources(deletionSources.map(s => s.id));
+        // Update manifest so it stays in sync after deletions
+        const remainingSources = useDeviceSyncStore.getState().sources;
+        if (targetDir) invoke('write_device_manifest', { destDir: targetDir, sources: remainingSources }).catch(() => {});
         showToast(
           t('deviceSync.deleteComplete', { count: deletionSources.length }),
           3000, 'info'
@@ -815,6 +839,29 @@ export default function DeviceSync() {
                 {t('deviceSync.syncInProgress', { done: jobDone + jobSkip, total: jobTotal })}
                 {jobFail > 0 && <span className="device-sync-stat-error"><AlertCircle size={11} /> {jobFail}</span>}
               </span>
+              <button
+                className="btn btn-ghost"
+                style={{ fontSize: 12, padding: '2px 10px' }}
+                onClick={() => {
+                  const jobId = useDeviceSyncJobStore.getState().jobId;
+                  if (jobId) invoke('cancel_device_sync', { jobId });
+                  useDeviceSyncJobStore.getState().cancel();
+                }}
+              >
+                {t('deviceSync.cancelSync')}
+              </button>
+            </div>
+          )}
+
+          {jobStatus === 'cancelled' && (
+            <div className="device-sync-bg-progress done">
+              <span className="device-sync-bg-progress-text">
+                <AlertCircle size={12} style={{ color: 'var(--text-muted)' }} />
+                {t('deviceSync.syncCancelled', { done: jobDone, total: jobTotal })}
+              </span>
+              <button className="btn btn-ghost" onClick={() => useDeviceSyncJobStore.getState().reset()}>
+                {t('deviceSync.dismiss')}
+              </button>
             </div>
           )}
 

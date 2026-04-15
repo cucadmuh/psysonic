@@ -8,8 +8,8 @@ mod discord;
 mod taskbar_win;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
@@ -27,6 +27,13 @@ const MAX_DL_CONCURRENCY: usize = 4;
 
 /// Shared semaphore that caps simultaneous `download_track_offline` executions.
 type DownloadSemaphore = Arc<tokio::sync::Semaphore>;
+
+/// Per-job cancellation flags for `sync_batch_to_device`.
+/// Each running sync registers an `Arc<AtomicBool>` here; `cancel_device_sync` flips it.
+fn sync_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Holds the live system-tray icon handle.  `None` means the tray is currently hidden/removed.
 /// Dropping the inner `TrayIcon` fully removes it from the OS notification area on all platforms.
@@ -1409,6 +1416,26 @@ fn get_removable_drives() -> Vec<RemovableDrive> {
         .collect()
 }
 
+/// Writes a `psysonic-sync.json` manifest to the root of the target directory.
+/// The file records which sources (albums/playlists/artists) are synced to this
+/// device so that another machine can pick them up without relying on localStorage.
+#[tauri::command]
+fn write_device_manifest(dest_dir: String, sources: serde_json::Value) -> Result<(), String> {
+    let path = std::path::Path::new(&dest_dir).join("psysonic-sync.json");
+    let payload = serde_json::json!({ "version": 1, "sources": sources });
+    let json = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// Reads `psysonic-sync.json` from the target directory.
+/// Returns the parsed JSON value, or null if the file doesn't exist.
+#[tauri::command]
+fn read_device_manifest(dest_dir: String) -> Option<serde_json::Value> {
+    let path = std::path::Path::new(&dest_dir).join("psysonic-sync.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 /// Checks whether `path` sits on top of an active mount point (i.e. not the root
 /// filesystem). This prevents accidentally writing to `/media/usb` after the
 /// USB drive has been unmounted — at that point the path would fall through to `/`
@@ -1420,14 +1447,22 @@ fn is_path_on_mounted_volume(path: &std::path::Path) -> bool {
         Ok(c) => c,
         Err(_) => return false, // path doesn't exist or isn't accessible
     };
-    let canonical_str = canonical.to_string_lossy();
+    // On Windows, canonicalize() prepends "\\?\" (extended-path prefix).
+    // Strip it so that "\\?\E:\Music" compares correctly against mount point "E:\".
+    let canonical_raw = canonical.to_string_lossy().into_owned();
+    #[cfg(target_os = "windows")]
+    let canonical_str = canonical_raw.strip_prefix(r"\\?\").unwrap_or(&canonical_raw).to_string();
+    #[cfg(not(target_os = "windows"))]
+    let canonical_str = canonical_raw;
     // Find the longest mount-point prefix that matches this path.
     // Exclude the root "/" (or "C:\" on Windows) so we never "match" a fallback.
     let mut best_len: usize = 0;
     for disk in disks.list() {
         let mp = disk.mount_point().to_string_lossy().to_string();
-        // Skip root mount points
-        if mp == "/" || (mp.len() == 3 && mp.ends_with(":\\")) {
+        // Skip root mount points (Linux "/" and non-removable Windows drive roots like "C:\").
+        // Do NOT skip removable Windows drives (e.g. "E:\") — those are valid sync targets.
+        let is_windows_root = mp.len() == 3 && mp.ends_with(":\\") && !disk.is_removable();
+        if mp == "/" || is_windows_root {
             continue;
         }
         if canonical_str.starts_with(&mp) && mp.len() > best_len {
@@ -1491,13 +1526,18 @@ fn apply_device_sync_template(template: &str, track: &TrackSyncInfo) -> String {
         .map(|y| y.to_string())
         .unwrap_or_default();
 
-    template
+    let result = template
         .replace("{artist}", &sanitize_path_component(&track.artist))
         .replace("{album}", &sanitize_path_component(&track.album))
         .replace("{title}", &sanitize_path_component(&track.title))
         .replace("{track_number}", &track_number)
         .replace("{disc_number}", &disc_number)
-        .replace("{year}", &year)
+        .replace("{year}", &year);
+    // Normalize to the OS path separator so compute_sync_paths and list_device_dir_files
+    // produce identical strings for Set comparison.
+    #[cfg(target_os = "windows")]
+    let result = result.replace('/', "\\");
+    result
 }
 
 /// Downloads a single track to a USB/SD device using the configured filename template.
@@ -1853,6 +1893,17 @@ async fn calculate_sync_payload(
     })
 }
 
+/// Signals a running `sync_batch_to_device` job to stop after its current tracks finish.
+#[tauri::command]
+fn cancel_device_sync(job_id: String, app: tauri::AppHandle) {
+    if let Ok(mut flags) = sync_cancel_flags().lock() {
+        if let Some(flag) = flags.get(&job_id) {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+    let _ = app.emit("device:sync:cancelled", serde_json::json!({ "jobId": job_id }));
+}
+
 /// Downloads a batch of tracks to a USB/SD device with controlled concurrency.
 /// At most 2 parallel writes run simultaneously to prevent I/O choking on USB.
 /// Emits throttled `device:sync:progress` events (max once per 500ms) and a
@@ -1896,6 +1947,12 @@ async fn sync_batch_to_device(
         }
     }
 
+    // Register a cancellation flag for this job.
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut flags) = sync_cancel_flags().lock() {
+        flags.insert(job_id.clone(), cancel_flag.clone());
+    }
+
     // Shared reqwest client — reused across all downloads.
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
@@ -1927,9 +1984,13 @@ async fn sync_batch_to_device(
         let s = skipped.clone();
         let f = failed.clone();
         let le = last_emit.clone();
+        let cancel = cancel_flag.clone();
 
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
+
+            // Bail out if cancelled while waiting in the semaphore queue.
+            if cancel.load(Ordering::Relaxed) { return; }
 
             let relative = apply_device_sync_template(&tmpl, &track);
             let file_name = format!("{}.{}", relative, track.suffix);
@@ -2024,6 +2085,12 @@ async fn sync_batch_to_device(
         let _ = handle.await;
     }
 
+    // Clean up the cancellation flag.
+    let was_cancelled = cancel_flag.load(Ordering::Relaxed);
+    if let Ok(mut flags) = sync_cancel_flags().lock() {
+        flags.remove(&job_id);
+    }
+
     let result = SyncBatchResult {
         done:    done.load(Ordering::Relaxed),
         skipped: skipped.load(Ordering::Relaxed),
@@ -2037,6 +2104,7 @@ async fn sync_batch_to_device(
         "skipped": result.skipped,
         "failed": result.failed,
         "total": total,
+        "cancelled": was_cancelled,
     }));
 
     Ok(result)
@@ -2507,11 +2575,14 @@ pub fn run() {
             purge_hot_cache,
             sync_track_to_device,
             sync_batch_to_device,
+            cancel_device_sync,
             compute_sync_paths,
             list_device_dir_files,
             delete_device_file,
             delete_device_files,
             get_removable_drives,
+            write_device_manifest,
+            read_device_manifest,
             toggle_tray_icon,
             check_dir_accessible,
             download_zip,

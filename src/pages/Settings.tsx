@@ -406,6 +406,7 @@ export default function Settings() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [contributorsOpen, setContributorsOpen] = useState(false);
+  const [fontPickerOpen, setFontPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!auth.lastfmSessionKey || !auth.lastfmUsername) { setLfmUserInfo(null); return; }
@@ -1712,31 +1713,58 @@ export default function Settings() {
               <h2>{t('settings.font')}</h2>
             </div>
             <div className="settings-card">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {(
-                  [
-                    { id: 'inter',             label: 'Inter',             stack: "'Inter', sans-serif" },
-                    { id: 'outfit',            label: 'Outfit',            stack: "'Outfit', sans-serif" },
-                    { id: 'dm-sans',           label: 'DM Sans',           stack: "'DM Sans', sans-serif" },
-                    { id: 'nunito',            label: 'Nunito',            stack: "'Nunito', sans-serif" },
-                    { id: 'rubik',             label: 'Rubik',             stack: "'Rubik', sans-serif" },
-                    { id: 'space-grotesk',     label: 'Space Grotesk',     stack: "'Space Grotesk', sans-serif" },
-                    { id: 'figtree',           label: 'Figtree',           stack: "'Figtree', sans-serif" },
-                    { id: 'manrope',           label: 'Manrope',           stack: "'Manrope', sans-serif" },
-                    { id: 'plus-jakarta-sans', label: 'Plus Jakarta Sans', stack: "'Plus Jakarta Sans', sans-serif" },
-                    { id: 'lexend',            label: 'Lexend',            stack: "'Lexend', sans-serif" },
-                  ] as { id: FontId; label: string; stack: string }[]
-                ).map(f => (
-                  <button
-                    key={f.id}
-                    className={`btn ${fontStore.font === f.id ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ justifyContent: 'flex-start', fontFamily: f.stack }}
-                    onClick={() => fontStore.setFont(f.id)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
+              <button
+                className="btn btn-ghost"
+                style={{ justifyContent: 'space-between', width: '100%', fontFamily: 'var(--font-sans)' }}
+                onClick={() => setFontPickerOpen(o => !o)}
+              >
+                <span>{
+                  ([
+                    { id: 'inter',             label: 'Inter' },
+                    { id: 'outfit',            label: 'Outfit' },
+                    { id: 'dm-sans',           label: 'DM Sans' },
+                    { id: 'nunito',            label: 'Nunito' },
+                    { id: 'rubik',             label: 'Rubik' },
+                    { id: 'space-grotesk',     label: 'Space Grotesk' },
+                    { id: 'figtree',           label: 'Figtree' },
+                    { id: 'manrope',           label: 'Manrope' },
+                    { id: 'plus-jakarta-sans', label: 'Plus Jakarta Sans' },
+                    { id: 'lexend',            label: 'Lexend' },
+                    { id: 'geist',             label: 'Geist' },
+                    { id: 'jetbrains-mono',    label: 'JetBrains Mono' },
+                  ] as { id: FontId; label: string }[]).find(f => f.id === fontStore.font)?.label ?? fontStore.font
+                }</span>
+                <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: fontPickerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+              {fontPickerOpen && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                  {(
+                    [
+                      { id: 'inter',             label: 'Inter',             stack: "'Inter Variable', sans-serif" },
+                      { id: 'outfit',            label: 'Outfit',            stack: "'Outfit Variable', sans-serif" },
+                      { id: 'dm-sans',           label: 'DM Sans',           stack: "'DM Sans Variable', sans-serif" },
+                      { id: 'nunito',            label: 'Nunito',            stack: "'Nunito Variable', sans-serif" },
+                      { id: 'rubik',             label: 'Rubik',             stack: "'Rubik Variable', sans-serif" },
+                      { id: 'space-grotesk',     label: 'Space Grotesk',     stack: "'Space Grotesk Variable', sans-serif" },
+                      { id: 'figtree',           label: 'Figtree',           stack: "'Figtree Variable', sans-serif" },
+                      { id: 'manrope',           label: 'Manrope',           stack: "'Manrope Variable', sans-serif" },
+                      { id: 'plus-jakarta-sans', label: 'Plus Jakarta Sans', stack: "'Plus Jakarta Sans Variable', sans-serif" },
+                      { id: 'lexend',            label: 'Lexend',            stack: "'Lexend Variable', sans-serif" },
+                      { id: 'geist',             label: 'Geist',             stack: "'Geist Variable', sans-serif" },
+                      { id: 'jetbrains-mono',    label: 'JetBrains Mono',    stack: "'JetBrains Mono Variable', monospace" },
+                    ] as { id: FontId; label: string; stack: string }[]
+                  ).map(f => (
+                    <button
+                      key={f.id}
+                      className={`btn ${fontStore.font === f.id ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ justifyContent: 'flex-start', fontFamily: f.stack }}
+                      onClick={() => { fontStore.setFont(f.id); setFontPickerOpen(false); }}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

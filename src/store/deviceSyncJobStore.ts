@@ -11,6 +11,7 @@ export interface DeviceSyncJobState {
   startSync: (jobId: string, total: number) => void;
   updateProgress: (done: number, skipped: number, failed: number) => void;
   complete: (done: number, skipped: number, failed: number) => void;
+  cancel: () => void;
   reset: () => void;
 }
 
@@ -30,6 +31,9 @@ export const useDeviceSyncJobStore = create<DeviceSyncJobState>()((set) => ({
 
   complete: (done, skipped, failed) =>
     set({ done, skipped, failed, status: 'done' }),
+
+  cancel: () =>
+    set({ status: 'cancelled' }),
 
   reset: () =>
     set({ jobId: null, total: 0, done: 0, skipped: 0, failed: 0, status: 'idle' }),
