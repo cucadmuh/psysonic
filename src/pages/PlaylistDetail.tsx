@@ -1918,14 +1918,23 @@ function PlaylistEditModal({
           </div>
         </div>
 
-        <div className="modal-actions">
-          <button className="btn btn-surface" onClick={onClose}>
-            {t('playlists.editCancel')}
-          </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
-            {saving ? <Loader2 size={14} className="spin-slow" /> : null}
-            {t('playlists.editSave')}
-          </button>
+        <div className="playlist-edit-footer">
+          <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+            <label className="toggle-switch" style={{ marginBottom: 0 }}>
+              <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)} />
+              <span className="toggle-track" />
+            </label>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('playlists.editPublic')}</span>
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-surface" onClick={onClose}>
+              {t('playlists.editCancel')}
+            </button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
+              {saving ? <Loader2 size={14} className="spin-slow" /> : null}
+              {t('playlists.editSave')}
+            </button>
+          </div>
         </div>
       </div>
     </div>
