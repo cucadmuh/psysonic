@@ -120,7 +120,7 @@ function findColumnField(header: string): string | undefined {
 }
 
 function parseArtists(artistField: string): string[] {
-  // Spotify usa comas en formato extendido, punto y coma en formato simple
+  // Spotify uses commas in extended format, semicolons in simple format
   const separator = artistField.includes(';') ? ';' : ',';
   return artistField
     .split(separator)
@@ -752,7 +752,7 @@ export default function PlaylistDetail() {
             return { song: s, score: totalScore, titleScore, artistScore, albumScore, isrcMatch: false };
           }).sort((a, b) => b.score - a.score);
 
-          // Solo aceptar si el score es >= 0.7 (70% de confianza)
+          // Only accept if score is >= 0.7 (70% confidence)
           const bestMatch = scoredMatches[0];
 
           if (bestMatch.score < 0.7) {
@@ -760,14 +760,14 @@ export default function PlaylistDetail() {
             return null;
           }
 
-          // Check duplicados
+          // Check for duplicates
           if (existingIds.has(bestMatch.song.id)) {
             duplicateCount++;
             duplicateTracks.push(track);
             return null;
           }
 
-          // Check duplicados en los que ya vamos a agregar
+          // Check for duplicates in tracks already queued for addition
           if (addedSongs.some(s => s.id === bestMatch.song.id)) {
             duplicateCount++;
             duplicateTracks.push(track);
@@ -778,7 +778,7 @@ export default function PlaylistDetail() {
           existingIds.add(bestMatch.song.id);
           return bestMatch.song;
         } catch {
-          // Error de red/timeout - separar de "no encontrado"
+          // Network error/timeout - distinguish from "not found"
           searchErrors.push(track);
           return null;
         }
@@ -1880,7 +1880,7 @@ function CsvImportReportModal({ report, playlistName, onClose }: CsvReportModalP
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
 
-      // Nombre detallado: playlist + fecha-hora-segundos
+      // Detailed name: playlist + date-time-seconds
       const timestamp = new Date().toISOString()
         .replace(/[:.]/g, '-')
         .slice(0, 19);
