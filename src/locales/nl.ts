@@ -996,6 +996,9 @@ export const nlTranslation = {
     csvImportNetworkErrorsTitle: 'Netwerkfouten (import kan opnieuw proberen):',
     csvImportDownloadReport: 'Rapport downloaden',
     csvImportClose: 'Sluiten',
+    csvImportNoValidTracks: 'Geen geldige nummers gevonden in CSV-bestand',
+    csvImportFailed: 'CSV-import mislukt',
+    csvImportToast: '{{added}} toegevoegd, {{notFound}} niet gevonden, {{duplicates}} duplicaten',
   },
   mostPlayed: {
     title: 'Meest gespeeld',

@@ -997,6 +997,9 @@ export const frTranslation = {
     csvImportNetworkErrorsTitle: 'Erreurs Réseau (peut réessayer l\'import):',
     csvImportDownloadReport: 'Télécharger le Rapport',
     csvImportClose: 'Fermer',
+    csvImportNoValidTracks: 'Aucun titre valide trouvé dans le fichier CSV',
+    csvImportFailed: 'Échec de l\'import CSV',
+    csvImportToast: '{{added}} ajoutés, {{notFound}} non trouvés, {{duplicates}} doublons',
   },
   mostPlayed: {
     title: 'Les plus joués',

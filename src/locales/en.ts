@@ -1001,6 +1001,9 @@ export const enTranslation = {
     csvImportNetworkErrorsTitle: 'Network Errors (may retry import):',
     csvImportDownloadReport: 'Download Report',
     csvImportClose: 'Close',
+    csvImportNoValidTracks: 'No valid tracks found in CSV file',
+    csvImportFailed: 'Failed to import CSV file',
+    csvImportToast: '{{added}} added, {{notFound}} not found, {{duplicates}} duplicates',
   },
   mostPlayed: {
     title: 'Most Played',

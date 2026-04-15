@@ -1002,6 +1002,9 @@ export const esTranslation = {
     csvImportNetworkErrorsTitle: 'Errores de Red (puede reintentar la importación):',
     csvImportDownloadReport: 'Descargar Reporte',
     csvImportClose: 'Cerrar',
+    csvImportNoValidTracks: 'No se encontraron canciones válidas en el archivo CSV',
+    csvImportFailed: 'Error al importar el archivo CSV',
+    csvImportToast: '{{added}} agregadas, {{notFound}} no encontradas, {{duplicates}} duplicadas',
   },
   mostPlayed: {
     title: 'Más Reproducidos',

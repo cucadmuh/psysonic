@@ -82,7 +82,7 @@ export default function Artists() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const showArtistImages = useAuthStore(s => s.showArtistImages);
-  const PAGE_SIZE = showArtistImages ? 50 : 100; // Menor con imágenes para reducir I/O
+  const PAGE_SIZE = showArtistImages ? 50 : 100; // Smaller with images to reduce I/O
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);

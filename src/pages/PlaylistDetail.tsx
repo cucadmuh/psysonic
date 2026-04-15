@@ -61,12 +61,12 @@ function codecLabel(song: SubsonicSong, showBitrate: boolean): string {
 interface SpotifyCsvTrack {
   trackName: string;
   artistName: string;
-  artistNames: string[];  // Array de todos los artistas para mejor matching
+  artistNames: string[];  // Array of all artists for better matching
   albumName: string;
   isrc?: string;
 }
 
-// Mapeo de headers a campos canónicos (soporta inglés y español)
+// Header mapping to canonical fields (supports English and Spanish)
 const HEADER_MAPPINGS: Record<string, string> = {
   // Track name
   'track name': 'trackName',
@@ -145,7 +145,7 @@ function extractFeaturedArtists(title: string): string[] {
 }
 
 function parseSpotifyCsv(csvContent: string): SpotifyCsvTrack[] {
-  // Strip BOM y parsear con Papa Parse
+  // Strip BOM and parse with Papa Parse
   const cleanContent = csvContent.replace(/^\uFEFF/, '');
 
   const parseResult = Papa.parse(cleanContent, {
@@ -163,7 +163,7 @@ function parseSpotifyCsv(csvContent: string): SpotifyCsvTrack[] {
 
   const data = parseResult.data as Record<string, string>[];
 
-  // Verificar columnas requeridas
+  // Verify required columns
   if (!data.length || !data[0].trackName || !data[0].artistName) {
     console.error('CSV columns not found. Available headers:', Object.keys(data[0] || {}));
     return [];
@@ -181,7 +181,7 @@ function parseSpotifyCsv(csvContent: string): SpotifyCsvTrack[] {
 
     if (!trackName || !artistField) continue;
 
-    // Parsear múltiples artistas del campo + extraer colaboradores del título
+    // Parse multiple artists from field + extract collaborators from title
     const artistNames = parseArtists(artistField);
     const featuredArtists = extractFeaturedArtists(trackName);
     const allArtists = [...new Set([...artistNames, ...featuredArtists])];
@@ -508,7 +508,7 @@ export default function PlaylistDetail() {
   };
 
   // ── CSV Import ──────────────────────────────────────────────
-  // Normalizar strings para matching: quita tildes, caracteres especiales, lowercase, trim
+  // Normalize strings for matching: remove accents, special chars, lowercase, trim
   const normalizeForMatching = (s: string): string =>
     s.toLowerCase()
       .normalize('NFD')
@@ -517,7 +517,7 @@ export default function PlaylistDetail() {
       .replace(/[æ]/gi, 'ae')
       .trim();
 
-  // Limpia sufijos comunes de títulos (remasterizados, en vivo, ediciones, etc.)
+  // Clean common title suffixes (remastered, live, editions, etc.)
   const cleanTrackTitle = (title: string): string => {
     const suffixes = [
       // Remastered variants
@@ -612,19 +612,19 @@ export default function PlaylistDetail() {
       /\s*\(\d{4}\)$/i,
     ];
     let cleaned = title.trim();
-    // Aplicar patrones múltiples veces para casos anidados
+    // Apply patterns multiple times for nested cases
     for (let i = 0; i < 3; i++) {
       const previous = cleaned;
       for (const regex of suffixes) {
         cleaned = cleaned.replace(regex, '');
       }
       cleaned = cleaned.trim();
-      if (previous === cleaned) break; // No más cambios
+      if (previous === cleaned) break; // No more changes
     }
     return cleaned;
   };
 
-  // Distancia de Levenshtein para scoring de similitud
+  // Levenshtein distance for similarity scoring
   const levenshtein = (a: string, b: string): number => {
     const matrix: number[][] = [];
     for (let i = 0; i <= b.length; i++) matrix[i] = [i];
@@ -642,12 +642,12 @@ export default function PlaylistDetail() {
   const similarityScore = (a: string, b: string): number => {
     const maxLen = Math.max(a.length, b.length);
     if (maxLen === 0) return 1;
-    // Usar strings normalizados (sin tildes) para comparación
+    // Use normalized strings (without accents) for comparison
     const dist = levenshtein(normalizeForMatching(a), normalizeForMatching(b));
     return 1 - dist / maxLen;
   };
 
-  // Procesa búsquedas en batches para no saturar el servidor
+  // Process searches in batches to avoid overloading the server
   const processBatch = async <T, R>(
     items: T[],
     batchSize: number,
@@ -679,7 +679,7 @@ export default function PlaylistDetail() {
       const csvTracks = parseSpotifyCsv(content);
 
       if (csvTracks.length === 0) {
-        showToast('No valid tracks found in CSV file', 3000, 'error');
+        showToast(t('playlists.csvImportNoValidTracks'), 3000, 'error');
         setCsvImporting(false);
         return;
       }
@@ -691,10 +691,10 @@ export default function PlaylistDetail() {
       const duplicateTracks: SpotifyCsvTrack[] = [];
       let duplicateCount = 0;
 
-      // Procesar en batches de 10 para balance velocidad/servidor
+      // Process in batches of 10 to balance speed/server load
       await processBatch(csvTracks, 10, async (track) => {
         try {
-          // Retry: 2 intentos en caso de error de red
+          // Retry: 2 attempts in case of network error
           let searchResult;
           let attempts = 0;
           const maxAttempts = 2;
@@ -706,7 +706,7 @@ export default function PlaylistDetail() {
             } catch (err) {
               attempts++;
               if (attempts >= maxAttempts) throw err;
-              // Esperar 500ms antes de reintentar
+              // Wait 500ms before retrying
               await new Promise(r => setTimeout(r, 500));
             }
           }
@@ -716,32 +716,32 @@ export default function PlaylistDetail() {
             return null;
           }
 
-          // Scoring de confianza para cada resultado
-          // Limpiar título del CSV para comparación justa
+          // Confidence scoring for each result
+          // Clean CSV title for fair comparison
           const cleanCsvTitle = cleanTrackTitle(track.trackName);
 
           const scoredMatches = searchResult.songs.map(s => {
-            // Vía rápida ISRC: si ambos tienen ISRC y coinciden, score perfecto
+            // Fast ISRC path: if both have ISRC and they match, perfect score
             if (track.isrc && s.isrc && track.isrc.toUpperCase() === s.isrc.toUpperCase()) {
               return { song: s, score: 1.0, titleScore: 1.0, artistScore: 1.0, isrcMatch: true };
             }
 
-            // Limpiar título del resultado también
+            // Clean the result title as well
             const cleanResultTitle = cleanTrackTitle(s.title);
 
             const titleScore = similarityScore(cleanResultTitle, cleanCsvTitle);
-            // Scoring de artista: máximo score contra cualquiera de los artistas del CSV
+            // Artist scoring: maximum score against any of the CSV artists
             const artistScore = s.artist
               ? Math.max(...track.artistNames.map(csvArtist =>
                   similarityScore(s.artist || '', csvArtist)
                 ))
               : 0;
-            // Si no hay álbum en CSV o en local, usar 1.0 (neutral) para no penalizar
+            // If no album in CSV or local, use 1.0 (neutral) to avoid penalizing
             const albumScore = (s.album && track.albumName)
               ? similarityScore(s.album, track.albumName)
               : 1.0;
 
-            // Peso dinámico: títulos específicos (>4 palabras) → más peso al título
+            // Dynamic weight: specific titles (>4 words) → more weight to title
             const titleWords = cleanCsvTitle.split(/\s+/).length;
             const isSpecificTitle = titleWords > 4;
             const titleWeight = isSpecificTitle ? 0.55 : 0.4;
@@ -809,10 +809,10 @@ export default function PlaylistDetail() {
         ? ` (${searchErrors.length} network errors - may retry)`
         : '';
 
-      // Determinar tipo de toast según resultados:
-      // - success: todas las canciones fueron añadidas correctamente
-      // - warning: al menos una añadida, pero algunas no se encontraron/duplicadas
-      // - error: ninguna añadida (todas duplicadas o no encontradas)
+      // Determine toast type based on results:
+      // - success: all songs were added successfully
+      // - warning: at least one added, but some not found/duplicates
+      // - error: none added (all duplicates or not found)
       const hasAdded = addedSongs.length > 0;
       const hasIssues = notFound.length > 0 || duplicateCount > 0 || searchErrors.length > 0;
 
@@ -826,13 +826,13 @@ export default function PlaylistDetail() {
       }
 
       showToast(
-        `${addedSongs.length} added, ${notFound.length} not found, ${duplicateCount} duplicates${errorMsg}`,
+        t('playlists.csvImportToast', { added: addedSongs.length, notFound: notFound.length, duplicates: duplicateCount }) + errorMsg,
         5000,
         toastVariant
       );
     } catch (err) {
       console.error('CSV import failed:', err);
-      showToast('Failed to import CSV file', 3000, 'error');
+      showToast(t('playlists.csvImportFailed'), 3000, 'error');
     } finally {
       setCsvImporting(false);
     }
@@ -1999,7 +1999,7 @@ function CsvImportReportModal({ report, playlistName, onClose }: CsvReportModalP
           </>
         )}
 
-        <div className="modal-actions" style={{ marginTop: 'auto' }}>
+        <div className="modal-actions" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button className="btn btn-surface" onClick={downloadReport}>
             <Download size={14} /> {t('playlists.csvImportDownloadReport')}
           </button>

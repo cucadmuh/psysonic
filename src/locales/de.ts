@@ -999,6 +999,9 @@ export const deTranslation = {
     csvImportNetworkErrorsTitle: 'Netzwerkfehler (Import kann wiederholt werden):',
     csvImportDownloadReport: 'Bericht herunterladen',
     csvImportClose: 'Schließen',
+    csvImportNoValidTracks: 'Keine gültigen Titel in CSV-Datei gefunden',
+    csvImportFailed: 'CSV-Import fehlgeschlagen',
+    csvImportToast: '{{added}} hinzugefügt, {{notFound}} nicht gefunden, {{duplicates}} Duplikate',
   },
   mostPlayed: {
     title: 'Meistgehört',

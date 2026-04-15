@@ -996,6 +996,9 @@ export const nbTranslation = {
     csvImportNetworkErrorsTitle: 'Nettverksfeil (kan prøve import på nytt):',
     csvImportDownloadReport: 'Last ned rapport',
     csvImportClose: 'Lukk',
+    csvImportNoValidTracks: 'Ingen gyldige spor funnet i CSV-filen',
+    csvImportFailed: 'Kunne ikke importere CSV-fil',
+    csvImportToast: '{{added}} lagt til, {{notFound}} ikke funnet, {{duplicates}} duplikater',
   },
   mostPlayed: {
     title: 'Mest spilt',

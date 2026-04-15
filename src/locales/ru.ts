@@ -1055,6 +1055,9 @@ export const ruTranslation = {
     csvImportNetworkErrorsTitle: 'Ошибки сети (можно повторить импорт):',
     csvImportDownloadReport: 'Скачать отчёт',
     csvImportClose: 'Закрыть',
+    csvImportNoValidTracks: 'В CSV-файле не найдено действительных треков',
+    csvImportFailed: 'Не удалось импортировать CSV-файл',
+    csvImportToast: '{{added}} добавлено, {{notFound}} не найдено, {{duplicates}} дубликатов',
   },
   mostPlayed: {
     title: 'Популярное',
