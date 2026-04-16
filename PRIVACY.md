@@ -20,6 +20,9 @@ All requests go to the [Last.fm API](https://www.last.fm/api). Your Last.fm cred
 ### LRCLIB (Lyrics)
 When lyrics are fetched from LRCLIB, Psysonic sends the track title, artist, album, and duration to [lrclib.net](https://lrclib.net) as a search query. No account is required. This feature can be disabled in Settings → Lyrics.
 
+### NetEase Cloud Music (Lyrics)
+If NetEase is enabled as a lyrics source in Settings → Lyrics, Psysonic sends the track artist and title to the NetEase Cloud Music API (via a Rust-side proxy request) to search for synced lyrics. No account is required. This feature is disabled by default.
+
 ### Apple Music / iTunes Search API
 If "Use Apple Music covers for Discord" is enabled in Settings, Psysonic queries the [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/) with the current track's artist and album name to find cover art. No Apple account is required. Apple's own privacy policy applies to these requests.
 
