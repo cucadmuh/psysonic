@@ -44,3 +44,6 @@ tmp/
 
 # Third-party clones for local research (not committed)
 research/
+
+# CI: Psychotoxical tree cloned beside flake (upstream-release-nix workflow)
+upstream-src/

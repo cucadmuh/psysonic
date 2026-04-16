@@ -1,0 +1,92 @@
+# CI for Nix users (no Cachix): manual only (`workflow_dispatch`). Pins `nixpkgs` via `flake.lock`,
+# verifies the same tree as upstream GitHub Releases builds in our `nix develop` shell. The Tauri
+# step is a compile check only — we do
+# not publish binaries from this workflow.
+#
+# Flow: resolve Psychotoxical tag → `nix flake lock` → clone upstream → `tauri build --no-bundle`
+# → commit + push `flake.lock` when it changed. `flake.nix` is edited in-repo as needed; this job
+# does not rewrite it. Upstream clone: `upstream-src/` (gitignored).
+
+name: Upstream tag — Nix verify + flake.lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream tag (e.g. app-v1.34.11). Leave empty = latest GitHub Release.'
+        required: false
+        type: string
+
+concurrency:
+  group: upstream-release-nix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-lock:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve Psychotoxical/psysonic release tag
+        id: upstream-tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(curl -fsSL https://api.github.com/repos/Psychotoxical/psysonic/releases/latest | jq -r '.tag_name')
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Could not resolve release tag"
+            exit 1
+          fi
+          echo "Using upstream tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v15
+
+      - name: Pin flake inputs (flake.lock)
+        run: nix flake lock
+
+      - name: Clone upstream at release tag
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.upstream-tag.outputs.tag }}" \
+            https://github.com/Psychotoxical/psysonic.git upstream-src
+
+      - name: Cache cargo (upstream src-tauri)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream-src/src-tauri
+
+      - name: Verify upstream builds (Tauri prod, no bundles)
+        env:
+          VITE_LASTFM_API_KEY: ${{ secrets.VITE_LASTFM_API_KEY }}
+          VITE_LASTFM_API_SECRET: ${{ secrets.VITE_LASTFM_API_SECRET }}
+        run: |
+          set -euo pipefail
+          nix develop .#default --accept-flake-config -c bash -eo pipefail -c '
+            cd upstream-src
+            npm ci
+            npm run tauri -- build --no-bundle
+          '
+
+      - name: Commit and push flake.lock if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.lock
+          if git diff --cached --quiet; then
+            echo "flake.lock unchanged"
+            exit 0
+          fi
+          git commit -m "chore(nix): update flake.lock"
+          git push origin "HEAD:${{ github.ref_name }}"
