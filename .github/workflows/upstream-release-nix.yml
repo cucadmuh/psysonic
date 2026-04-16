@@ -1,11 +1,13 @@
-# CI for Nix users (no Cachix): manual only (`workflow_dispatch`). Pins `nixpkgs` via `flake.lock`,
-# verifies the same tree as upstream GitHub Releases builds in our `nix develop` shell. The Tauri
-# step is a compile check only — we do
-# not publish binaries from this workflow.
+# Nix: pin Psychotoxical/psysonic via `inputs.upstream-src` + `nix/upstream-sources.json`, refresh
+# `flake.lock` for that input only, verify `nix build .#psysonic` + upstream `tauri build --no-bundle`.
 #
-# Flow: resolve Psychotoxical tag → `nix flake lock` → clone upstream → `tauri build --no-bundle`
-# → commit + push `flake.lock` when it changed. `flake.nix` is edited in-repo as needed; this job
-# does not rewrite it. Upstream clone: `upstream-src/` (gitignored).
+# Triggers:
+#   • schedule — once per day; if latest GitHub Release tag == pinned tag in nix/upstream-sources.json,
+#     the job exits without cloning, Nix, or commits.
+#   • workflow_dispatch — optional tag; empty tag = same as latest release + skip-if-already-pinned.
+#     Non-empty tag = always run (re-pin to that tag).
+#
+# Upstream clone: `upstream-src/` (gitignored).
 
 name: Upstream tag — Nix verify + flake.lock
 
@@ -13,9 +15,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Upstream tag (e.g. app-v1.34.11). Leave empty = latest GitHub Release.'
+        description: 'Upstream tag (e.g. app-v1.34.11). Empty = latest release; same as pinned = no-op unless you need a full re-verify.'
         required: false
         type: string
+  schedule:
+    # ~06:15 UTC daily (avoid exact hour for GitHub load)
+    - cron: '15 6 * * *'
 
 concurrency:
   group: upstream-release-nix-${{ github.workflow }}-${{ github.ref }}
@@ -27,46 +32,90 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Resolve Psychotoxical/psysonic release tag
-        id: upstream-tag
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ -n "${INPUT_TAG:-}" ]; then
-            TAG="$INPUT_TAG"
-          else
-            TAG=$(curl -fsSL https://api.github.com/repos/Psychotoxical/psysonic/releases/latest | jq -r '.tag_name')
-          fi
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "Could not resolve release tag"
-            exit 1
-          fi
-          echo "Using upstream tag: $TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v15
-
-      - name: Pin flake inputs (flake.lock)
-        run: nix flake lock
-
-      - name: Clone upstream at release tag
+      - name: Resolve tag and whether to update
+        id: meta
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "${{ steps.upstream-tag.outputs.tag }}" \
+          LATEST="$(curl -fsSL https://api.github.com/repos/Psychotoxical/psysonic/releases/latest | jq -r '.tag_name')"
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "Could not resolve latest release tag"
+            exit 1
+          fi
+
+          PINNED="$(jq -er .tag nix/upstream-sources.json)"
+
+          # Manual with explicit tag: always run the pin + verify pipeline.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${INPUT_TAG:-}" ]; then
+            echo "Using workflow input tag: $INPUT_TAG"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Latest release (schedule or manual with empty input)
+          echo "Latest upstream release: $LATEST (pinned: $PINNED)"
+          echo "tag=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$PINNED" = "$LATEST" ]; then
+            echo "Already pinned to latest — skipping build and lock."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "New release — will update pins and flake.lock (upstream-src only)."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Nix
+        if: steps.meta.outputs.skip != 'true'
+        uses: DeterminateSystems/nix-installer-action@v15
+
+      - name: Clone upstream at release tag
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.meta.outputs.tag }}" \
             https://github.com/Psychotoxical/psysonic.git upstream-src
 
+      - name: Pin upstream-src (flake URL + nix/upstream-sources.json)
+        if: steps.meta.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}"
+          cd "$ROOT"
+          REV="$(git -C upstream-src rev-parse HEAD)"
+          VERSION="$(jq -r .version upstream-src/package.json)"
+          NPM_HASH="$(nix run nixpkgs/nixos-unstable#prefetch-npm-deps -- "$ROOT/upstream-src/package-lock.json")"
+          jq -n \
+            --arg tag "$TAG" \
+            --arg rev "$REV" \
+            --arg version "$VERSION" \
+            --arg npmDepsHash "$NPM_HASH" \
+            '{tag: $tag, rev: $rev, version: $version, npmDepsHash: $npmDepsHash}' \
+            > nix/upstream-sources.json
+          perl -0pi -e 's/(upstream-src = \{\s*url = "github:Psychotoxical\/psysonic\/)[^"]+/${1}'"$TAG"'/s' flake.nix
+
+      - name: Refresh flake.lock (upstream-src input only)
+        if: steps.meta.outputs.skip != 'true'
+        run: nix flake lock --update-input upstream-src
+
+      - name: Verify Nix package (fork flake, upstream sources)
+        if: steps.meta.outputs.skip != 'true'
+        run: nix build .#psysonic --accept-flake-config --no-link --print-build-logs
+
       - name: Cache cargo (upstream src-tauri)
+        if: steps.meta.outputs.skip != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream-src/src-tauri
 
       - name: Verify upstream builds (Tauri prod, no bundles)
+        if: steps.meta.outputs.skip != 'true'
         env:
           VITE_LASTFM_API_KEY: ${{ secrets.VITE_LASTFM_API_KEY }}
           VITE_LASTFM_API_SECRET: ${{ secrets.VITE_LASTFM_API_SECRET }}
@@ -78,15 +127,16 @@ jobs:
             npm run tauri -- build --no-bundle
           '
 
-      - name: Commit and push flake.lock if changed
+      - name: Commit and push lock + pins if changed
+        if: steps.meta.outputs.skip != 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add flake.lock
+          git add flake.nix flake.lock nix/upstream-sources.json
           if git diff --cached --quiet; then
-            echo "flake.lock unchanged"
+            echo "flake.nix / flake.lock / nix/upstream-sources.json unchanged"
             exit 0
           fi
-          git commit -m "chore(nix): update flake.lock"
+          git commit -m "chore(nix): pin upstream ${{ steps.meta.outputs.tag }} (flake + npm)"
           git push origin "HEAD:${{ github.ref_name }}"

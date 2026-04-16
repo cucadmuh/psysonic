@@ -18,7 +18,25 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "upstream-src": "upstream-src"
+      }
+    },
+    "upstream-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1776199121,
+        "narHash": "sha256-NvLIVS9eUnyqo3CGFb9Y5xM/FgLBjWnjFAbf7nzutWU=",
+        "owner": "Psychotoxical",
+        "repo": "psysonic",
+        "rev": "19b7c8ec061256172b0e4e1c13589865a6c4d7bc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Psychotoxical",
+        "ref": "app-v1.34.11",
+        "repo": "psysonic",
+        "type": "github"
       }
     }
   },

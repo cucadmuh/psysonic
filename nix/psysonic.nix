@@ -1,5 +1,6 @@
 # Installable Psysonic (Tauri): npm build → cargo tauri build --no-bundle.
-# Used from the repo flake as packages.<system>.psysonic.
+# Source: inputs.upstream-src (Psychotoxical release tag, flake.lock) + nix/upstream-sources.json.
+# Bump upstream via .github/workflows/upstream-release-nix.yml.
 
 {
   lib,
@@ -31,10 +32,12 @@
   copyDesktopItems,
   makeDesktopItem,
   gst_all_1,
+  src,
+  upstreamMeta,
 }:
 
 let
-  version = (lib.importJSON ../package.json).version;
+  version = upstreamMeta.version or (lib.importJSON (src + "/package.json")).version;
   # WebKit media stack needs discoverable GStreamer plugins (e.g. appsink in gst-plugins-base).
   gstPlugins = with gst_all_1; [
     gstreamer
@@ -43,8 +46,8 @@ let
     gst-plugins-bad
   ];
   gstPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" gstPlugins;
-  src = lib.cleanSourceWith {
-    src = ../.;
+  srcClean = lib.cleanSourceWith {
+    inherit src;
     filter =
       path: _:
       let
@@ -59,14 +62,17 @@ let
       && !(lib.hasInfix "/.flatpak-builder/" f);
   };
   npmDeps = fetchNpmDeps {
-    inherit src;
-    hash = "sha256-K6qJmD7XIUCfSA9US3PDt2VfyIMMbqTIdkpy7DGxLSM=";
+    src = srcClean;
+    hash = upstreamMeta.npmDepsHash;
   };
+  cargoLockFile = src + "/src-tauri/Cargo.lock";
 in
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "psysonic";
-  inherit version src npmDeps;
+  inherit version;
+  src = srcClean;
+  inherit npmDeps;
 
   strictDeps = true;
 
@@ -105,7 +111,7 @@ stdenv.mkDerivation (finalAttrs: {
   ++ gstPlugins;
 
   cargoRoot = "src-tauri";
-  cargoDeps = rustPlatform.importCargoLock { lockFile = ../src-tauri/Cargo.lock; };
+  cargoDeps = rustPlatform.importCargoLock { lockFile = cargoLockFile; };
 
   dontUseCargoParallelJobs = true;
 
@@ -161,4 +167,3 @@ stdenv.mkDerivation (finalAttrs: {
     platforms = lib.platforms.linux;
   };
 })
-

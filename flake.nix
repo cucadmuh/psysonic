@@ -2,6 +2,10 @@
   description = ''
     Psysonic for NixOS / nixpkgs: installable app + dev shell.
 
+    The psysonic package source is the upstream GitHub release pinned in flake.lock
+    (see inputs.upstream-src and nix/upstream-sources.json). Bump via the
+    "Upstream tag — Nix verify + flake.lock" workflow.
+
     Packages:
       nix build .#psysonic          # or .#default — desktop app (.desktop + icon)
       nix profile install .#psysonic
@@ -15,10 +19,17 @@
       nix shell .#devShells.default # same environment without entering subshell semantics
   '';
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pinned by .github/workflows/upstream-release-nix.yml (tag in URL + lock).
+    upstream-src = {
+      url = "github:Psychotoxical/psysonic/app-v1.34.11";
+      flake = false;
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, upstream-src }:
     let
       inherit (nixpkgs) lib;
       systems = [
@@ -76,7 +87,14 @@
           OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
         };
 
-      psysonicFor = system: nixpkgs.legacyPackages.${system}.callPackage ./nix/psysonic.nix { };
+      upstreamMeta = lib.importJSON ./nix/upstream-sources.json;
+
+      psysonicFor =
+        system:
+        nixpkgs.legacyPackages.${system}.callPackage ./nix/psysonic.nix {
+          src = upstream-src;
+          inherit upstreamMeta;
+        };
     in
     {
       devShells = forSystem (system: { default = mkShellFor system; });
