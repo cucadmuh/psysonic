@@ -31,6 +31,13 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          gstPlugins = with pkgs.gst_all_1; [
+            gstreamer
+            gst-plugins-base
+            gst-plugins-good
+            gst-plugins-bad
+          ];
+          gstPluginPath = pkgs.lib.makeSearchPath "lib/gstreamer-1.0" gstPlugins;
         in
         pkgs.mkShell {
           packages = with pkgs; [
@@ -52,10 +59,12 @@
             librsvg
             alsa-lib
             libayatana-appindicator
-          ];
+          ]
+          ++ gstPlugins;
 
           shellHook = ''
             export LD_LIBRARY_PATH="${pkgs.libayatana-appindicator}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            export GST_PLUGIN_PATH="${gstPluginPath}''${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
             export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules''${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}"
             export GDK_BACKEND=x11
             export WEBKIT_DISABLE_COMPOSITING_MODE=1

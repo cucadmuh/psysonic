@@ -30,10 +30,19 @@
   wrapGAppsHook4,
   copyDesktopItems,
   makeDesktopItem,
+  gst_all_1,
 }:
 
 let
   version = (lib.importJSON ../package.json).version;
+  # WebKit media stack needs discoverable GStreamer plugins (e.g. appsink in gst-plugins-base).
+  gstPlugins = with gst_all_1; [
+    gstreamer
+    gst-plugins-base
+    gst-plugins-good
+    gst-plugins-bad
+  ];
+  gstPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" gstPlugins;
   src = lib.cleanSourceWith {
     src = ../.;
     filter =
@@ -92,7 +101,8 @@ stdenv.mkDerivation (finalAttrs: {
     glib
     pango
     librsvg
-  ];
+  ]
+  ++ gstPlugins;
 
   cargoRoot = "src-tauri";
   cargoDeps = rustPlatform.importCargoLock { lockFile = ../src-tauri/Cargo.lock; };
@@ -136,6 +146,7 @@ stdenv.mkDerivation (finalAttrs: {
   postFixup = ''
     wrapProgram $out/bin/psysonic \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ libayatana-appindicator ]}" \
+      --prefix GST_PLUGIN_PATH : "${gstPluginPath}" \
       --prefix GIO_EXTRA_MODULES : "${glib-networking}/lib/gio/modules" \
       --set GDK_BACKEND x11 \
       --set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
