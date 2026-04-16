@@ -116,7 +116,7 @@ const CONTRIBUTORS = [
       'Folder Browser: arrow navigation blocked when modifier keys are held (PR #174)',
       'Linux audio output device picker: stable watcher (disable false enumeration-miss resets), canonicalize ALSA name drift, ghost entry for unlisted device (PR #176)',
       'Opus audio playback via symphonia-adapter-libopus with bundled libopus (PR #183)',
-      'CLI player controls with D-Bus forwarding, shell completions for bash/zsh (PR #187)',
+      'CLI player controls with D-Bus forwarding, shell completions for bash/zsh, library/audio-device/instant-mix CLI commands, active server switcher in header (PR #187)',
     ],
   },
   {
