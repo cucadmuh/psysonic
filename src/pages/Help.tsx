@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Rocket, Play, LibraryBig, Settings2, Radio, Wrench, Shuffle, WifiOff } from 'lucide-react';
+import { ChevronDown, Rocket, Play, LibraryBig, Settings2, Radio, Wrench, Shuffle, WifiOff, HardDriveUpload, Mic2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 interface FaqItem { q: string; a: string; }
@@ -37,15 +37,19 @@ export default function Help() {
       icon: <Play size={18} />,
       title: t('help.s2'),
       items: [
-        { q: t('help.q4'), a: t('help.a4') },
-        { q: t('help.q5'), a: t('help.a5') },
-        { q: t('help.q6'), a: t('help.a6') },
-        { q: t('help.q7'), a: t('help.a7') },
-        { q: t('help.q8'), a: t('help.a8') },
+        { q: t('help.q4'),  a: t('help.a4') },
+        { q: t('help.q5'),  a: t('help.a5') },
+        { q: t('help.q6'),  a: t('help.a6') },
+        { q: t('help.q7'),  a: t('help.a7') },
+        { q: t('help.q8'),  a: t('help.a8') },
         { q: t('help.q22'), a: t('help.a22') },
         { q: t('help.q24'), a: t('help.a24') },
         { q: t('help.q29'), a: t('help.a29') },
+        { q: t('help.q48'), a: t('help.a48') },
         { q: t('help.q30'), a: t('help.a30') },
+        { q: t('help.q58'), a: t('help.a58') },
+        { q: t('help.q49'), a: t('help.a49') },
+        { q: t('help.q59'), a: t('help.a59') },
       ],
     },
     {
@@ -58,6 +62,7 @@ export default function Help() {
         { q: t('help.q38'), a: t('help.a38') },
         { q: t('help.q39'), a: t('help.a39') },
         { q: t('help.q40'), a: t('help.a40') },
+        { q: t('help.q50'), a: t('help.a50') },
         { q: t('help.q11'), a: t('help.a11') },
         { q: t('help.q25'), a: t('help.a25') },
       ],
@@ -71,11 +76,13 @@ export default function Help() {
         { q: t('help.q42'), a: t('help.a42') },
         { q: t('help.q43'), a: t('help.a43') },
         { q: t('help.q13'), a: t('help.a13') },
+        { q: t('help.q32'), a: t('help.a32') },
         { q: t('help.q15'), a: t('help.a15') },
         { q: t('help.q31'), a: t('help.a31') },
-        { q: t('help.q32'), a: t('help.a32') },
+        { q: t('help.q51'), a: t('help.a51') },
         { q: t('help.q44'), a: t('help.a44') },
         { q: t('help.q45'), a: t('help.a45') },
+        { q: t('help.q52'), a: t('help.a52') },
         { q: t('help.q46'), a: t('help.a46') },
       ],
     },
@@ -88,12 +95,29 @@ export default function Help() {
       ],
     },
     {
+      icon: <Mic2 size={18} />,
+      title: t('help.s10'),
+      items: [
+        { q: t('help.q56'), a: t('help.a56') },
+        { q: t('help.q57'), a: t('help.a57') },
+      ],
+    },
+    {
       icon: <Shuffle size={18} />,
       title: t('help.s7'),
       items: [
         { q: t('help.q26'), a: t('help.a26') },
         { q: t('help.q27'), a: t('help.a27') },
         { q: t('help.q28'), a: t('help.a28') },
+      ],
+    },
+    {
+      icon: <HardDriveUpload size={18} />,
+      title: t('help.s9'),
+      items: [
+        { q: t('help.q53'), a: t('help.a53') },
+        { q: t('help.q54'), a: t('help.a54') },
+        { q: t('help.q55'), a: t('help.a55') },
       ],
     },
     {
