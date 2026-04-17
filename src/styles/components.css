@@ -2694,6 +2694,33 @@
   color: var(--text-secondary);
 }
 
+/* Word-sync (karaoke) mode — per-word highlight inside the active line.
+   The parent `.lyrics-line.active` colour is overridden: only `.active` / `.played`
+   words carry accent tint, the remaining words stay at the line's base colour. */
+.lyrics-word-synced .lyrics-line {
+  color: var(--text-secondary);
+}
+.lyrics-word-synced .lyrics-line.active {
+  color: var(--text-secondary); /* line colour neutralised; words decide */
+}
+.lyrics-word-synced .lyrics-line.completed {
+  color: var(--text-muted);
+}
+.lyrics-word {
+  display: inline;
+  transition: color 0.18s ease;
+  color: inherit;
+}
+.lyrics-word.played {
+  color: var(--accent);
+  opacity: 0.65;
+}
+.lyrics-word.active {
+  color: var(--accent);
+  opacity: 1;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 .lyrics-plain {
   padding: 4px 0 16px;
 }
@@ -3553,6 +3580,28 @@
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 0 28px var(--accent-glow, var(--accent)), 0 1px 8px rgba(0, 0, 0, 0.6);
   transform: scaleX(1.015);   /* subtle compositor-only emphasis, no layout cost */
+}
+
+/* Fullscreen word-sync (karaoke). Parent .fsl-active base colour stays dim so
+   only the .active/.played words pop. */
+.fs-lyric-line.fsl-active .fs-lyric-word {
+  color: rgba(255, 255, 255, 0.35);
+  text-shadow: none;
+}
+.fs-lyric-word {
+  display: inline;
+  /* Preserve the trailing space the lyricsplus API embeds in each syllabus
+     token (`"Gina "`, `"dreams "`, …). Without this the flex formatting
+     context collapses it and words run together. */
+  white-space: pre;
+  transition: color 0.18s ease, text-shadow 0.18s ease;
+}
+.fs-lyric-line.fsl-active .fs-lyric-word.played {
+  color: rgba(255, 255, 255, 0.75);
+}
+.fs-lyric-line.fsl-active .fs-lyric-word.active {
+  color: #ffffff;
+  text-shadow: 0 0 28px var(--accent-glow, var(--accent)), 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 
 

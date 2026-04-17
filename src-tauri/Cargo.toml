@@ -73,3 +73,13 @@ windows = { version = "0.58", features = [
 # - Gracefully skips malformed trak atoms (e.g. MJPEG cover-art streams) instead
 #   of failing the entire probe
 symphonia-format-isomp4 = { path = "patches/symphonia-format-isomp4" }
+
+# Local patch for cpal's CoreAudio backend on macOS:
+# - Forces IOType::DefaultOutput for all output streams so that macOS never
+#   triggers the TCC microphone-permission prompt. Upstream cpal uses
+#   IOType::HalOutput when the user pins a non-default device, which routes
+#   through AUHAL — that component is flagged as input-capable and triggers
+#   the mic consent dialog on first launch / after each update.
+# - Tradeoff: output-device selection is a no-op on macOS (stream follows
+#   system default). Surfaced in the Settings UI.
+cpal = { path = "patches/cpal-0.15.3" }

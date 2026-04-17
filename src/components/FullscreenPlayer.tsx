@@ -9,7 +9,7 @@ import { useCachedUrl } from './CachedImage';
 import { getCachedUrl } from '../utils/imageCache';
 import { extractCoverColors } from '../utils/dynamicColors';
 import { useTranslation } from 'react-i18next';
-import { useLyrics } from '../hooks/useLyrics';
+import { useLyrics, type WordLyricsLine } from '../hooks/useLyrics';
 import { useAuthStore } from '../store/authStore';
 import type { LrcLine } from '../api/lrclib';
 import type { Track } from '../store/playerStore';
@@ -29,17 +29,20 @@ function formatTime(seconds: number): string {
 //   activeIdx=5 → railY=-3×slotH  (line 5 at slot 2)
 
 const FsLyrics = memo(function FsLyrics({ currentTrack }: { currentTrack: Track | null }) {
-  const { syncedLines, loading } = useLyrics(currentTrack);
-  const lines = syncedLines as LrcLine[] | null;
-  const hasSynced = lines !== null && lines.length > 0;
+  const { syncedLines, wordLines, loading } = useLyrics(currentTrack);
+  const staticOnly = useAuthStore(s => s.lyricsStaticOnly);
 
-  // Keep a ref so the zustand selector can read lines without closing over
-  // a changing variable — avoids re-creating the selector on every render.
+  // Static-only hides the FS overlay entirely — the 5-line rail UX is inherently
+  // time-driven; without sync the pane view is the correct surface.
+  const useWords  = !staticOnly && wordLines !== null && wordLines.length > 0;
+  const lineSrc: LrcLine[] | null = useWords
+    ? (wordLines as WordLyricsLine[]).map(l => ({ time: l.time, text: l.text }))
+    : (syncedLines as LrcLine[] | null);
+  const hasSynced = !staticOnly && lineSrc !== null && lineSrc.length > 0;
+
   const linesRef = useRef<LrcLine[]>([]);
-  linesRef.current = hasSynced ? lines! : [];
+  linesRef.current = hasSynced ? lineSrc! : [];
 
-  // Selector returns the active line INDEX — zustand only re-renders when it
-  // actually changes, dropping us from ~10 Hz to ~0.2 Hz re-renders.
   const activeIdx = usePlayerStore(s => {
     const ls = linesRef.current;
     if (ls.length === 0) return -1;
@@ -49,7 +52,6 @@ const FsLyrics = memo(function FsLyrics({ currentTrack }: { currentTrack: Track 
   const duration = usePlayerStore(s => s.currentTrack?.duration ?? 0);
   const seek     = usePlayerStore(s => s.seek);
 
-  // Cache slotH — avoids forcing a layout read (window.innerHeight) on every render.
   const slotH = useRef(window.innerHeight * 0.06);
   useEffect(() => {
     const onResize = () => { slotH.current = window.innerHeight * 0.06; };
@@ -57,12 +59,61 @@ const FsLyrics = memo(function FsLyrics({ currentTrack }: { currentTrack: Track 
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Event delegation — one handler for all lyric lines instead of N closures per tick.
   const handleLineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-time]');
     if (!target || duration <= 0) return;
     seek(parseFloat(target.dataset.time!) / duration);
   }, [duration, seek]);
+
+  // Per-word DOM refs keyed by line index; imperative updates skip re-renders
+  // on progress ticks. Only populated when `useWords` is true.
+  const wordRefs   = useRef<HTMLSpanElement[][]>([]);
+  const prevWord   = useRef<{ line: number; word: number }>({ line: -1, word: -1 });
+
+  useEffect(() => {
+    wordRefs.current = [];
+    prevWord.current = { line: -1, word: -1 };
+  }, [currentTrack?.id, useWords]);
+
+  useEffect(() => {
+    if (!useWords) return;
+    const lines = wordLines as WordLyricsLine[];
+
+    const apply = (time: number) => {
+      let lineIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (time >= lines[i].time) lineIdx = i;
+        else break;
+      }
+      let wordIdx = -1;
+      if (lineIdx >= 0) {
+        const words = lines[lineIdx].words;
+        for (let j = 0; j < words.length; j++) {
+          if (time >= words[j].time) wordIdx = j;
+          else break;
+        }
+      }
+      const prev = prevWord.current;
+      if (prev.line === lineIdx && prev.word === wordIdx) return;
+      // Clear previous line's word classes.
+      if (prev.line !== lineIdx && prev.line >= 0 && wordRefs.current[prev.line]) {
+        for (const w of wordRefs.current[prev.line]) w.className = 'fs-lyric-word';
+      }
+      if (lineIdx >= 0 && wordRefs.current[lineIdx]) {
+        const ws = wordRefs.current[lineIdx];
+        for (let j = 0; j < ws.length; j++) {
+          ws[j].className = j < wordIdx ? 'fs-lyric-word played'
+                          : j === wordIdx ? 'fs-lyric-word active'
+                          : 'fs-lyric-word';
+        }
+      }
+      prevWord.current = { line: lineIdx, word: wordIdx };
+    };
+
+    apply(usePlayerStore.getState().currentTime);
+    const unsub = usePlayerStore.subscribe(s => apply(s.currentTime));
+    return unsub;
+  }, [useWords, wordLines]);
 
   if (!currentTrack || loading || !hasSynced) return null;
 
@@ -75,15 +126,36 @@ const FsLyrics = memo(function FsLyrics({ currentTrack }: { currentTrack: Track 
         style={{ transform: `translateY(${railY}px)` }}
         onClick={handleLineClick}
       >
-        {lines!.map((line, i) => (
-          <div
-            key={i}
-            className={`fs-lyric-line${i === activeIdx ? ' fsl-active' : i < activeIdx ? ' fsl-past' : ''}`}
-            data-time={line.time}
-          >
-            {line.text || '\u00A0'}
-          </div>
-        ))}
+        {useWords
+          ? (wordLines as WordLyricsLine[]).map((line, i) => (
+              <div
+                key={i}
+                className={`fs-lyric-line${i === activeIdx ? ' fsl-active' : i < activeIdx ? ' fsl-past' : ''}`}
+                data-time={line.time}
+              >
+                {line.words.length > 0 ? line.words.map((w, j) => (
+                  <span
+                    key={j}
+                    className="fs-lyric-word"
+                    ref={el => {
+                      if (!wordRefs.current[i]) wordRefs.current[i] = [];
+                      if (el) wordRefs.current[i][j] = el;
+                    }}
+                  >
+                    {w.text}
+                  </span>
+                )) : (line.text || '\u00A0')}
+              </div>
+            ))
+          : lineSrc!.map((line, i) => (
+              <div
+                key={i}
+                className={`fs-lyric-line${i === activeIdx ? ' fsl-active' : i < activeIdx ? ' fsl-past' : ''}`}
+                data-time={line.time}
+              >
+                {line.text || '\u00A0'}
+              </div>
+            ))}
       </div>
     </div>
   );

@@ -23,7 +23,7 @@ import ThemePicker, { THEME_GROUPS } from '../components/ThemePicker';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore, ServerProfile, MIX_MIN_RATING_FILTER_MAX_STARS, type SeekbarStyle, type LyricsSourceId, type LyricsSourceConfig } from '../store/authStore';
 import { SeekbarPreview } from '../components/WaveformSeek';
-import { IS_LINUX } from '../utils/platform';
+import { IS_LINUX, IS_MACOS } from '../utils/platform';
 import { useThemeStore } from '../store/themeStore';
 import { useFontStore, FontId } from '../store/fontStore';
 import { useKeybindingsStore, KeyAction, formatBinding, buildInAppBinding } from '../store/keybindingsStore';
@@ -456,14 +456,16 @@ export default function Settings() {
   }, [t]);
 
   // Load available audio output devices when Audio tab opens.
+  // Skipped on macOS — the stream is pinned to the system default (see
+  // audioOutputDeviceMacNotice) so there is no picker to populate.
   useEffect(() => {
-    if (activeTab !== 'audio') return;
+    if (activeTab !== 'audio' || IS_MACOS) return;
     refreshAudioDevices();
   }, [activeTab, refreshAudioDevices]);
 
   // Keep device list + "current system output" mark in sync when the backend reopens the stream.
   useEffect(() => {
-    if (activeTab !== 'audio') return;
+    if (activeTab !== 'audio' || IS_MACOS) return;
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
     (async () => {
@@ -693,41 +695,49 @@ export default function Settings() {
               <h2>{t('settings.audioOutputDevice')}</h2>
             </div>
             <div className="settings-card">
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-                {t('settings.audioOutputDeviceDesc')}
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <CustomSelect
-                  style={{ flex: 1 }}
-                  value={auth.audioOutputDevice ?? ''}
-                  disabled={deviceSwitching || devicesLoading}
-                  onChange={async (val) => {
-                    const device = val || null;
-                    setDeviceSwitching(true);
-                    try {
-                      await invoke('audio_set_device', { deviceName: device });
-                      auth.setAudioOutputDevice(device);
-                    } catch { /* device open failed — don't persist */ }
-                    setDeviceSwitching(false);
-                  }}
-                  options={buildAudioDeviceSelectOptions(
-                    audioDevices,
-                    t('settings.audioOutputDeviceDefault'),
-                    osDefaultAudioDeviceId,
-                    t('settings.audioOutputDeviceOsDefaultNow'),
-                    auth.audioOutputDevice,
-                    t('settings.audioOutputDeviceNotInCurrentList'),
-                  )}
-                />
-                <button
-                  className="icon-btn"
-                  onClick={() => refreshAudioDevices()}
-                  disabled={devicesLoading || deviceSwitching}
-                  data-tooltip={t('settings.audioOutputDeviceRefresh')}
-                >
-                  <RotateCcw size={15} className={devicesLoading ? 'spin' : ''} />
-                </button>
-              </div>
+              {IS_MACOS ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                  {t('settings.audioOutputDeviceMacNotice')}
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                    {t('settings.audioOutputDeviceDesc')}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <CustomSelect
+                      style={{ flex: 1 }}
+                      value={auth.audioOutputDevice ?? ''}
+                      disabled={deviceSwitching || devicesLoading}
+                      onChange={async (val) => {
+                        const device = val || null;
+                        setDeviceSwitching(true);
+                        try {
+                          await invoke('audio_set_device', { deviceName: device });
+                          auth.setAudioOutputDevice(device);
+                        } catch { /* device open failed — don't persist */ }
+                        setDeviceSwitching(false);
+                      }}
+                      options={buildAudioDeviceSelectOptions(
+                        audioDevices,
+                        t('settings.audioOutputDeviceDefault'),
+                        osDefaultAudioDeviceId,
+                        t('settings.audioOutputDeviceOsDefaultNow'),
+                        auth.audioOutputDevice,
+                        t('settings.audioOutputDeviceNotInCurrentList'),
+                      )}
+                    />
+                    <button
+                      className="icon-btn"
+                      onClick={() => refreshAudioDevices()}
+                      disabled={devicesLoading || deviceSwitching}
+                      data-tooltip={t('settings.audioOutputDeviceRefresh')}
+                    >
+                      <RotateCcw size={15} className={devicesLoading ? 'spin' : ''} />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -2538,6 +2548,10 @@ function LyricsSourcesCustomizer() {
   const { t } = useTranslation();
   const lyricsSources = useAuthStore(useShallow(s => s.lyricsSources));
   const setLyricsSources = useAuthStore(s => s.setLyricsSources);
+  const lyricsMode = useAuthStore(s => s.lyricsMode);
+  const setLyricsMode = useAuthStore(s => s.setLyricsMode);
+  const lyricsStaticOnly = useAuthStore(s => s.lyricsStaticOnly);
+  const setLyricsStaticOnly = useAuthStore(s => s.setLyricsStaticOnly);
   const { isDragging: isPsyDragging } = useDragDrop();
   const containerRef = useRef<HTMLDivElement>(null);
   const [dropTarget, setDropTarget] = useState<LyricsDropTarget>(null);
@@ -2603,31 +2617,101 @@ function LyricsSourcesCustomizer() {
       <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
         {t('settings.lyricsSourcesDesc')}
       </p>
-      <div className="settings-card" style={{ padding: '4px 0' }} ref={containerRef} onMouseMove={handleMouseMove}>
-        {lyricsSources.map((src, i) => {
-          const label = t(LYRICS_SOURCE_LABEL_KEYS[src.id]);
-          const isBefore = isPsyDragging && dropTarget?.idx === i && dropTarget.before;
-          const isAfter  = isPsyDragging && dropTarget?.idx === i && !dropTarget.before;
-          return (
-            <div
-              key={src.id}
-              data-lyrics-idx={i}
-              className="sidebar-customizer-row"
-              style={{
-                borderTop:    isBefore ? '2px solid var(--accent)' : undefined,
-                borderBottom: isAfter  ? '2px solid var(--accent)' : undefined,
-              }}
-            >
-              <LyricsSourceGripHandle idx={i} label={label} />
-              <span style={{ flex: 1, fontSize: 14, opacity: src.enabled ? 1 : 0.45 }}>{label}</span>
-              <label className="toggle-switch" aria-label={label}>
-                <input type="checkbox" checked={src.enabled} onChange={() => toggleSource(src.id)} />
-                <span className="toggle-track" />
-              </label>
-            </div>
-          );
-        })}
+
+      {/* Mode switch — standard three-provider pipeline vs. YouLyPlus karaoke.
+          YouLyPlus misses silently fall back to the standard pipeline. */}
+      <div className="settings-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'stretch', flexWrap: 'wrap' }}>
+          <label
+            style={{
+              flex: 1, minWidth: 220, cursor: 'pointer',
+              display: 'flex', gap: '0.6rem', alignItems: 'flex-start',
+              padding: '0.5rem', borderRadius: 6,
+              background: lyricsMode === 'standard' ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+              border: `1px solid ${lyricsMode === 'standard' ? 'var(--accent)' : 'transparent'}`,
+            }}
+          >
+            <input
+              type="radio"
+              name="lyrics-mode"
+              checked={lyricsMode === 'standard'}
+              onChange={() => setLyricsMode('standard')}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <div style={{ fontWeight: 500 }}>{t('settings.lyricsModeStandard')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                {t('settings.lyricsModeStandardDesc')}
+              </div>
+            </span>
+          </label>
+          <label
+            style={{
+              flex: 1, minWidth: 220, cursor: 'pointer',
+              display: 'flex', gap: '0.6rem', alignItems: 'flex-start',
+              padding: '0.5rem', borderRadius: 6,
+              background: lyricsMode === 'lyricsplus' ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+              border: `1px solid ${lyricsMode === 'lyricsplus' ? 'var(--accent)' : 'transparent'}`,
+            }}
+          >
+            <input
+              type="radio"
+              name="lyrics-mode"
+              checked={lyricsMode === 'lyricsplus'}
+              onChange={() => setLyricsMode('lyricsplus')}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <div style={{ fontWeight: 500 }}>{t('settings.lyricsModeLyricsplus')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                {t('settings.lyricsModeLyricsplusDesc')}
+              </div>
+            </span>
+          </label>
+        </div>
       </div>
+
+      {/* Static-only toggle — suppresses line/word tracking in both modes. */}
+      <div className="settings-card" style={{ marginBottom: '0.75rem' }}>
+        <div className="settings-toggle-row">
+          <div>
+            <div style={{ fontWeight: 500 }}>{t('settings.lyricsStaticOnly')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.lyricsStaticOnlyDesc')}</div>
+          </div>
+          <label className="toggle-switch" aria-label={t('settings.lyricsStaticOnly')}>
+            <input type="checkbox" checked={lyricsStaticOnly} onChange={e => setLyricsStaticOnly(e.target.checked)} />
+            <span className="toggle-track" />
+          </label>
+        </div>
+      </div>
+
+      {lyricsMode === 'standard' && (
+        <div className="settings-card" style={{ padding: '4px 0' }} ref={containerRef} onMouseMove={handleMouseMove}>
+          {lyricsSources.map((src, i) => {
+            const label = t(LYRICS_SOURCE_LABEL_KEYS[src.id]);
+            const isBefore = isPsyDragging && dropTarget?.idx === i && dropTarget.before;
+            const isAfter  = isPsyDragging && dropTarget?.idx === i && !dropTarget.before;
+            return (
+              <div
+                key={src.id}
+                data-lyrics-idx={i}
+                className="sidebar-customizer-row"
+                style={{
+                  borderTop:    isBefore ? '2px solid var(--accent)' : undefined,
+                  borderBottom: isAfter  ? '2px solid var(--accent)' : undefined,
+                }}
+              >
+                <LyricsSourceGripHandle idx={i} label={label} />
+                <span style={{ flex: 1, fontSize: 14, opacity: src.enabled ? 1 : 0.45 }}>{label}</span>
+                <label className="toggle-switch" aria-label={label}>
+                  <input type="checkbox" checked={src.enabled} onChange={() => toggleSource(src.id)} />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

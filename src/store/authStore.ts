@@ -69,6 +69,17 @@ interface AuthState {
   lyricsServerFirst: boolean;
   enableNeteaselyrics: boolean;
   lyricsSources: LyricsSourceConfig[];
+  /**
+   * `'standard'`  → server + lrclib + netease pipeline (configurable order).
+   * `'lyricsplus'` → YouLyPlus / lyricsplus first, silent fallback to standard
+   *                  pipeline when no data is returned.
+   */
+  lyricsMode: 'standard' | 'lyricsplus';
+  /**
+   * Render synced lines as static text (no auto-scroll, no word highlighting).
+   * Honoured in both lyrics modes.
+   */
+  lyricsStaticOnly: boolean;
   showFullscreenLyrics: boolean;
   showFsArtistPortrait: boolean;
   /** Portrait dimming 0–100 (percent), applied as CSS rgba alpha */
@@ -198,6 +209,8 @@ interface AuthState {
   setLyricsServerFirst: (v: boolean) => void;
   setEnableNeteaselyrics: (v: boolean) => void;
   setLyricsSources: (sources: LyricsSourceConfig[]) => void;
+  setLyricsMode: (v: 'standard' | 'lyricsplus') => void;
+  setLyricsStaticOnly: (v: boolean) => void;
   setShowFullscreenLyrics: (v: boolean) => void;
   setShowFsArtistPortrait: (v: boolean) => void;
   setFsPortraitDim: (v: number) => void;
@@ -299,6 +312,8 @@ export const useAuthStore = create<AuthState>()(
       lyricsServerFirst: true,
       enableNeteaselyrics: false,
       lyricsSources: DEFAULT_LYRICS_SOURCES,
+      lyricsMode: 'standard',
+      lyricsStaticOnly: false,
       showFullscreenLyrics: true,
       showFsArtistPortrait: true,
       fsPortraitDim: 28,
@@ -424,6 +439,8 @@ export const useAuthStore = create<AuthState>()(
       setLyricsServerFirst: (v: boolean) => set({ lyricsServerFirst: v }),
       setEnableNeteaselyrics: (v: boolean) => set({ enableNeteaselyrics: v }),
       setLyricsSources: (sources) => set({ lyricsSources: sources }),
+      setLyricsMode: (v) => set({ lyricsMode: v }),
+      setLyricsStaticOnly: (v) => set({ lyricsStaticOnly: v }),
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),
       setShowFsArtistPortrait: (v: boolean) => set({ showFsArtistPortrait: v }),
       setFsPortraitDim: (v: number) => set({ fsPortraitDim: v }),
