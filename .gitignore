@@ -44,3 +44,7 @@ tmp/
 
 # Third-party clones for local research (not committed)
 research/
+
+# Nix build output symlink
+result
+result-*

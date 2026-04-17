@@ -159,3 +159,62 @@ jobs:
           find src-tauri/target/release/bundle \
             \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) \
             | xargs gh release upload "app-v${VERSION}" --clobber
+
+  # Verifies that `nix build .#psysonic` still works against the current source
+  # and refreshes `nix/upstream-sources.json` (npmDepsHash) + `flake.lock`
+  # (nixpkgs pin). Commits the refreshed files back to `main` when they change.
+  #
+  # Tarball publishing / Cachix upload are intentionally out of scope here —
+  # those will live in a dedicated workflow tied to a binary cache setup.
+  verify-nix:
+    needs: create-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so we can push the auto-commit back to the default branch.
+          fetch-depth: 0
+          # Checkout main, not the tag — we want to push lock/hash refreshes to
+          # the moving branch, not the immutable tag ref.
+          ref: main
+
+      - name: install Nix
+        uses: DeterminateSystems/nix-installer-action@v15
+
+      - name: compute npmDepsHash from package-lock.json
+        id: npm-hash
+        run: |
+          set -euo pipefail
+          HASH="$(nix run nixpkgs/nixos-unstable#prefetch-npm-deps -- package-lock.json)"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Computed npmDepsHash: $HASH"
+
+      - name: write npmDepsHash into nix/upstream-sources.json
+        run: |
+          set -euo pipefail
+          HASH='${{ steps.npm-hash.outputs.hash }}'
+          jq --arg h "$HASH" '.npmDepsHash = $h' nix/upstream-sources.json > nix/upstream-sources.json.new
+          mv nix/upstream-sources.json.new nix/upstream-sources.json
+          cat nix/upstream-sources.json
+
+      - name: refresh flake.lock (nixpkgs pin)
+        run: nix flake update --accept-flake-config
+
+      - name: verify nix build
+        run: nix build .#psysonic --accept-flake-config --no-link --print-build-logs
+
+      - name: commit + push refreshed lock and hash (if changed)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.lock nix/upstream-sources.json
+          if git diff --cached --quiet; then
+            echo "flake.lock / nix/upstream-sources.json unchanged — nothing to commit."
+            exit 0
+          fi
+          VERSION="${{ needs.create-release.outputs.package_version }}"
+          git commit -m "chore(nix): refresh lock + npmDepsHash for v${VERSION}"
+          git push origin HEAD:main
