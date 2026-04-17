@@ -540,7 +540,7 @@ export const deTranslation = {
     discordAppleCovers: 'Cover über Apple Music für Discord laden',
     discordAppleCoversDesc: 'Sendet Künstler- und Albumname an die Apple-Such-API, um Cover für dein Discord-Profil zu finden. Standardmäßig aus Datenschutzgründen deaktiviert.',
     discordTemplates: 'Benutzerdefinierte Textvorlagen',
-    discordTemplatesDesc: 'Passen Sie an, welche Informationen in Ihrem Discord-Profil angezeigt werden. Variablen: {title}, {artist}, {album}, {paused}',
+    discordTemplatesDesc: 'Passen Sie an, welche Informationen in Ihrem Discord-Profil angezeigt werden. Variablen: {title}, {artist}, {album}',
     discordTemplateDetails: 'Primäre Zeile (details)',
     discordTemplateState: 'Sekundäre Zeile (state)',
     discordTemplateLargeText: 'Album-Tooltip (largeText)',

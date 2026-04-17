@@ -537,7 +537,7 @@ export const nlTranslation = {
     discordAppleCovers: 'Hoezen ophalen via Apple Music voor Discord',
     discordAppleCoversDesc: 'Stuurt artiest- en albumnaam naar de Apple-zoek-API om een hoes te vinden voor je Discord-profiel. Standaard uitgeschakeld vanwege privacy.',
     discordTemplates: 'Aangepaste tekstsjablonen',
-    discordTemplatesDesc: 'Pas aan welke informatie wordt weergegeven op je Discord-profiel. Variabelen: {title}, {artist}, {album}, {paused}',
+    discordTemplatesDesc: 'Pas aan welke informatie wordt weergegeven op je Discord-profiel. Variabelen: {title}, {artist}, {album}',
     discordTemplateDetails: 'Primaire regel (details)',
     discordTemplateState: 'Secundaire regel (state)',
     discordTemplateLargeText: 'Album-tooltip (largeText)',

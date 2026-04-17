@@ -543,7 +543,7 @@ export const esTranslation = {
     discordAppleCovers: 'Obtener portadas de Apple Music para Discord',
     discordAppleCoversDesc: 'Envía el artista y nombre del álbum a la API de búsqueda de Apple para encontrar portadas para tu perfil de Discord. Desactivado por defecto por privacidad.',
     discordTemplates: 'Plantillas de texto personalizadas',
-    discordTemplatesDesc: 'Personaliza qué información se muestra en tu perfil de Discord. Variables: {title}, {artist}, {album}, {paused}',
+    discordTemplatesDesc: 'Personaliza qué información se muestra en tu perfil de Discord. Variables: {title}, {artist}, {album}',
     discordTemplateDetails: 'Línea principal (details)',
     discordTemplateState: 'Línea secundaria (state)',
     discordTemplateLargeText: 'Tooltip del álbum (largeText)',

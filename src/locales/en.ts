@@ -542,7 +542,7 @@ export const enTranslation = {
     discordAppleCovers: 'Fetch covers from Apple Music for Discord',
     discordAppleCoversDesc: 'Sends the artist and album name to Apple\'s search API to find cover art for your Discord profile. Disabled by default for privacy.',
     discordTemplates: 'Custom text templates',
-    discordTemplatesDesc: 'Customize what information is shown on your Discord profile. Variables: {title}, {artist}, {album}, {paused}',
+    discordTemplatesDesc: 'Customize what information is shown on your Discord profile. Variables: {title}, {artist}, {album}',
     discordTemplateDetails: 'Primary line (details)',
     discordTemplateState: 'Secondary line (state)',
     discordTemplateLargeText: 'Album tooltip (largeText)',

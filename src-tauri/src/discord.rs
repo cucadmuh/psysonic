@@ -34,10 +34,6 @@ pub struct DiscordState {
     pub artwork_cache: Arc<Mutex<HashMap<String, ArtworkCacheEntry>>>,
     /// HTTP client for iTunes API requests. blocking::Client is Clone (Arc-internally).
     pub http_client: Client,
-    /// Last calculated start timestamp for the current track (for freezing timer when paused).
-    pub last_start_timestamp: Mutex<Option<i64>>,
-    /// Track whether we were playing in the last update to detect transitions.
-    pub was_playing: Mutex<bool>,
 }
 
 impl DiscordState {
@@ -49,8 +45,6 @@ impl DiscordState {
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            last_start_timestamp: Mutex::new(None),
-            was_playing: Mutex::new(false),
         }
     }
 }
@@ -223,16 +217,13 @@ fn try_connect() -> Option<DiscordIpcClient> {
 }
 
 /// Apply a template string, replacing placeholders with actual values.
-/// Supported placeholders: {title}, {artist}, {album}, {paused}
-fn apply_template(template: &str, title: &str, artist: &str, album: Option<&str>, is_playing: bool) -> String {
-    let paused_text = if is_playing { "" } else { "(Paused) " };
+/// Supported placeholders: {title}, {artist}, {album}
+fn apply_template(template: &str, title: &str, artist: &str, album: Option<&str>) -> String {
     let album_text = album.unwrap_or("");
-
     template
         .replace("{title}", title)
         .replace("{artist}", artist)
         .replace("{album}", album_text)
-        .replace("{paused}", paused_text)
 }
 
 /// Update the Discord Rich Presence activity.
@@ -245,11 +236,11 @@ fn apply_template(template: &str, title: &str, artist: &str, album: Option<&str>
 ///   `cover_art_url` is provided. If false (default), fall back to the Psysonic app icon
 ///   without making any external request — required for privacy opt-in.
 /// - `details_template`: template string for the "details" field. Default: "{artist} - {title}".
-///   Supported placeholders: {title}, {artist}, {album}, {paused}
+///   Supported placeholders: {title}, {artist}, {album}
 /// - `state_template`: template string for the "state" field. Default: "{album}".
-///   Supported placeholders: {title}, {artist}, {album}, {paused}
+///   Supported placeholders: {title}, {artist}, {album}
 /// - `large_text_template`: template string for the large image tooltip. Default: "{album}".
-///   Supported placeholders: {title}, {artist}, {album}, {paused}
+///   Supported placeholders: {title}, {artist}, {album}
 #[tauri::command]
 pub async fn discord_update_presence(
     state: tauri::State<'_, DiscordState>,
@@ -258,7 +249,6 @@ pub async fn discord_update_presence(
     album: Option<String>,
     is_playing: bool,
     elapsed_secs: Option<f64>,
-    duration_secs: Option<f64>,
     cover_art_url: Option<String>,
     fetch_itunes_covers: bool,
     details_template: Option<String>,
@@ -304,13 +294,13 @@ pub async fn discord_update_presence(
 
     // Apply templates for the three configurable text fields.
     let details_str = details_template.as_deref().unwrap_or("{artist} - {title}");
-    let details_text = apply_template(details_str, &title, &artist, album.as_deref(), is_playing);
+    let details_text = apply_template(details_str, &title, &artist, album.as_deref());
 
     let state_str = state_template.as_deref().unwrap_or("{album}");
-    let state_text = apply_template(state_str, &title, &artist, album.as_deref(), is_playing);
+    let state_text = apply_template(state_str, &title, &artist, album.as_deref());
 
     let large_text_str = large_text_template.as_deref().unwrap_or("{album}");
-    let large_text = apply_template(large_text_str, &title, &artist, album.as_deref(), is_playing);
+    let large_text = apply_template(large_text_str, &title, &artist, album.as_deref());
 
     let assets = if let Some(ref url) = artwork_url {
         Assets::new()
@@ -365,8 +355,5 @@ pub fn discord_clear_presence(state: tauri::State<DiscordState>) -> Result<(), S
             *guard = None;
         }
     }
-    // Clear saved timestamp so next track starts fresh
-    let mut start_guard = state.last_start_timestamp.lock().unwrap();
-    *start_guard = None;
     Ok(())
 }
