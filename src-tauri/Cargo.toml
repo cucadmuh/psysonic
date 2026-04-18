@@ -40,6 +40,7 @@ biquad = "0.4"
 ringbuf = "0.3"
 tauri-plugin-window-state = "2.4.1"
 tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
 discord-rich-presence = "0.2"
 url = "2"

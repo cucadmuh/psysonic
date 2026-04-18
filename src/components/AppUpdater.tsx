@@ -166,6 +166,42 @@ export default function AppUpdater() {
   };
 
   const handleDownload = async () => {
+    // On macOS: use the Tauri Updater plugin — downloads .app.tar.gz, verifies
+    // the minisign signature against the bundled pubkey, replaces the .app, and
+    // relaunches. No manual "open the DMG" step needed.
+    if (IS_MACOS) {
+      setDlState('downloading');
+      setDlProgress({ bytes: 0, total: 0 });
+      setDlError('');
+      try {
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const update = await check();
+        if (!update) {
+          setDlError(t('common.updaterErrorMsg'));
+          setDlState('error');
+          return;
+        }
+        let downloaded = 0;
+        let total = 0;
+        await update.downloadAndInstall(event => {
+          if (event.event === 'Started') {
+            total = event.data.contentLength ?? 0;
+            setDlProgress({ bytes: 0, total });
+          } else if (event.event === 'Progress') {
+            downloaded += event.data.chunkLength;
+            setDlProgress({ bytes: downloaded, total });
+          } else if (event.event === 'Finished') {
+            setDlState('done');
+          }
+        });
+        // downloadAndInstall replaces the .app and relaunches automatically on macOS.
+      } catch (e) {
+        setDlError(String(e));
+        setDlState('error');
+      }
+      return;
+    }
+
     if (!asset) return;
     setDlState('downloading');
     setDlProgress({ bytes: 0, total: asset.size });

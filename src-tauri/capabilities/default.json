@@ -37,6 +37,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-create",
     "core:webview:allow-create-webview-window",
-    "process:allow-restart"
+    "process:allow-restart",
+    "updater:default"
   ]
 }

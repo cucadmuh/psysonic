@@ -31,6 +31,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCNzk5MUNCRDQ4N0UwODgKUldTSTRJZlV5NUY1aThucWM3RTh4ZmpwblR1amh4R2lER3NjZDgrQTQwVGNFaWFtVStsUWFjOQo=",
+      "endpoints": [
+        "https://github.com/Psychotoxical/psysonic/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
