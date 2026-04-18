@@ -9,6 +9,7 @@
     <a href="https://tauri.app/"><img alt="Built with Tauri" src="https://img.shields.io/badge/Built%20with-Tauri-242938?style=flat-square&logo=tauri"></a>
     <a href="https://aur.archlinux.org/packages/psysonic"><img alt="AUR" src="https://img.shields.io/aur/version/psysonic?style=flat-square&color=1793d1"></a>
     <a href="https://aur.archlinux.org/packages/psysonic-bin"><img alt="AUR (bin)" src="https://img.shields.io/aur/version/psysonic-bin?style=flat-square&color=1793d1&label=AUR%20(bin)"></a>
+    <a href="https://psysonic.cachix.org"><img alt="Cachix" src="https://img.shields.io/badge/Cachix-psysonic-5277c3?style=flat-square&logo=nixos&logoColor=white"></a>
     <a href="https://discord.gg/AMnDRErm4u"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
   </p>
 </div>
@@ -49,7 +50,8 @@ Designed specifically for users hosting their own music via Navidrome or other S
 - 🖥️ **CLI Control**: Control playback, switch servers, manage the queue, and more directly from the command line.
 - ⌨️ **Customization**: Configurable keybindings, UI fonts, global zoom slider, system tray, backup & restore, and in-app auto-update.
 - 🌍 **8 Languages**: English, German, French, Dutch, Spanish, Chinese, Norwegian, Russian.
-- 🖥️ **Cross-Platform**: Windows, macOS, and Linux (Arch AUR, .deb, .rpm).
+- 🖥️ **Cross-Platform**: Windows, macOS, and Linux (Arch AUR, .deb, .rpm, NixOS flake).
+- ❄️ **NixOS / flakes**: First-class flake package with a public **Cachix** binary cache (`psysonic.cachix.org`) — `nix run github:Psychotoxical/psysonic` or add to your system config. See the [NixOS install guide](./nixos-install.md).
 
 ## 🗺️ Roadmap
 
@@ -75,19 +77,18 @@ curl -fsSL https://raw.githubusercontent.com/Psychotoxical/psysonic/main/scripts
 - **Ubuntu / Debian**: `.deb` from GitHub Releases
 - **Fedora / RHEL**: `.rpm` from GitHub Releases
 
-**NixOS (flakes):**
-- Install guide (including Cachix setup): [`nixos-install.md`](./nixos-install.md)
+**❄️ NixOS (flakes):**
+- `nix run github:Psychotoxical/psysonic` — one-shot launch
+- Add as a flake input and install via `environment.systemPackages` / `home.packages`
+- Set up the public **Cachix** substituter (`psysonic.cachix.org`) to pull pre-built binaries instead of compiling locally
+- Full guide: [`nixos-install.md`](./nixos-install.md) *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#209](https://github.com/Psychotoxical/psysonic/pull/209))*
 
 ### 🍎 macOS
 
-- **macOS**: `.dmg` (Universal or Apple Silicon)
+- **macOS**: `.dmg` (Universal or Apple Silicon) — **signed with an Apple Developer ID and notarized by Apple**. Gatekeeper opens it with a single click, no `xattr` workaround required.
 
-> [!WARNING]
-> **Gatekeeper Note:**
-> Since the app is released without an Apple Developer certificate, macOS will block it by default. To bypass this, run the following command in the Terminal after moving the app to the Applications folder:
-> ```sh
-> xattr -cr /Applications/Psysonic.app
-> ```
+> [!NOTE]
+> Since **v1.40.0**, macOS builds include an in-app auto-updater: click **Install now** in the update notification and the signed `.app.tar.gz` is fetched, verified against the bundled minisign public key, replaced in place, and the app relaunches — all in one step.
 
 ### 🪟 Windows
 
