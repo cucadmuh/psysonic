@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >
 > **🎉 macOS users:** Starting with **v1.34.15**, Psysonic can **update itself silently**. No more DMG downloading and dragging to Applications — the updater fetches the signed `.app` bundle, verifies the signature, replaces the app in place, and relaunches. Just click "Update" when the toast appears.
 
+## [1.34.22] - 2026-04-18
+
+> ### ⚠️ PLEASE IGNORE — TEST BUILD ONLY
+>
+> Corrects the minisign public key in the bundle. The earlier releases had a character lost in transmission, which made the embedded pubkey one byte short and therefore invalid — any auto-update attempt failed with "Invalid encoding in minisign data". This rebuild has the correct key. Test builds will be deleted soon.
+
 ## [1.34.21] - 2026-04-18
 
 > ### ⚠️ PLEASE IGNORE THIS RELEASE — TEST BUILD ONLY
