@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import AlbumCard from '../components/AlbumCard';
 import GenreFilterBar from '../components/GenreFilterBar';
 import { getAlbumList, getAlbumsByGenre, getAlbum, SubsonicAlbum, buildDownloadUrl } from '../api/subsonic';
@@ -11,9 +11,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { showToast } from '../utils/toast';
 import { useZipDownloadStore } from '../store/zipDownloadStore';
-import { X, CheckSquare2, Download, HardDriveDownload, ListMusic } from 'lucide-react';
+import { X, CheckSquare2, Download, HardDriveDownload, ListMusic, Disc3 } from 'lucide-react';
 
 type SortType = 'alphabeticalByName' | 'alphabeticalByArtist';
+type CompFilter = 'all' | 'only' | 'hide';
 
 const PAGE_SIZE = 30;
 const CURRENT_YEAR = new Date().getFullYear();
@@ -44,6 +45,7 @@ export default function Albums() {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
+  const [compFilter, setCompFilter] = useState<CompFilter>('all');
   const observerTarget = useRef<HTMLDivElement>(null);
 
   // ── Multi-selection ──────────────────────────────────────────────────────
@@ -68,8 +70,18 @@ export default function Albums() {
     setSelectedIds(new Set());
   };
 
-  const selectedAlbums = albums.filter(a => selectedIds.has(a.id));
+  const visibleAlbums = useMemo(() => {
+    if (compFilter === 'all') return albums;
+    if (compFilter === 'only') return albums.filter(a => a.isCompilation);
+    return albums.filter(a => !a.isCompilation);
+  }, [albums, compFilter]);
+
+  const selectedAlbums = visibleAlbums.filter(a => selectedIds.has(a.id));
   const openContextMenu = usePlayerStore(state => state.openContextMenu);
+
+  const cycleCompFilter = () => {
+    setCompFilter(v => v === 'all' ? 'only' : v === 'only' ? 'hide' : 'all');
+  };
 
   const handleDownloadZips = async () => {
     if (selectedAlbums.length === 0) return;
@@ -256,6 +268,26 @@ export default function Albums() {
               </div>
 
               <GenreFilterBar selected={selectedGenres} onSelectionChange={setSelectedGenres} />
+
+              <button
+                className={`btn btn-surface${compFilter !== 'all' ? ' btn-sort-active' : ''}`}
+                onClick={cycleCompFilter}
+                data-tooltip={
+                  compFilter === 'all' ? t('albums.compilationTooltipAll')
+                  : compFilter === 'only' ? t('albums.compilationTooltipOnly')
+                  : t('albums.compilationTooltipHide')
+                }
+                data-tooltip-pos="bottom"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  ...(compFilter !== 'all' ? { background: 'var(--accent)', color: 'var(--ctp-crust)' } : {}),
+                }}
+              >
+                <Disc3 size={14} />
+                {compFilter === 'all' ? t('albums.compilationLabel')
+                  : compFilter === 'only' ? t('albums.compilationOnly')
+                  : t('albums.compilationHide')}
+              </button>
             </>
           )}
 
@@ -279,7 +311,7 @@ export default function Albums() {
       ) : (
         <>
           <div className="album-grid-wrap">
-            {albums.map(a => (
+            {visibleAlbums.map(a => (
               <AlbumCard
                 key={a.id}
                 album={a}

@@ -71,6 +71,8 @@ export interface SubsonicAlbum {
   created?: string;
   /** Present on some servers (e.g. OpenSubsonic) for album-level rating. */
   userRating?: number;
+  /** OpenSubsonic: true when the album is tagged as a compilation. */
+  isCompilation?: boolean;
 }
 
 /** OpenSubsonic `artists` / `albumArtists` entries on a child song (may include `userRating`). */
