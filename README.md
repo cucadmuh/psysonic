@@ -79,8 +79,6 @@ curl -fsSL https://raw.githubusercontent.com/Psychotoxical/psysonic/main/scripts
 
 **❄️ NixOS (flakes):**
 - `nix run github:Psychotoxical/psysonic` — one-shot launch
-- Add as a flake input and install via `environment.systemPackages` / `home.packages`
-- Set up the public **Cachix** substituter (`psysonic.cachix.org`) to pull pre-built binaries instead of compiling locally
 - Full guide: [`nixos-install.md`](./nixos-install.md) *(contributed by [@cucadmuh](https://github.com/cucadmuh), PR [#209](https://github.com/Psychotoxical/psysonic/pull/209))*
 
 ### 🍎 macOS
