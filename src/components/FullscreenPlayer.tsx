@@ -502,8 +502,9 @@ interface FsLyricsMenuProps {
   open: boolean;
   onClose: () => void;
   accentColor: string | null;
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }
-const FsLyricsMenu = memo(function FsLyricsMenu({ open, onClose, accentColor }: FsLyricsMenuProps) {
+const FsLyricsMenu = memo(function FsLyricsMenu({ open, onClose, accentColor, triggerRef }: FsLyricsMenuProps) {
   const { t } = useTranslation();
   const showLyrics  = useAuthStore(s => s.showFullscreenLyrics);
   const lyricsStyle = useAuthStore(s => s.fsLyricsStyle);
@@ -512,13 +513,16 @@ const FsLyricsMenu = memo(function FsLyricsMenu({ open, onClose, accentColor }: 
   const panelRef    = useRef<HTMLDivElement>(null);
 
   // Close on click outside the panel or on Escape.
-  // setTimeout(0) defers listener registration past the current click cycle
-  // so the button click that opens the panel doesn't immediately close it.
+  // Ignore clicks on the trigger button so re-clicking it toggles normally
+  // instead of outside-handler closing + click re-opening.
   useEffect(() => {
     if (!open) return;
     const onKey   = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     const onMouse = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef?.current?.contains(target)) return;
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     const t = setTimeout(() => window.addEventListener('mousedown', onMouse), 0);
@@ -527,7 +531,7 @@ const FsLyricsMenu = memo(function FsLyricsMenu({ open, onClose, accentColor }: 
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousedown', onMouse);
     };
-  }, [open, onClose]);
+  }, [open, onClose, triggerRef]);
 
   if (!open) return null;
 
@@ -702,6 +706,7 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
   // Lyrics settings popover state
   const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
   const closeLyricsMenu = useCallback(() => setLyricsMenuOpen(false), []);
+  const lyricsMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Idle-fade system — hides controls after 3 s of inactivity
   const [isIdle, setIsIdle] = useState(false);
@@ -838,8 +843,9 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
             </button>
           )}
           <div style={{ position: 'relative', zIndex: 9 }}>
-            <FsLyricsMenu open={lyricsMenuOpen} onClose={closeLyricsMenu} accentColor={dynamicAccent} />
+            <FsLyricsMenu open={lyricsMenuOpen} onClose={closeLyricsMenu} accentColor={dynamicAccent} triggerRef={lyricsMenuTriggerRef} />
             <button
+              ref={lyricsMenuTriggerRef}
               className={`fs-btn fs-btn-sm${lyricsMenuOpen ? ' active' : ''}`}
               onClick={() => setLyricsMenuOpen(v => !v)}
               aria-label={t('player.fsLyricsToggle')}
