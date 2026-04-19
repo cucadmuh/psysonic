@@ -729,6 +729,8 @@ export const esTranslation = {
     playlistCoverPhotoSub: 'Mostrar cuadrícula de fotos de portada en la vista detallada de playlists',
     showBitrate: 'Mostrar Bitrate',
     showBitrateSub: 'Mostrar bitrate de audio en las listas de pistas',
+    floatingPlayerBar: 'Barra del Reproductor Flotante',
+    floatingPlayerBarSub: 'Mantener la barra del reproductor flotando sobre el contenido',
     uiScaleTitle: 'Escala de Interfaz',
     uiScaleLabel: 'Zoom',
   },

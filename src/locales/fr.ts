@@ -724,6 +724,8 @@ export const frTranslation = {
     playlistCoverPhotoSub: 'Afficher la grille de photos de couverture dans la vue détaillée des playlists',
     showBitrate: 'Afficher le Débit',
     showBitrateSub: 'Afficher le débit audio dans les listes de pistes',
+    floatingPlayerBar: 'Barre de Lecteur Flottante',
+    floatingPlayerBarSub: 'Garder la barre du lecteur flottante au-dessus du contenu',
     uiScaleTitle: "Mise à l'échelle de l'interface",
     uiScaleLabel: 'Zoom',
   },

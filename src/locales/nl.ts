@@ -723,6 +723,8 @@ export const nlTranslation = {
     playlistCoverPhotoSub: 'Toon coverfoto raster in playlist detailweergave',
     showBitrate: 'Toon Bitrate',
     showBitrateSub: 'Toon audio bitrate in tracklijsten',
+    floatingPlayerBar: 'Zwevende Spelerbalk',
+    floatingPlayerBarSub: 'Houd de spelerbalk zwevend boven de inhoud',
     uiScaleTitle: 'Interface schaal',
     uiScaleLabel: 'Zoom',
   },

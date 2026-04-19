@@ -719,6 +719,8 @@ export const zhTranslation = {
     playlistCoverPhotoSub: '在播放列表详细视图中显示封面照片网格',
     showBitrate: '显示比特率',
     showBitrateSub: '在曲目列表中显示音频比特率',
+    floatingPlayerBar: '浮动播放栏',
+    floatingPlayerBarSub: '保持播放栏悬浮在内容上方',
     uiScaleTitle: '界面缩放',
     uiScaleLabel: '缩放',
   },

@@ -736,6 +736,8 @@ export const deTranslation = {
     playlistCoverPhotoSub: 'Zeigt Coverfoto-Raster in der Playlist-Detailansicht',
     showBitrate: 'Bitrate anzeigen',
     showBitrateSub: 'Audio-Bitrate in Track-Listen anzeigen',
+    floatingPlayerBar: 'Schwebende Player-Leiste',
+    floatingPlayerBarSub: 'Player-Leiste über dem Inhalt schweben lassen',
     uiScaleTitle: 'Interface-Skalierung',
     uiScaleLabel: 'Zoom',
   },

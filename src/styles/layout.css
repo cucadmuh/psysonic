@@ -33,6 +33,13 @@
   background: var(--bg-app);
 }
 
+/* When player bar is floating, content extends to bottom */
+.app-shell.floating-player {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas:
+    "sidebar main queue";
+}
+
 /* ─── Custom title bar (Linux only — decorations: false) ─── */
 :root {
   --titlebar-height: 32px;
@@ -44,6 +51,14 @@
     "titlebar titlebar titlebar"
     "sidebar  main     queue"
     "player   player   player";
+}
+
+/* When player bar is floating with titlebar, content extends to bottom */
+.app-shell[data-titlebar].floating-player {
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
+  grid-template-areas:
+    "titlebar titlebar titlebar"
+    "sidebar  main     queue";
 }
 
 /* Resize grips — replace the native GTK grips lost when decorations: false */
@@ -1174,6 +1189,61 @@
   contain: layout paint;
 }
 
+/* Floating player bar styles - positioning handled by ResizeObserver */
+.player-bar.floating {
+  position: fixed;
+  bottom: 12px;
+  /* left/right handled dynamically by JS */
+  z-index: 1000;
+  border-radius: 50px;
+  width: auto;
+  min-width: 100px;
+  max-width: none;
+  grid-area: unset;
+  padding: 0 24px 0 8px;
+  gap: 16px;
+  background: var(--bg-player);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Internal element adjustments for floating mode */
+.player-bar.floating .player-track-info {
+  flex: 0 0 auto;
+  min-width: 240px;
+  max-width: 320px;
+}
+
+.player-bar.floating .player-album-art-wrap {
+  border-radius: 50%;
+}
+
+.player-bar.floating .player-album-art,
+.player-bar.floating .player-album-art-placeholder {
+  border-radius: 0;
+}
+
+.player-bar.floating .player-buttons {
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.player-bar.floating .player-waveform-section {
+  flex: 1;
+  min-width: 200px;
+}
+
+.player-bar.floating .player-volume-section {
+  flex: 0 0 auto;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .player-track-info {
   display: flex;
   align-items: center;
@@ -1416,6 +1486,9 @@
 
 .player-volume-slider {
   width: 100%;
+  display: block;
+  margin: 0;
+  vertical-align: middle;
 }
 
 .player-volume-pct {

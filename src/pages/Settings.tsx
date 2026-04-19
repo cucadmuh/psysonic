@@ -1774,6 +1774,17 @@ export default function Settings() {
                   <span className="toggle-track" />
                 </label>
               </div>
+              <div className="settings-section-divider" />
+              <div className="settings-toggle-row">
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.floatingPlayerBar')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.floatingPlayerBarSub')}</div>
+                </div>
+                <label className="toggle-switch">
+                  <input type="checkbox" checked={theme.floatingPlayerBar} onChange={e => theme.setFloatingPlayerBar(e.target.checked)} />
+                  <span className="toggle-track" />
+                </label>
+              </div>
             </div>
           </section>
 
