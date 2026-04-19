@@ -968,6 +968,8 @@ export const zhTranslation = {
     lyricsSourceLrclib: '来源：LRCLIB',
     lyricsSourceNetease: '来源：网易云',
     lyricsSourceLyricsplus: '来源：YouLyPlus',
+    showDuration: '显示时长',
+    showRemainingTime: '显示剩余时间',
   },
   songInfo: {
     title: '歌曲信息',

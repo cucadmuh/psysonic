@@ -973,6 +973,8 @@ export const frTranslation = {
     lyricsSourceLrclib: 'Source : LRCLIB',
     lyricsSourceNetease: 'Source : Netease',
     lyricsSourceLyricsplus: 'Source : YouLyPlus',
+    showDuration: 'Afficher la durée',
+    showRemainingTime: 'Afficher le temps restant',
   },
   songInfo: {
     title: 'Infos du morceau',

@@ -22,6 +22,8 @@ interface ThemeState {
   setEnablePlaylistCoverPhoto: (v: boolean) => void;
   showBitrate: boolean;
   setShowBitrate: (v: boolean) => void;
+  showRemainingTime: boolean;
+  setShowRemainingTime: (v: boolean) => void;
 }
 
 export function getScheduledTheme(state: Pick<ThemeState, 'enableThemeScheduler' | 'theme' | 'themeDay' | 'themeNight' | 'timeDayStart' | 'timeNightStart'>): string {
@@ -59,6 +61,8 @@ export const useThemeStore = create<ThemeState>()(
       setEnablePlaylistCoverPhoto: (v) => set({ enablePlaylistCoverPhoto: v }),
       showBitrate: true,
       setShowBitrate: (v) => set({ showBitrate: v }),
+      showRemainingTime: false,
+      setShowRemainingTime: (v) => set({ showRemainingTime: v }),
     }),
     {
       name: 'psysonic_theme',

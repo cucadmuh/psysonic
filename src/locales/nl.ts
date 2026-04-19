@@ -972,6 +972,8 @@ export const nlTranslation = {
     lyricsSourceLrclib: 'Bron: LRCLIB',
     lyricsSourceNetease: 'Bron: Netease',
     lyricsSourceLyricsplus: 'Bron: YouLyPlus',
+    showDuration: 'Toon duur',
+    showRemainingTime: 'Toon resterende tijd',
   },
   songInfo: {
     title: 'Nummerinfo',

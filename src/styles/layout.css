@@ -1353,6 +1353,25 @@
   text-align: left;
 }
 
+/* Clickable time toggle with swap indicator */
+.player-time-toggle {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.player-time-toggle:hover {
+  background-color: var(--surface-hover, rgba(128, 128, 128, 0.2));
+  color: var(--text-primary);
+}
+
+.player-time-toggle:active {
+  background-color: var(--surface-active, rgba(128, 128, 128, 0.3));
+}
+
 /* Volume section */
 .player-volume-section {
   display: flex;

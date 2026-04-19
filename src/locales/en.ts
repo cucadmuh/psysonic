@@ -987,6 +987,8 @@ export const enTranslation = {
     lyricsSourceLrclib: 'Source: LRCLIB',
     lyricsSourceNetease: 'Source: Netease',
     lyricsSourceLyricsplus: 'Source: YouLyPlus',
+    showDuration: 'Show duration',
+    showRemainingTime: 'Show remaining time',
   },
   songInfo: {
     title: 'Song Info',

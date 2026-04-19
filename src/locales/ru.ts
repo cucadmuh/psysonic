@@ -1033,6 +1033,8 @@ export const ruTranslation = {
     lyricsNotFound: 'Текст не найден',
     lyricsSourceNetease: 'Источник: Netease',
     lyricsSourceLyricsplus: 'Источник: YouLyPlus',
+    showDuration: 'Показать длительность',
+    showRemainingTime: 'Показать оставшееся время',
   },
   songInfo: {
     title: 'О треке',

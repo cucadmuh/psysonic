@@ -972,6 +972,8 @@ export const nbTranslation = {
     lyricsSourceLrclib: 'Kilde: LRCLIB',
     lyricsSourceNetease: 'Kilde: Netease',
     lyricsSourceLyricsplus: 'Kilde: YouLyPlus',
+    showDuration: 'Vis varighet',
+    showRemainingTime: 'Vis gjenværende tid',
   },
   songInfo: {
     title: 'Sanginfo',

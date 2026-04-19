@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Music,
   Square, Repeat, Repeat1, Maximize2, SlidersVertical, X, Heart, Cast,
-  PictureInPicture2,
+  PictureInPicture2, ArrowLeftRight,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 import { buildCoverArtUrl, coverArtCacheKey, star, unstar, setRating } from '../api/subsonic';
 import CachedImage from './CachedImage';
 import WaveformSeek from './WaveformSeek';
@@ -43,11 +44,28 @@ const PlaybackTime = memo(function PlaybackTime({ className }: { className?: str
   return <span className={className} ref={spanRef} />;
 });
 
+// Renders the remaining time (duration - currentTime) without causing PlayerBar to re-render.
+const RemainingTime = memo(function RemainingTime({ duration, className }: { duration: number; className?: string }) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const updateRemaining = () => {
+      if (spanRef.current) {
+        const remaining = Math.max(0, duration - usePlayerStore.getState().currentTime);
+        spanRef.current.textContent = `-${formatTime(remaining)}`;
+      }
+    };
+    updateRemaining();
+    return usePlayerStore.subscribe(updateRemaining);
+  }, [duration]);
+  return <span className={className} ref={spanRef} />;
+});
+
 export default function PlayerBar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(false);
   const [showVolPct, setShowVolPct] = useState(false);
+  const [localShowRemaining, setLocalShowRemaining] = useState(() => useThemeStore.getState().showRemainingTime);
   const premuteVolumeRef = useRef(1);
   const showLyrics   = useLyricsStore(s => s.showLyrics);
   const activeTab    = useLyricsStore(s => s.activeTab);
@@ -297,7 +315,18 @@ export default function PlayerBar() {
             <div className="player-waveform-wrap">
               <WaveformSeek trackId={currentTrack?.id} />
             </div>
-            <span className="player-time">{formatTime(duration)}</span>
+            <span
+              className="player-time player-time-toggle"
+              onClick={() => {
+                const newVal = !localShowRemaining;
+                setLocalShowRemaining(newVal);
+                useThemeStore.getState().setShowRemainingTime(newVal);
+              }}
+              title={localShowRemaining ? t('player.showDuration') : t('player.showRemainingTime')}
+            >
+              {localShowRemaining ? <RemainingTime duration={duration} /> : formatTime(duration)}
+              <ArrowLeftRight size={10} style={{ marginLeft: 4, opacity: 0.6 }} />
+            </span>
           </>
         )}
       </div>

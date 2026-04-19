@@ -985,6 +985,8 @@ export const deTranslation = {
     lyricsSourceLrclib: 'Quelle: LRCLIB',
     lyricsSourceNetease: 'Quelle: Netease',
     lyricsSourceLyricsplus: 'Quelle: YouLyPlus',
+    showDuration: 'Dauer anzeigen',
+    showRemainingTime: 'Verbleibende Zeit anzeigen',
   },
   songInfo: {
     title: 'Song-Infos',
