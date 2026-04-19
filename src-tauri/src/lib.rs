@@ -2756,6 +2756,11 @@ fn open_mini_player(app: tauri::AppHandle) -> Result<(), String> {
         .map(|m| m.scale_factor())
         .unwrap_or(1.0);
 
+    // macOS keeps the native titlebar (traffic lights + system look).
+    // Windows and Linux use a custom in-page titlebar so the mini fits a
+    // tighter visual style across all WMs (incl. tiling).
+    let use_decorations = cfg!(target_os = "macos");
+
     let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         "mini",
@@ -2765,7 +2770,7 @@ fn open_mini_player(app: tauri::AppHandle) -> Result<(), String> {
     .inner_size(340.0, 180.0)
     .min_inner_size(320.0, 180.0)
     .resizable(true)
-    .decorations(true)
+    .decorations(use_decorations)
     .always_on_top(use_always_on_top)
     .skip_taskbar(false);
 

@@ -901,6 +901,15 @@ export const frTranslation = {
     sourceHot: 'Lecture depuis le cache',
     sourceStream: 'Lecture depuis le flux réseau',
   },
+  miniPlayer: {
+    showQueue: 'Afficher la file',
+    hideQueue: 'Masquer la file',
+    pinOnTop: 'Toujours visible',
+    pinOff: 'Désépingler',
+    openMainWindow: 'Ouvrir la fenêtre principale',
+    close: 'Fermer',
+    emptyQueue: 'La file est vide',
+  },
   statistics: {
     title: 'Statistiques',
     recentlyPlayed: 'Écoutés récemment',

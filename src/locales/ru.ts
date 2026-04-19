@@ -953,6 +953,15 @@ export const ruTranslation = {
     sourceHot: 'Играет из кэша',
     sourceStream: 'Играет из сетевого потока',
   },
+  miniPlayer: {
+    showQueue: 'Показать очередь',
+    hideQueue: 'Скрыть очередь',
+    pinOnTop: 'Поверх окон',
+    pinOff: 'Открепить',
+    openMainWindow: 'Открыть главное окно',
+    close: 'Закрыть',
+    emptyQueue: 'Очередь пуста',
+  },
   statistics: {
     title: 'Статистика',
     recentlyPlayed: 'Недавно проиграно',

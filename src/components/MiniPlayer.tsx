@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import { Play, Pause, SkipBack, SkipForward, Pin, PinOff, Maximize2, X, ListMusic } from 'lucide-react';
 import CachedImage from './CachedImage';
 import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonic';
 import { usePlayerStore } from '../store/playerStore';
 import { useKeybindingsStore, matchInAppBinding } from '../store/keybindingsStore';
 import { useDragDrop } from '../contexts/DragDropContext';
+import { IS_MACOS } from '../utils/platform';
 import MiniContextMenu from './MiniContextMenu';
 import type { MiniSyncPayload, MiniControlAction, MiniTrackInfo } from '../utils/miniPlayerBridge';
 
@@ -87,6 +89,7 @@ function fmt(seconds: number): string {
 }
 
 export default function MiniPlayer() {
+  const { t } = useTranslation();
   const [state, setState] = useState<MiniSyncPayload>(() => initialSnapshot());
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => {
@@ -322,74 +325,100 @@ export default function MiniPlayer() {
   const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
-    <div className={`mini-player${queueOpen ? ' mini-player--queue-open' : ''}`}>
-      <div className="mini-player__art">
-        {track?.coverArt ? (
-          <CachedImage
-            src={buildCoverArtUrl(track.coverArt, 300)}
-            cacheKey={coverArtCacheKey(track.coverArt, 300)}
-            alt={track.album}
-          />
-        ) : (
-          <div className="mini-player__art-fallback" />
-        )}
-      </div>
+    <div className="mini-player-shell">
+      {!IS_MACOS && (
+        <div className="mini-player__titlebar" data-tauri-drag-region>
+          <span className="mini-player__titlebar-title" data-tauri-drag-region>
+            {track?.title ?? 'Psysonic Mini'}
+          </span>
+          <button
+            type="button"
+            className={`mini-player__titlebar-btn${queueOpen ? ' mini-player__titlebar-btn--active' : ''}`}
+            onClick={toggleQueue}
+            data-tauri-drag-region="false"
+            data-tooltip={queueOpen ? t('miniPlayer.hideQueue') : t('miniPlayer.showQueue')}
+            aria-label={queueOpen ? t('miniPlayer.hideQueue') : t('miniPlayer.showQueue')}
+          >
+            <ListMusic size={13} />
+          </button>
+          <button
+            type="button"
+            className={`mini-player__titlebar-btn${alwaysOnTop ? ' mini-player__titlebar-btn--active' : ''}`}
+            onClick={toggleOnTop}
+            data-tauri-drag-region="false"
+            data-tooltip={alwaysOnTop ? t('miniPlayer.pinOff') : t('miniPlayer.pinOnTop')}
+            aria-label={alwaysOnTop ? t('miniPlayer.pinOff') : t('miniPlayer.pinOnTop')}
+          >
+            {alwaysOnTop ? <Pin size={13} /> : <PinOff size={13} />}
+          </button>
+          <button
+            type="button"
+            className="mini-player__titlebar-btn"
+            onClick={showMain}
+            data-tauri-drag-region="false"
+            data-tooltip={t('miniPlayer.openMainWindow')}
+            aria-label={t('miniPlayer.openMainWindow')}
+          >
+            <Maximize2 size={13} />
+          </button>
+          <button
+            type="button"
+            className="mini-player__titlebar-btn mini-player__titlebar-btn--close"
+            onClick={closeMini}
+            data-tauri-drag-region="false"
+            data-tooltip={t('miniPlayer.close')}
+            aria-label={t('miniPlayer.close')}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
-      <div className="mini-player__body">
-        <div className="mini-player__titles">
-          <div className="mini-player__title" title={track?.title}>
-            {track?.title ?? '—'}
+      <div className={`mini-player${queueOpen ? ' mini-player--queue-open' : ''}`}>
+        <div className="mini-player__art">
+          {track?.coverArt ? (
+            <CachedImage
+              src={buildCoverArtUrl(track.coverArt, 300)}
+              cacheKey={coverArtCacheKey(track.coverArt, 300)}
+              alt={track.album}
+            />
+          ) : (
+            <div className="mini-player__art-fallback" />
+          )}
+        </div>
+
+        <div className="mini-player__body" data-tauri-drag-region="false">
+          <div className="mini-player__titles">
+            <div className="mini-player__title" title={track?.title}>
+              {track?.title ?? '—'}
+            </div>
+            <div className="mini-player__artist" title={track?.artist}>
+              {track?.artist ?? ''}
+            </div>
           </div>
-          <div className="mini-player__artist" title={track?.artist}>
-            {track?.artist ?? ''}
+
+          <div className="mini-player__controls">
+            <button className="mini-player__btn" onClick={() => control('prev')} data-tauri-drag-region="false">
+              <SkipBack size={16} />
+            </button>
+            <button className="mini-player__btn mini-player__btn--primary" onClick={() => control('toggle')} data-tauri-drag-region="false">
+              {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+            </button>
+            <button className="mini-player__btn" onClick={() => control('next')} data-tauri-drag-region="false">
+              <SkipForward size={16} />
+            </button>
           </div>
         </div>
 
-        <div className="mini-player__controls">
-          <button className="mini-player__btn" onClick={() => control('prev')} data-tauri-drag-region="false">
-            <SkipBack size={16} />
-          </button>
-          <button className="mini-player__btn mini-player__btn--primary" onClick={() => control('toggle')}>
-            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-          </button>
-          <button className="mini-player__btn" onClick={() => control('next')}>
-            <SkipForward size={16} />
-          </button>
-        </div>
-
-        <div className="mini-player__progress">
+        <div className="mini-player__progress" data-tauri-drag-region="false">
           <div className="mini-player__progress-time">{fmt(currentTime)}</div>
           <div className="mini-player__progress-track">
             <div className="mini-player__progress-fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="mini-player__progress-time">{fmt(duration)}</div>
         </div>
-      </div>
 
-      <div className="mini-player__toolbar">
-        <button
-          className={`mini-player__tool${queueOpen ? ' mini-player__tool--active' : ''}`}
-          onClick={toggleQueue}
-          data-tooltip={queueOpen ? 'Hide queue' : 'Show queue'}
-        >
-          <ListMusic size={13} />
-        </button>
-        <button
-          className={`mini-player__tool${alwaysOnTop ? ' mini-player__tool--active' : ''}`}
-          onClick={toggleOnTop}
-          data-tooltip={alwaysOnTop ? 'Pin off' : 'Pin on top'}
-        >
-          {alwaysOnTop ? <Pin size={13} /> : <PinOff size={13} />}
-        </button>
-        <button className="mini-player__tool" onClick={showMain} data-tooltip="Open main window">
-          <Maximize2 size={13} />
-        </button>
-        <button className="mini-player__tool" onClick={closeMini} data-tooltip="Close">
-          <X size={13} />
-        </button>
-      </div>
-
-      {queueOpen && (
+        {queueOpen && (
         <div
           className={`mini-queue-wrap${isReorderDrag ? ' mini-queue-wrap--drop-active' : ''}`}
           onMouseMove={(e) => {
@@ -412,7 +441,7 @@ export default function MiniPlayer() {
         >
           <div className="mini-queue" ref={queueScrollRef} onScroll={recomputeScroll}>
             {state.queue.length === 0 ? (
-              <div className="mini-queue__empty">Queue is empty</div>
+              <div className="mini-queue__empty">{t('miniPlayer.emptyQueue')}</div>
             ) : (
               state.queue.map((t, i) => {
                 let dragStyle: React.CSSProperties = {};
@@ -483,15 +512,16 @@ export default function MiniPlayer() {
         </div>
       )}
 
-      {ctxMenu && (
-        <MiniContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          track={ctxMenu.track}
-          index={ctxMenu.index}
-          onClose={() => setCtxMenu(null)}
-        />
-      )}
+        {ctxMenu && (
+          <MiniContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            track={ctxMenu.track}
+            index={ctxMenu.index}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -913,6 +913,15 @@ export const deTranslation = {
     sourceHot: 'Wiedergabe aus dem Cache',
     sourceStream: 'Wiedergabe aus dem Netzwerkstream',
   },
+  miniPlayer: {
+    showQueue: 'Warteschlange einblenden',
+    hideQueue: 'Warteschlange ausblenden',
+    pinOnTop: 'Im Vordergrund halten',
+    pinOff: 'Vordergrund deaktivieren',
+    openMainWindow: 'Hauptfenster öffnen',
+    close: 'Schließen',
+    emptyQueue: 'Die Warteschlange ist leer',
+  },
   statistics: {
     title: 'Statistiken',
     recentlyPlayed: 'Zuletzt gehört',

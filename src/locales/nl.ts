@@ -900,6 +900,15 @@ export const nlTranslation = {
     sourceHot: 'Afspelen vanuit cache',
     sourceStream: 'Afspelen vanuit netwerkstream',
   },
+  miniPlayer: {
+    showQueue: 'Wachtrij tonen',
+    hideQueue: 'Wachtrij verbergen',
+    pinOnTop: 'Altijd boven',
+    pinOff: 'Losmaken',
+    openMainWindow: 'Hoofdvenster openen',
+    close: 'Sluiten',
+    emptyQueue: 'Wachtrij is leeg',
+  },
   statistics: {
     title: 'Statistieken',
     recentlyPlayed: 'Recent afgespeeld',

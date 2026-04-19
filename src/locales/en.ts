@@ -915,6 +915,15 @@ export const enTranslation = {
     sourceHot: 'Playing from cache',
     sourceStream: 'Playing from network stream',
   },
+  miniPlayer: {
+    showQueue: 'Show queue',
+    hideQueue: 'Hide queue',
+    pinOnTop: 'Pin on top',
+    pinOff: 'Unpin',
+    openMainWindow: 'Open main window',
+    close: 'Close',
+    emptyQueue: 'Queue is empty',
+  },
   statistics: {
     title: 'Statistics',
     recentlyPlayed: 'Recently Played',

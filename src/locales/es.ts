@@ -906,6 +906,15 @@ export const esTranslation = {
     sourceHot: 'Reproducción desde la caché',
     sourceStream: 'Reproducción desde la transmisión en red',
   },
+  miniPlayer: {
+    showQueue: 'Mostrar cola',
+    hideQueue: 'Ocultar cola',
+    pinOnTop: 'Mantener encima',
+    pinOff: 'Desfijar',
+    openMainWindow: 'Abrir ventana principal',
+    close: 'Cerrar',
+    emptyQueue: 'La cola está vacía',
+  },
   statistics: {
     title: 'Estadísticas',
     recentlyPlayed: 'Reproducidos Recientemente',
