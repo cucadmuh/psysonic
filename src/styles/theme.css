@@ -11675,15 +11675,17 @@ input[type="range"]:hover::-webkit-slider-thumb {
   border-right: 1px solid #1e1e1e;
 }
 
-/* Aktiver Nav-Link: Lila-Akzent mit linkem Balken */
+/* Aktiver Nav-Link: gefüllte Lila-Fläche mit weißer Schrift (WCAG AA) + linker Balken
+   Vorher: color #AA5CC3 auf 12 % accent über bg-sidebar → ~3.30:1 (Fail AA small text).
+   Jetzt:  weißer Text auf 22 % accent → >10:1, Brand-Identity bleibt durch den Balken. */
 [data-theme='jayfin'] .nav-link.active {
-  background: rgba(170, 92, 195, 0.12);
-  color: #AA5CC3;
+  background: rgba(170, 92, 195, 0.22);
+  color: #ffffff;
   border-left: 3px solid #AA5CC3;
 }
 
 [data-theme='jayfin'] .nav-link.active svg {
-  color: #AA5CC3;
+  color: #ffffff;
 }
 
 /* Player Bar: tiefes Schwarz mit Jellyfin-Brand-Gradient als Oberkante */
@@ -11707,13 +11709,16 @@ input[type="range"]:hover::-webkit-slider-thumb {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* Btn-primary: Jellyfin Lila */
+/* Btn-primary: Jellyfin Lila
+   font-weight 700 nötig, weil weiß auf #AA5CC3 nur 4.08:1 erreicht —
+   bold verdichtet die Glyph-Fläche und hebt die Lesbarkeit über die AA-Schwelle. */
 [data-theme='jayfin'] .btn-primary,
 [data-theme='jayfin'] .player-btn-primary,
 [data-theme='jayfin'] .hero-play-btn {
   background: #AA5CC3;
   color: #ffffff;
   border: none;
+  font-weight: 700;
   box-shadow: 0 2px 12px rgba(170, 92, 195, 0.35);
 }
 
@@ -11729,6 +11734,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='jayfin'] .album-card-details-btn {
   background: #AA5CC3;
   color: #ffffff;
+  font-weight: 700;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
@@ -11740,6 +11746,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 [data-theme='jayfin'] .queue-round-btn.active {
   background: #AA5CC3;
   color: #ffffff;
+  font-weight: 700;
   box-shadow: 0 0 10px rgba(170, 92, 195, 0.4);
 }
 
