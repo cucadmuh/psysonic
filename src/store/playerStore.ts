@@ -223,12 +223,27 @@ let seekTarget: number | null = null;
 // Streaming seek fallback state:
 // - coalesces rapid slider moves into a single restart/seek cycle
 // - keeps only the latest requested target
-let seekFallbackRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let seekFallbackPendingAfterRestart: { trackId: string; seconds: number; attemptsLeft: number } | null = null;
 let seekFallbackRestartInFlightTrackId: string | null = null;
-let seekFallbackLastRestartAt = 0;
+let seekFallbackLastAttemptAt = 0;
+let seekFallbackVolumeDucked = false;
+let seekStreamProbeTimer: ReturnType<typeof setTimeout> | null = null;
+let seekStreamProbeSeq = 0;
 const SEEK_FALLBACK_MAX_RETRIES = 8;
-const SEEK_BACKWARD_STREAM_EPS = 0.75;
+const SEEK_STREAM_DIRECT_TIMEOUT_MS = 450;
+
+function seekFallbackDuckVolume() {
+  if (seekFallbackVolumeDucked) return;
+  seekFallbackVolumeDucked = true;
+  invoke('audio_set_volume', { volume: 0 }).catch(() => {});
+}
+
+function seekFallbackRestoreVolume() {
+  if (!seekFallbackVolumeDucked) return;
+  seekFallbackVolumeDucked = false;
+  const volume = usePlayerStore.getState().volume;
+  invoke('audio_set_volume', { volume }).catch(() => {});
+}
 
 // Guard against rapid double-click play/pause sending two state transitions
 // to the Rust backend before it has finished the previous one.
@@ -388,16 +403,20 @@ function handleAudioPlaying(_duration: number) {
   if (!cur || cur.id !== pending.trackId) {
     seekFallbackPendingAfterRestart = null;
     seekFallbackRestartInFlightTrackId = null;
+    seekFallbackRestoreVolume();
     return;
   }
   invoke('audio_seek', { seconds: pending.seconds }).then(() => {
     seekTarget = pending.seconds;
     seekFallbackPendingAfterRestart = null;
     seekFallbackRestartInFlightTrackId = null;
+    seekFallbackRestoreVolume();
+    seekFallbackLastAttemptAt = Date.now();
   }).catch(() => {
     if (pending.attemptsLeft <= 0) {
       seekFallbackPendingAfterRestart = null;
       seekFallbackRestartInFlightTrackId = null;
+      seekFallbackRestoreVolume();
       return;
     }
     seekFallbackPendingAfterRestart = {
@@ -405,34 +424,61 @@ function handleAudioPlaying(_duration: number) {
       seconds: pending.seconds,
       attemptsLeft: pending.attemptsLeft - 1,
     };
-    if (seekFallbackRetryTimer) clearTimeout(seekFallbackRetryTimer);
-    seekFallbackRetryTimer = setTimeout(() => {
-      seekFallbackRetryTimer = null;
-      handleAudioPlaying(0);
-    }, 250);
+    // Avoid tight retry loops while network/chunk loading is still in progress.
+    // Next retries happen from real progress ticks in handleAudioProgress.
   });
 }
 
 function handleAudioProgress(current_time: number, duration: number) {
+  const store = usePlayerStore.getState();
+  const track = store.currentTrack;
+  if (!track) return;
+  const pending = seekFallbackPendingAfterRestart;
+
   // While a seek is pending, the store already holds the optimistic target
-  // position.  Accepting stale progress from the Rust engine would briefly
+  // position. Accepting stale progress from the Rust engine would briefly
   // snap the waveform back to the old position before the seek completes.
   if (seekDebounce) return;
   // After the debounce fires, Rust may still emit 1–2 ticks with the old
-  // position before the seek takes effect.  Block until current_time is
-  // within 2 s of the requested target, then clear the guard.
+  // position before the seek takes effect.
   if (seekTarget !== null) {
     if (Math.abs(current_time - seekTarget) > 2.0) return;
     seekTarget = null;
   }
 
-  const store = usePlayerStore.getState();
-  const track = store.currentTrack;
-  if (!track) return;
   const dur = duration > 0 ? duration : track.duration;
   if (dur <= 0) return;
   const progress = current_time / dur;
   usePlayerStore.setState({ currentTime: current_time, progress, buffered: 0 });
+
+  if (
+    pending
+    && pending.trackId === track.id
+    && pending.attemptsLeft > 0
+    && Date.now() - seekFallbackLastAttemptAt >= 700
+  ) {
+    seekFallbackLastAttemptAt = Date.now();
+    invoke('audio_seek', { seconds: pending.seconds }).then(() => {
+      seekTarget = pending.seconds;
+      seekFallbackPendingAfterRestart = null;
+      seekFallbackRestartInFlightTrackId = null;
+      seekFallbackRestoreVolume();
+    }).catch(() => {
+      const curPending = seekFallbackPendingAfterRestart;
+      if (!curPending || curPending.trackId !== track.id) return;
+      if (curPending.attemptsLeft <= 1) {
+        seekFallbackPendingAfterRestart = null;
+        seekFallbackRestartInFlightTrackId = null;
+        seekFallbackRestoreVolume();
+        return;
+      }
+      seekFallbackPendingAfterRestart = {
+        trackId: curPending.trackId,
+        seconds: curPending.seconds,
+        attemptsLeft: curPending.attemptsLeft - 1,
+      };
+    });
+  }
 
   // Scrobble at 50%: Last.fm + Navidrome (updates play_date / recently played)
   if (progress >= 0.5 && !store.scrobbled) {
@@ -1063,8 +1109,9 @@ export const usePlayerStore = create<PlayerState>()(
         isAudioPaused = false;
         gaplessPreloadingId = null; bytePreloadingId = null; // new track — allow fresh preload for next
         if (seekDebounce) { clearTimeout(seekDebounce); seekDebounce = null; } seekTarget = null;
-        if (seekFallbackRetryTimer) { clearTimeout(seekFallbackRetryTimer); seekFallbackRetryTimer = null; }
-        seekFallbackLastRestartAt = 0;
+        if (seekStreamProbeTimer) { clearTimeout(seekStreamProbeTimer); seekStreamProbeTimer = null; }
+        seekStreamProbeSeq += 1;
+        seekFallbackLastAttemptAt = 0;
         seekFallbackRestartInFlightTrackId = null;
 
         // If a radio stream is active, stop it before the new track starts so
@@ -1083,10 +1130,15 @@ export const usePlayerStore = create<PlayerState>()(
         if (seekFallbackPendingAfterRestart?.trackId !== track.id) {
           seekFallbackPendingAfterRestart = null;
         }
+        if (!seekFallbackPendingAfterRestart) {
+          seekFallbackRestoreVolume();
+        }
         const pendingSeekTarget = seekFallbackPendingAfterRestart?.trackId === track.id
           ? seekFallbackPendingAfterRestart.seconds
           : null;
-        const initialTime = pendingSeekTarget !== null ? Math.max(0, Math.min(pendingSeekTarget, track.duration || pendingSeekTarget)) : 0;
+        const initialTime = pendingSeekTarget !== null
+          ? Math.max(0, Math.min(pendingSeekTarget, track.duration || pendingSeekTarget))
+          : 0;
         const initialProgress =
           track.duration && track.duration > 0 ? Math.max(0, Math.min(1, initialTime / track.duration)) : 0;
 
@@ -1143,9 +1195,10 @@ export const usePlayerStore = create<PlayerState>()(
           ? (authState.replayGainMode === 'album' ? (track.replayGainAlbumDb ?? track.replayGainTrackDb) : track.replayGainTrackDb) ?? null
           : null;
         const replayGainPeak = authState.replayGainEnabled ? (track.replayGainPeak ?? null) : null;
+        const playVolume = seekFallbackVolumeDucked ? 0 : state.volume;
         invoke('audio_play', {
           url,
-          volume: state.volume,
+          volume: playVolume,
           durationHint: track.duration,
           replayGainDb,
           replayGainPeak,
@@ -1190,7 +1243,7 @@ export const usePlayerStore = create<PlayerState>()(
             }));
           });
         }
-        syncQueueToServer(newQueue, track, 0);
+        syncQueueToServer(newQueue, track, initialTime);
         touchHotCacheOnPlayback(track.id, authState.activeServerId ?? '');
       },
 
@@ -1475,29 +1528,52 @@ export const usePlayerStore = create<PlayerState>()(
         if (seekDebounce) clearTimeout(seekDebounce);
         seekDebounce = setTimeout(() => {
           seekDebounce = null;
+          if (seekStreamProbeTimer) { clearTimeout(seekStreamProbeTimer); seekStreamProbeTimer = null; }
+          seekStreamProbeSeq += 1;
           const s = get();
-          const isBackwardOnStream =
-            s.currentPlaybackSource === 'stream'
-            && time < s.currentTime - SEEK_BACKWARD_STREAM_EPS;
-          if (isBackwardOnStream && s.currentTrack) {
-            // Keep only the latest target while dragging.
-            seekFallbackPendingAfterRestart = {
-              trackId: s.currentTrack.id,
-              seconds: time,
-              attemptsLeft: SEEK_FALLBACK_MAX_RETRIES,
+          const isStreamSource = s.currentPlaybackSource === 'stream';
+          if (isStreamSource && s.currentTrack) {
+            // Fast path: try direct stream seek first. If it does not complete
+            // quickly, fall back to byte-path restart.
+            seekTarget = time;
+            seekFallbackPendingAfterRestart = null;
+            seekFallbackRestartInFlightTrackId = null;
+            const probeSeq = seekStreamProbeSeq;
+            const fallbackToByteRestart = () => {
+              if (probeSeq !== seekStreamProbeSeq) return;
+              const cur = get();
+              if (!cur.currentTrack) return;
+              seekFallbackDuckVolume();
+              seekFallbackPendingAfterRestart = {
+                trackId: cur.currentTrack.id,
+                seconds: time,
+                attemptsLeft: SEEK_FALLBACK_MAX_RETRIES,
+              };
+              const restartBusy = seekFallbackRestartInFlightTrackId === cur.currentTrack.id;
+              if (!restartBusy) {
+                seekFallbackRestartInFlightTrackId = cur.currentTrack.id;
+                cur.playTrack(cur.currentTrack, cur.queue, false);
+              }
             };
-            const now = Date.now();
-            const restartBusy = seekFallbackRestartInFlightTrackId === s.currentTrack.id;
-            const restartCooldown = now - seekFallbackLastRestartAt < 450;
-            if (!restartBusy && !restartCooldown) {
-              seekFallbackLastRestartAt = now;
-              seekFallbackRestartInFlightTrackId = s.currentTrack.id;
-              s.playTrack(s.currentTrack, s.queue, false);
-            }
+            seekStreamProbeTimer = setTimeout(() => {
+              seekStreamProbeTimer = null;
+              fallbackToByteRestart();
+            }, SEEK_STREAM_DIRECT_TIMEOUT_MS);
+            invoke('audio_seek', { seconds: time }).then(() => {
+              if (probeSeq !== seekStreamProbeSeq) return;
+              if (seekStreamProbeTimer) { clearTimeout(seekStreamProbeTimer); seekStreamProbeTimer = null; }
+            }).catch(() => {
+              if (probeSeq !== seekStreamProbeSeq) return;
+              if (seekStreamProbeTimer) { clearTimeout(seekStreamProbeTimer); seekStreamProbeTimer = null; }
+              fallbackToByteRestart();
+            });
             return;
           }
           seekTarget = time;
           invoke('audio_seek', { seconds: time }).catch((err: unknown) => {
+            // If seek failed, do not freeze progress updates waiting for an
+            // unattainable target position while network/stream recovers.
+            seekTarget = null;
             const msg = String(err ?? '');
             const recoverable =
               msg.includes('not seekable')
@@ -1516,14 +1592,12 @@ export const usePlayerStore = create<PlayerState>()(
               seconds: time,
               attemptsLeft: SEEK_FALLBACK_MAX_RETRIES,
             };
-            const now = Date.now();
             const restartBusy = seekFallbackRestartInFlightTrackId === s.currentTrack.id;
-            const restartCooldown = now - seekFallbackLastRestartAt < 450;
-            if (!restartBusy && !restartCooldown) {
-              seekFallbackLastRestartAt = now;
+            if (!restartBusy) {
               seekFallbackRestartInFlightTrackId = s.currentTrack.id;
-              // Force byte path for recovery (seekable), not streaming path.
-              s.playTrack(s.currentTrack, s.queue, false);
+              const shouldByteRestart = s.currentPlaybackSource === 'stream';
+              if (shouldByteRestart) seekFallbackDuckVolume();
+              s.playTrack(s.currentTrack, s.queue, shouldByteRestart ? false : true);
             }
           });
         }, 100);
