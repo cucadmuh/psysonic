@@ -26,6 +26,8 @@ interface ThemeState {
   setShowRemainingTime: (v: boolean) => void;
   expandReplayGain: boolean;
   setExpandReplayGain: (v: boolean) => void;
+  floatingPlayerBar: boolean;
+  setFloatingPlayerBar: (v: boolean) => void;
 }
 
 export function getScheduledTheme(state: Pick<ThemeState, 'enableThemeScheduler' | 'theme' | 'themeDay' | 'themeNight' | 'timeDayStart' | 'timeNightStart'>): string {
@@ -67,6 +69,8 @@ export const useThemeStore = create<ThemeState>()(
       setShowRemainingTime: (v) => set({ showRemainingTime: v }),
       expandReplayGain: false,
       setExpandReplayGain: (v) => set({ expandReplayGain: v }),
+      floatingPlayerBar: false,
+      setFloatingPlayerBar: (v) => set({ floatingPlayerBar: v }),
     }),
     {
       name: 'psysonic_theme',

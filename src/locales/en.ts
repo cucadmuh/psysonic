@@ -738,6 +738,8 @@ export const enTranslation = {
     playlistCoverPhotoSub: 'Show cover photo grid in playlist detail view',
     showBitrate: 'Show Bitrate',
     showBitrateSub: 'Display audio bitrate in track listings',
+    floatingPlayerBar: 'Floating Player Bar',
+    floatingPlayerBarSub: 'Keep the player bar floating above content',
     uiScaleTitle: 'Interface Scale',
     uiScaleLabel: 'Zoom',
   },

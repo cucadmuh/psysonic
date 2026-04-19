@@ -101,6 +101,40 @@ export default function PlayerBar() {
     setUserRatingOverride: s.setUserRatingOverride,
   })));
   const { lastfmSessionKey } = useAuthStore();
+  const { floatingPlayerBar } = useThemeStore();
+  const [floatingStyle, setFloatingStyle] = useState<React.CSSProperties>({});
+
+  useEffect(() => {
+    if (!floatingPlayerBar) return;
+
+    const updatePosition = () => {
+      const sidebar = document.querySelector('.sidebar') as HTMLElement;
+      const queue = document.querySelector('.queue-panel') as HTMLElement;
+
+      const leftOffset = sidebar ? sidebar.getBoundingClientRect().right : 0;
+      const rightOffset = queue ? window.innerWidth - queue.getBoundingClientRect().left : 0;
+
+      setFloatingStyle({
+        left: leftOffset + 24,
+        right: rightOffset + 24,
+        width: 'auto',
+      });
+    };
+
+    updatePosition();
+
+    const observer = new ResizeObserver(updatePosition);
+    const sidebar = document.querySelector('.sidebar');
+    const queue = document.querySelector('.queue-panel');
+    if (sidebar) observer.observe(sidebar);
+    if (queue) observer.observe(queue);
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [floatingPlayerBar]);
 
   const isRadio = !!currentRadio;
 
@@ -150,8 +184,13 @@ export default function PlayerBar() {
     background: `linear-gradient(to right, var(--volume-accent, var(--accent)) ${volume * 100}%, var(--ctp-surface2) ${volume * 100}%)`,
   };
 
-  return (
-    <footer className="player-bar" role="region" aria-label={t('player.regionLabel')}>
+  const playerBarContent = (
+    <footer
+      className={`player-bar ${floatingPlayerBar ? 'floating' : ''}`}
+      style={floatingPlayerBar ? floatingStyle : undefined}
+      role="region"
+      aria-label={t('player.regionLabel')}
+    >
 
       {/* Track Info */}
       <div className="player-track-info">
@@ -410,4 +449,10 @@ export default function PlayerBar() {
 
     </footer>
   );
+
+  if (floatingPlayerBar) {
+    return createPortal(playerBarContent, document.body);
+  }
+
+  return playerBarContent;
 }
