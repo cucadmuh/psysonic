@@ -13,11 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >
 > **📦 Version jump 1.34.x → 1.40.0:** The 1.34.x patch series was bumped a lot as each small feature landed. 1.40.0 consolidates the last few weeks of work — macOS signing + auto-updater, the Device-Sync overhaul, theme work and contrast audits — into a single coherent release. The next major bump (2.0.0) is planned once Windows code-signing + Windows auto-updater are active as well.
 
-## [1.41.0] - 2026-04-18
+## [1.42.0] - 2026-04-19
+
+> **🛠️ Note on the 1.41.0 jump:** The 1.41.0 tag exists as an internal Draft release on GitHub — it was used to wire up and verify the Cachix substituter pipeline and never went public. **1.42.0 is the first public release after 1.40.0** and consolidates everything that was prepared for 1.41.0 plus the work landed on top in the days since.
+>
+> **❄️ Cachix is live for NixOS users.** The `psysonic.cachix.org` substituter is now actually fed by every release. Earlier 1.40.x runs were silently skipping the cache push (see *Fixed* below), so the first user to ask for a given output paid the full compile cost. Starting with 1.42.0, `nix run github:Psychotoxical/psysonic` and the NixOS module both pull the prebuilt closure straight from Cachix — no local Rust + symphonia + libopus build required.
 
 ### Added
 
-- **Mini player window — early alpha** *(Issue [#162](https://github.com/Psychotoxical/psysonic/issues/162), by [@Psychotoxical](https://github.com/Psychotoxical))*: A small always-on-top companion window with album art, title, artist, prev/play/next, progress bar, and a pin-on-top toggle. Opens via the new picture-in-picture icon in the player bar. The main window auto-minimizes when the mini opens and is restored when the mini is hidden or closed; an "expand" button in the mini jumps back without closing it. Spacebar toggles playback, arrow keys skip tracks. On tiling WMs (Hyprland/Sway/i3) the always-on-top flag is skipped since it wouldn't be honoured anyway. Lyrics, EQ, queue expand and drag-snap are deliberately out of scope for this first cut.
+- **Mini player — feature-complete second cut** *(Issue [#162](https://github.com/Psychotoxical/psysonic/issues/162), by [@Psychotoxical](https://github.com/Psychotoxical))*: The early-alpha mini from the internal 1.41.0 prep gets the rest of the workflow it was missing.
+  - **Expandable queue panel** with full track list, search-style overlay scrollbar (no width-eating gutter), drag-to-reorder using the existing PsyDnD system, and a localized right-click context menu (Play now / Remove from queue / Open album / Go to artist / Favorite / Song info — all forwarded to the main window via Tauri events so the source-of-truth playerStore stays consistent).
+  - **Custom in-page titlebar** on Windows + Linux with a drag region, the current track title and the queue / pin / open-main / close action icons. macOS keeps the native traffic-lights titlebar so the system look is preserved. The lower toolbar from the alpha is gone — its four buttons live in the titlebar now.
+  - **Persistent geometry**: window position, expanded-queue height and queue-open state all survive an app restart. Position is written to `<app_config_dir>/mini_player_pos.json` on every move (throttled), and re-applied after each show — Linux WMs (Mutter/KWin) re-centre hidden windows on show, so without re-applying the position would be lost on the second open.
+  - **User-bindable keyboard shortcut** in Settings → Shortcuts (`open-mini-player`, default unbound). The same chord toggles between main and mini regardless of which window has focus.
+  - **Layout polish**: cover shrinks 112 → 84 px, the right column gets title / artist / transport in a single block, progress + toolbar take full width.
+  - **Live theme / font / language sync**: changes in the main window propagate to an open mini via the shared localStorage `storage` event — no need to close + re-open the mini after rebinding a shortcut or switching themes.
+  - **Always-on-top reliability fix**: WMs that silently ignore `set_always_on_top(true)` when the flag is "already true" (KWin, certain Mutter releases) get a forced false → true cycle so the constraint is actually re-evaluated. The frontend also re-asserts the pin state on mount and on focus, so the user no longer has to click the pin button twice for it to stick.
+
+- **Player bar — click-to-toggle duration / remaining time** *(contributed by [@kveld9](https://github.com/kveld9), PR [#212](https://github.com/Psychotoxical/psysonic/pull/212))*: Click the time read-out in the player bar to swap between total duration (`3:45`) and remaining time (`-2:34`). Updates live, persisted to `themeStore.showRemainingTime`. A small swap icon (⇄) and hover highlight signal the interaction.
+
+- **Queue — ReplayGain in tech strip, expandable badge** *(Issue [#195](https://github.com/Psychotoxical/psysonic/issues/195), originally by [@cucadmuh](https://github.com/cucadmuh) in PRs [#196](https://github.com/Psychotoxical/psysonic/pull/196) / [#201](https://github.com/Psychotoxical/psysonic/pull/201) — UX iteration by [@Psychotoxical](https://github.com/Psychotoxical) on cucadmuh's feedback)*: Tracks with ReplayGain metadata now show a small `RG ⌄` pill at the end of the codec/bitrate/sample-rate strip. Hover reveals the values via tooltip; click expands a second line ("ReplayGain · T -8.9 dB · A -11.0 dB · Peak 0.998") that is persisted across sessions. Hides itself for tracks without RG metadata.
+
+- **Changelog — sidebar banner + dedicated `/whats-new` page** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: The auto-popup modal that nagged the user on first launch after each update is replaced by a discreet sidebar banner. Clicking it opens a full `/whats-new` page that renders the latest CHANGELOG section in app — no separate Markdown viewer, no broken links to GitHub.
 
 - **Favorites — genre column + Top Favorite Artists row** *(Issue [#87](https://github.com/Psychotoxical/psysonic/issues/87), by [@Psychotoxical](https://github.com/Psychotoxical))*: The Favorites tracklist now has a toggleable Genre column (alongside the existing Album column and multi-genre filter). A new horizontally scrolling "Top Favorite Artists" row sits between Radio Stations and Songs, aggregated from starred tracks and sorted by star count. Clicking an artist card narrows the song list to that artist.
 
@@ -26,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sticky header on Albums, New Releases, Artists** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: The header row with search/sort/genre/year controls now pins to the top while scrolling, so filters stay reachable without jumping back up. Works the same on all three browse pages.
 
 - **Device Sync — album artist on both panels** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: Album entries in both the library (left) and on-device (right) panels now display `Album · Artist` inline, so sampler discs and self-titled albums are no longer guesswork. Playlists unchanged.
+
+- **NixOS — first-class flake install guide** *(contributed by [@cucadmuh](https://github.com/cucadmuh), PRs [#209](https://github.com/Psychotoxical/psysonic/pull/209) / [#210](https://github.com/Psychotoxical/psysonic/pull/210))*: A new top-level `nixos-install.md` walks through adding Psysonic as a flake input, installing via `environment.systemPackages` / `home.packages`, and wiring up the public `psysonic.cachix.org` substituter so every NixOS user pulls prebuilt binaries. README links to it directly.
+
+- **README — AppImage in the Linux install options + Cachix badge** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: The Linux install section now lists AppImage alongside `.deb`, `.rpm`, AUR and Nix flakes. A Cachix badge on the README header signals that NixOS users get prebuilt binaries.
 
 ### Changed
 
@@ -37,7 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Device Sync — album/playlist meta inline** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: `BrowserRow` renders secondary info inline with a `·` separator in muted colour instead of a separate right-aligned column, matching the on-device panel's format.
 
+- **README — Arch/AUR fold-up** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: The Arch / AUR install instructions are folded into the Linux install section so the README stops scrolling forever.
+
 ### Fixed
+
+- **Player bar — black-flash on WebKitGTK** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: Linux users occasionally saw the entire player bar paint fully black for one frame when an unrelated layer elsewhere on the page invalidated. `contain: layout paint` makes the bar its own paint boundary so it can no longer be pulled into a surrounding dirty rect. No-op on platforms that don't exhibit the flash (Wayland-with-GPU, Chromium webviews on Windows / macOS).
+
+- **Player bar — time-toggle tooltip uses the in-app TooltipPortal** *(follow-up to PR [#212](https://github.com/Psychotoxical/psysonic/pull/212), by [@Psychotoxical](https://github.com/Psychotoxical))*: The new time-swap control was rendering the native browser `title=` tooltip (unstyled OS popup, ignored by every other control). Switched to `data-tooltip="…"` so it matches every other player-bar tooltip.
 
 - **Fullscreen player — lyrics menu toggle + readability** *(by [@Psychotoxical](https://github.com/Psychotoxical))*: Re-clicking the mic icon now actually closes the lyrics settings panel instead of the outside-click handler closing it and the click re-opening it — the trigger button is excluded from the outside-check. The panel itself is now a solid surface (no backdrop blur, near-opaque background, higher-contrast button text) so settings remain readable over the busy fullscreen background.
 
@@ -47,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Contributors
 
-- [@cucadmuh](https://github.com/cucadmuh) — i18n fix for ArtistCardLocal.
+- [@kveld9](https://github.com/kveld9) — click-to-toggle duration / remaining time in the player bar.
+- [@cucadmuh](https://github.com/cucadmuh) — i18n fix for ArtistCardLocal, ReplayGain UX feedback that drove the expandable badge, NixOS install guide, README polish.
 
 ---
 
