@@ -322,7 +322,7 @@ export default function PlayerBar() {
                 setLocalShowRemaining(newVal);
                 useThemeStore.getState().setShowRemainingTime(newVal);
               }}
-              title={localShowRemaining ? t('player.showDuration') : t('player.showRemainingTime')}
+              data-tooltip={localShowRemaining ? t('player.showDuration') : t('player.showRemainingTime')}
             >
               {localShowRemaining ? <RemainingTime duration={duration} /> : formatTime(duration)}
               <ArrowLeftRight size={10} style={{ marginLeft: 4, opacity: 0.6 }} />
