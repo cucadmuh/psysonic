@@ -2654,20 +2654,6 @@ export default function Settings() {
                             <div>
                               <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 {t('settings.audiomuseTitle')}
-                                <span
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.04em',
-                                    padding: '2px 6px',
-                                    borderRadius: 4,
-                                    background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 22%, transparent)',
-                                    color: 'var(--text-primary)',
-                                  }}
-                                >
-                                  {t('settings.hotCacheAlphaBadge')}
-                                </span>
                                 {!!auth.audiomuseNavidromeByServer[srv.id] && auth.audiomuseNavidromeIssueByServer[srv.id] && (
                                   <AlertTriangle
                                     size={16}

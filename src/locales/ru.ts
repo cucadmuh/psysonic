@@ -561,7 +561,6 @@ export const ruTranslation = {
     offlineDirClear: 'Сбросить по умолчанию',
     offlineDirHint: 'Новые загрузки пойдут в выбранную папку. Старые останутся на прежнем месте.',
     hotCacheTitle: 'Горячий кэш воспроизведения',
-    hotCacheAlphaBadge: 'Альфа',
     hotCacheDisclaimer: 'Заранее подгружает следующие треки из очереди и сохраняет предыдущие. При включении использует место на диске и сеть.',
     hotCacheDirDefault: 'По умолчанию (данные приложения)',
     hotCacheDirChange: 'Сменить папку',

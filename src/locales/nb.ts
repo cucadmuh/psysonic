@@ -543,7 +543,6 @@ export const nbTranslation = {
 	offlineDirClear: 'Tilbakestill til standard',
 	offlineDirHint: 'Nye nedlastinger vil bruke denne plasseringen. Eksisterende nedlastinger forblir på sin opprinnelige lokasjon.',	
     hotCacheTitle: 'Varm avspillingsbuffer',
-    hotCacheAlphaBadge: 'Alfa',
     hotCacheDisclaimer: 'Forhåndshenter neste spor i køen og beholder tidligere. Når aktivert: diskplass og nettverk.',
     hotCacheDirDefault: 'Standard (App-data)',
     hotCacheDirChange: 'Endre mappe',

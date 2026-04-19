@@ -545,7 +545,6 @@ export const esTranslation = {
     offlineDirClear: 'Restablecer a Predeterminado',
     offlineDirHint: 'Las nuevas descargas usarán esta ubicación. Las descargas existentes permanecen en su ruta original.',
     hotCacheTitle: 'Caché de reproducción activa',
-    hotCacheAlphaBadge: 'Alpha',
     hotCacheDisclaimer: 'Precarga las siguientes pistas en cola y mantiene las anteriores. Cuando está activado, usa espacio en disco y red.',
     hotCacheDirDefault: 'Predeterminado (Datos de App)',
     hotCacheDirChange: 'Cambiar carpeta',

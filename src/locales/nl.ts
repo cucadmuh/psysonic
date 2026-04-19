@@ -541,7 +541,6 @@ export const nlTranslation = {
     offlineDirClear: 'Terugzetten naar standaard',
     offlineDirHint: 'Nieuwe downloads worden op deze locatie opgeslagen. Bestaande downloads blijven op hun oorspronkelijke locatie.',
     hotCacheTitle: 'Warme afspeelcache',
-    hotCacheAlphaBadge: 'Alpha',
     hotCacheDisclaimer: 'Laadt aankomende wachtrijtracks voor en bewaart eerdere. Indien ingeschakeld: schijfruimte en netwerk.',
     hotCacheDirDefault: 'Standaard (app-gegevens)',
     hotCacheDirChange: 'Map wijzigen',

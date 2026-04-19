@@ -552,7 +552,6 @@ export const deTranslation = {
     offlineDirClear: 'Auf Standard zurücksetzen',
     offlineDirHint: 'Neue Downloads werden an diesem Ort gespeichert. Bestehende Downloads verbleiben am ursprünglichen Pfad.',
     hotCacheTitle: 'Hot-Playback-Cache',
-    hotCacheAlphaBadge: 'Alpha',
     hotCacheDisclaimer: 'Lädt kommende Warteschlangen-Titel vor und behält zuletzt gespielte. Bei aktivierter Option: Speicherplatz und Netzwerk.',
     hotCacheDirDefault: 'Standard (App-Daten)',
     hotCacheDirChange: 'Ordner ändern',

@@ -537,7 +537,6 @@ export const zhTranslation = {
     offlineDirClear: '重置为默认',
     offlineDirHint: '新下载将保存到此位置，现有下载保留在原始路径。',
     hotCacheTitle: '热播放缓存',
-    hotCacheAlphaBadge: '预览',
     hotCacheDisclaimer: '预加载队列中即将播放的曲目并保留近期已播放的。开启后占用磁盘与网络。',
     hotCacheDirDefault: '默认（应用数据）',
     hotCacheDirChange: '更改目录',

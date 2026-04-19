@@ -554,7 +554,6 @@ export const enTranslation = {
     offlineDirClear: 'Reset to Default',
     offlineDirHint: 'New downloads will use this location. Existing downloads remain at their original path.',
     hotCacheTitle: 'Hot playback cache',
-    hotCacheAlphaBadge: 'Alpha',
     hotCacheDisclaimer: 'Preloads upcoming queue tracks and keeps previous ones. When enabled, uses disk space and network.',
     hotCacheDirDefault: 'Default (App Data)',
     hotCacheDirChange: 'Change folder',

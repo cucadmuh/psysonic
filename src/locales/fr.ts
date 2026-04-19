@@ -542,7 +542,6 @@ export const frTranslation = {
     offlineDirClear: 'Réinitialiser',
     offlineDirHint: 'Les nouveaux téléchargements utiliseront cet emplacement. Les téléchargements existants restent à leur emplacement d\'origine.',
     hotCacheTitle: 'Cache de lecture à chaud',
-    hotCacheAlphaBadge: 'Alpha',
     hotCacheDisclaimer: 'Précharge les titres à venir dans la file et conserve les précédents. Si activé : espace disque et réseau.',
     hotCacheDirDefault: 'Par défaut (données d\'application)',
     hotCacheDirChange: 'Changer le dossier',
