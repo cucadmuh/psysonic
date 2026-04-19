@@ -832,6 +832,9 @@ export default function WaveformSeek({ trackId }: Props) {
   useEffect(() => {
     return usePlayerStore.subscribe((state, prev) => {
       if (state.progress === prev.progress && state.buffered === prev.buffered) return;
+      // While user drags, keep the local preview stable. External progress ticks
+      // during streaming/recovery would otherwise fight the cursor and flicker.
+      if (isDragging.current) return;
       progressRef.current = state.progress;
       bufferedRef.current = state.buffered;
       if (!ANIMATED_STYLES.has(styleRef.current)) {
@@ -890,15 +893,23 @@ export default function WaveformSeek({ trackId }: Props) {
   trackIdRef.current = trackId;
   const seekRef = useRef(seek);
   seekRef.current = seek;
+  const pendingSeekRef = useRef<number | null>(null);
 
   // Seek to a 0–1 fraction: draw immediately for 1:1 responsiveness, then
   // let the store + Rust catch up asynchronously.
-  const seekToFraction = (fraction: number) => {
+  const previewFraction = (fraction: number) => {
     progressRef.current = fraction;
+    pendingSeekRef.current = fraction;
     const canvas = canvasRef.current;
     if (canvas && !ANIMATED_STYLES.has(styleRef.current)) {
       drawSeekbar(canvas, styleRef.current, heightsRef.current, fraction, bufferedRef.current);
     }
+  };
+
+  const commitSeek = () => {
+    const fraction = pendingSeekRef.current;
+    if (fraction === null) return;
+    pendingSeekRef.current = null;
     seekRef.current(fraction);
   };
 
@@ -907,10 +918,14 @@ export default function WaveformSeek({ trackId }: Props) {
       const canvas = canvasRef.current;
       if (!canvas || !trackIdRef.current) return;
       const rect = canvas.getBoundingClientRect();
-      seekToFraction(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)));
+      previewFraction(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)));
     };
     const onMove = (e: MouseEvent) => { if (isDragging.current) seekFromX(e.clientX); };
-    const onUp   = () => { isDragging.current = false; };
+    const onUp   = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      commitSeek();
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onUp);
     return () => {
@@ -935,7 +950,7 @@ export default function WaveformSeek({ trackId }: Props) {
         onMouseDown={e => {
           isDragging.current = true;
           const rect = e.currentTarget.getBoundingClientRect();
-          seekToFraction(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+          previewFraction(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
         }}
         onMouseMove={e => {
           if (!trackId) return;
