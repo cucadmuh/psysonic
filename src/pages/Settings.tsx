@@ -140,6 +140,8 @@ const CONTRIBUTORS = [
       'Fullscreen player: stop mesh blob and portrait animations in no-compositing mode; remove seekbar box-shadow repaint (PR #175)',
       'Apple Music-style scrolling lyrics with spring-physics scroll for fullscreen player and sidebar; per-style controls (PR #205)',
       'Golos Text and Unbounded fonts with Cyrillic support (PR #206)',
+      'Fullscreen & sidebar lyrics: duration-based ease-out scroll animator replacing spring physics; bottom fade for plain lyrics (PR #214)',
+      'Sidebar lyrics: YouLy+ source strings render in a single line (PR #215)',
     ],
   },
   {
@@ -160,6 +162,8 @@ const CONTRIBUTORS = [
       'CSV import: dynamic match threshold, cleaned title search, score display in report (PR #199)',
       'Discord Rich Presence: configurable text templates for details, state and album tooltip (PR #198)',
       'Click-to-toggle duration / remaining time in player bar with persisted preference (PR #212)',
+      'Opt-in floating player bar with themed background, accent-colored border, rounded album art, and centered volume section (PR #216)',
+      'Linux GPU-vendor auto-detection to configure the WebKitGTK DMA-BUF renderer (disabled on NVIDIA proprietary) (PR #217)',
     ],
   },
   {
