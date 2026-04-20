@@ -496,6 +496,7 @@ export const ruTranslation = {
     userMgmtLibrariesValidation: 'Выберите хотя бы одну библиотеку.',
     userMgmtLibrariesUpdateError: 'Пользователь сохранён, но не удалось назначить библиотеки',
     userMgmtNoLibraries: 'Библиотеки не назначены',
+    userMgmtNeverSeen: 'Никогда',
     userMgmtSave: 'Сохранить',
     userMgmtCancel: 'Отмена',
     userMgmtDelete: 'Удалить',

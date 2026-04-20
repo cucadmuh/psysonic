@@ -491,6 +491,7 @@ export const enTranslation = {
     userMgmtLibrariesValidation: 'Select at least one library.',
     userMgmtLibrariesUpdateError: 'User saved, but library assignment failed',
     userMgmtNoLibraries: 'No libraries assigned',
+    userMgmtNeverSeen: 'Never',
     userMgmtSave: 'Save',
     userMgmtCancel: 'Cancel',
     userMgmtDelete: 'Delete',

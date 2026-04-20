@@ -479,6 +479,7 @@ export const nbTranslation = {
     userMgmtLibrariesValidation: 'Velg minst ett bibliotek.',
     userMgmtLibrariesUpdateError: 'Brukeren ble lagret, men bibliotekstilordning mislyktes',
     userMgmtNoLibraries: 'Ingen biblioteker tilordnet',
+    userMgmtNeverSeen: 'Aldri',
     userMgmtSave: 'Lagre',
     userMgmtCancel: 'Avbryt',
     userMgmtDelete: 'Slett',

@@ -474,6 +474,7 @@ export const zhTranslation = {
     userMgmtLibrariesValidation: '请至少选择一个音乐库。',
     userMgmtLibrariesUpdateError: '用户已保存，但音乐库分配失败',
     userMgmtNoLibraries: '未分配音乐库',
+    userMgmtNeverSeen: '从未',
     userMgmtSave: '保存',
     userMgmtCancel: '取消',
     userMgmtDelete: '删除',

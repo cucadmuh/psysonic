@@ -478,6 +478,7 @@ export const nlTranslation = {
     userMgmtLibrariesValidation: 'Selecteer ten minste één bibliotheek.',
     userMgmtLibrariesUpdateError: 'Gebruiker opgeslagen, maar bibliotheektoewijzing mislukt',
     userMgmtNoLibraries: 'Geen bibliotheken toegewezen',
+    userMgmtNeverSeen: 'Nooit',
     userMgmtSave: 'Opslaan',
     userMgmtCancel: 'Annuleren',
     userMgmtDelete: 'Verwijderen',

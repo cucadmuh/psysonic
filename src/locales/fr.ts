@@ -479,6 +479,7 @@ export const frTranslation = {
     userMgmtLibrariesValidation: 'Sélectionnez au moins une bibliothèque.',
     userMgmtLibrariesUpdateError: 'Utilisateur enregistré, mais l\u2019attribution des bibliothèques a échoué',
     userMgmtNoLibraries: 'Aucune bibliothèque attribuée',
+    userMgmtNeverSeen: 'Jamais',
     userMgmtSave: 'Enregistrer',
     userMgmtCancel: 'Annuler',
     userMgmtDelete: 'Supprimer',

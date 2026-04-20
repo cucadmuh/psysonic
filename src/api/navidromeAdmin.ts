@@ -13,6 +13,7 @@ export interface NdUser {
   isAdmin: boolean;
   libraryIds: number[];
   lastLoginAt?: string | null;
+  lastAccessAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -56,6 +57,7 @@ export async function ndListUsers(serverUrl: string, token: string): Promise<NdU
       isAdmin: !!o.isAdmin,
       libraryIds: extractLibraryIds(o),
       lastLoginAt: (o.lastLoginAt as string | null | undefined) ?? null,
+      lastAccessAt: (o.lastAccessAt as string | null | undefined) ?? null,
       createdAt: o.createdAt as string | undefined,
       updatedAt: o.updatedAt as string | undefined,
     };

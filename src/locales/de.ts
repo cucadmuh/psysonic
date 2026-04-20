@@ -489,6 +489,7 @@ export const deTranslation = {
     userMgmtLibrariesValidation: 'Mindestens eine Bibliothek auswählen.',
     userMgmtLibrariesUpdateError: 'Benutzer gespeichert, aber Bibliothekszuweisung fehlgeschlagen',
     userMgmtNoLibraries: 'Keine Bibliotheken zugewiesen',
+    userMgmtNeverSeen: 'Nie',
     userMgmtSave: 'Speichern',
     userMgmtCancel: 'Abbrechen',
     userMgmtDelete: 'Löschen',

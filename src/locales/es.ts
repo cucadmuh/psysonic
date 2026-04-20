@@ -482,6 +482,7 @@ export const esTranslation = {
     userMgmtLibrariesValidation: 'Selecciona al menos una biblioteca.',
     userMgmtLibrariesUpdateError: 'Usuario guardado, pero la asignación de bibliotecas falló',
     userMgmtNoLibraries: 'Sin bibliotecas asignadas',
+    userMgmtNeverSeen: 'Nunca',
     userMgmtSave: 'Guardar',
     userMgmtCancel: 'Cancelar',
     userMgmtDelete: 'Eliminar',

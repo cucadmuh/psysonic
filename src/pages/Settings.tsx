@@ -444,6 +444,23 @@ function UserForm({
   );
 }
 
+function formatLastSeen(iso: string | null | undefined, locale: string, neverLabel: string): string {
+  if (!iso) return neverLabel;
+  const t = new Date(iso).getTime();
+  // Navidrome returns "0001-01-01T00:00:00Z" for never-accessed users → guard against bogus epochs.
+  if (!Number.isFinite(t) || t < 1_000_000_000_000) return neverLabel;
+  const diffSec = (t - Date.now()) / 1000;
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  if (abs < 60) return rtf.format(Math.round(diffSec), 'second');
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), 'minute');
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), 'hour');
+  if (abs < 604800) return rtf.format(Math.round(diffSec / 86400), 'day');
+  if (abs < 2592000) return rtf.format(Math.round(diffSec / 604800), 'week');
+  if (abs < 31536000) return rtf.format(Math.round(diffSec / 2592000), 'month');
+  return rtf.format(Math.round(diffSec / 31536000), 'year');
+}
+
 function UserManagementSection({
   serverUrl,
   token,
@@ -453,7 +470,7 @@ function UserManagementSection({
   token: string;
   currentUsername: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [users, setUsers] = useState<NdUser[]>([]);
   const [libraries, setLibraries] = useState<NdLibrary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -607,6 +624,10 @@ function UserManagementSection({
                   : u.libraryIds.length === 0
                     ? t('settings.userMgmtNoLibraries')
                     : libraries.filter(l => u.libraryIds.includes(l.id)).map(l => l.name).join(', ');
+                const lastSeen = formatLastSeen(u.lastAccessAt, i18n.language, t('settings.userMgmtNeverSeen'));
+                const lastSeenAbsolute = u.lastAccessAt
+                  ? new Date(u.lastAccessAt).toLocaleString(i18n.language)
+                  : '';
                 return (
                   <div
                     key={u.id}
@@ -652,9 +673,15 @@ function UserManagementSection({
                         {libNames}
                       </span>
                     )}
+                    <span
+                      style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginLeft: libNames ? 0 : 'auto' }}
+                      data-tooltip={lastSeenAbsolute || undefined}
+                    >
+                      {lastSeen}
+                    </span>
                     <button
                       className="btn btn-ghost"
-                      style={{ color: 'var(--danger)', padding: '2px 6px', marginLeft: 'auto', flexShrink: 0 }}
+                      style={{ color: 'var(--danger)', padding: '2px 6px', flexShrink: 0 }}
                       onClick={(e) => { e.stopPropagation(); setConfirmingDelete(u); }}
                       disabled={busy || isSelf}
                       data-tooltip={t('settings.userMgmtDelete')}
