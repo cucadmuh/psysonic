@@ -353,6 +353,9 @@ export const esTranslation = {
     urlRequired: 'Por favor ingresa una URL de servidor.',
     savedServers: 'Servidores Guardados',
     addNew: 'O agregar un nuevo servidor',
+    orMagicString: 'O cadena mágica',
+    magicStringPlaceholder: 'Pega una cadena de invitación (psysonic1-…)',
+    magicStringInvalid: 'Cadena mágica no válida o ilegible.',
   },
   connection: {
     connected: 'Conectado',
@@ -502,6 +505,19 @@ export const esTranslation = {
     userMgmtUpdated: 'Usuario actualizado.',
     userMgmtDeleted: 'Usuario eliminado.',
     userMgmtValidationMissing: 'Se requieren nombre de usuario, nombre visible y contraseña.',
+    userMgmtValidationMissingIdentity: 'Se requieren nombre de usuario y nombre visible.',
+    userMgmtMagicStringGenerate: 'Generar cadena mágica',
+    userMgmtSaveAndMagicString: 'Guardar y obtener cadena mágica',
+    userMgmtMagicStringPasswordNavHint:
+      'Navidrome guardará esta contraseña para el usuario. Si difiere de la actual, se actualizará la contraseña de acceso en el servidor.',
+    userMgmtMagicStringPlaintextWarning:
+      'Comparte la cadena mágica con cuidado: contiene la contraseña sin cifrar (la codificación no es cifrado). Quien tenga la cadena completa puede iniciar sesión como este usuario.',
+    userMgmtMagicStringCopied: 'Cadena mágica copiada al portapapeles.',
+    userMgmtMagicStringCopyFailed: 'No se pudo copiar al portapapeles.',
+    userMgmtMagicStringLoginFailed: 'Falló la comprobación de la contraseña; no se pudieron verificar las credenciales.',
+    userMgmtMagicStringModalTitle: 'Generar cadena mágica',
+    userMgmtMagicStringModalDesc: 'Introduce la contraseña Subsonic de «{{username}}». Se incluirá en la cadena mágica copiada.',
+    userMgmtMagicStringModalConfirm: 'Copiar cadena',
     audiomuseTitle: 'AudioMuse-AI (Navidrome)',
     audiomuseDesc:
       'Activa si este servidor tiene el plugin <pluginLink>AudioMuse-AI Navidrome</pluginLink> configurado. Habilita Mezcla Instantánea desde pistas y usa artistas similares del servidor en lugar de Last.fm en páginas de artistas.',

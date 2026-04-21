@@ -351,6 +351,9 @@ export const deTranslation = {
     urlRequired: 'Bitte Server-URL eingeben.',
     savedServers: 'Gespeicherte Server',
     addNew: 'Oder neuen Server hinzufügen',
+    orMagicString: 'Oder Magic-String',
+    magicStringPlaceholder: 'Freigabe-String einfügen (psysonic1-…)',
+    magicStringInvalid: 'Ungültiger oder nicht lesbarer Magic-String.',
   },
   connection: {
     connected: 'Verbunden',
@@ -509,6 +512,19 @@ export const deTranslation = {
     userMgmtUpdated: 'Benutzer aktualisiert.',
     userMgmtDeleted: 'Benutzer gelöscht.',
     userMgmtValidationMissing: 'Benutzername, Anzeigename und Passwort sind erforderlich.',
+    userMgmtValidationMissingIdentity: 'Benutzername und Anzeigename sind erforderlich.',
+    userMgmtMagicStringGenerate: 'Magic-String erzeugen',
+    userMgmtSaveAndMagicString: 'Speichern und Magic-String kopieren',
+    userMgmtMagicStringPasswordNavHint:
+      'Navidrome speichert dieses Passwort für den Benutzer. Weicht es vom aktuellen ab, wird das Anmeldepasswort auf dem Server aktualisiert.',
+    userMgmtMagicStringPlaintextWarning:
+      'Teilen Sie den Magic-String vorsichtig: Er enthält das Passwort im Klartext (Kodierung ist keine Verschlüsselung). Wer die vollständige Zeichenkette hat, kann sich als dieser Benutzer anmelden.',
+    userMgmtMagicStringCopied: 'Magic-String in die Zwischenablage kopiert.',
+    userMgmtMagicStringCopyFailed: 'Kopieren in die Zwischenablage fehlgeschlagen.',
+    userMgmtMagicStringLoginFailed: 'Passwortprüfung fehlgeschlagen — Anmeldedaten konnten nicht verifiziert werden.',
+    userMgmtMagicStringModalTitle: 'Magic-String erzeugen',
+    userMgmtMagicStringModalDesc: 'Subsonic-Passwort für „{{username}}" eingeben — es wird in den kopierten Magic-String übernommen.',
+    userMgmtMagicStringModalConfirm: 'String kopieren',
     audiomuseTitle: 'AudioMuse-AI (Navidrome)',
     audiomuseDesc:
       'Aktivieren, wenn dieser Server das <pluginLink>AudioMuse-AI-Navidrome-Plugin</pluginLink> nutzt. Schaltet Instant Mix pro Titel frei und nutzt ähnliche Künstler vom Server statt Last.fm auf Künstlerseiten.',

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { version as appVersion } from '../../package.json';
 import changelogRaw from '../../CHANGELOG.md?raw';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -6,7 +7,7 @@ import {
   Wifi, WifiOff, Globe, Music2, Sliders, LogOut, CheckCircle2, FolderOpen,
   Palette, Server, Plus, Trash2, Eye, EyeOff, Info, ExternalLink, Shuffle, X, Play, Type, Keyboard, ChevronDown,
   GripVertical, PanelLeft, RotateCcw, LayoutGrid, AppWindow, HardDrive, Upload, Download, Waves, Star, Clock, ZoomIn, Sparkles, AlertTriangle, Maximize2, AudioLines, User, Lock,
-  Users, UserPlus, Shield
+  Users, UserPlus, Shield, Wand2
 } from 'lucide-react';
 import i18n from '../i18n';
 import { exportBackup, importBackup } from '../utils/backup';
@@ -47,6 +48,13 @@ import { Trans, useTranslation } from 'react-i18next';
 import Equalizer from '../components/Equalizer';
 import StarRating from '../components/StarRating';
 import { showAudiomuseNavidromeServerSetting } from '../utils/subsonicServerIdentity';
+import {
+  decodeServerMagicString,
+  encodeServerMagicString,
+  copyTextToClipboard,
+  DECODED_PASSWORD_VISUAL_MASK,
+} from '../utils/serverMagicString';
+import { shortHostFromServerUrl, serverListDisplayLabel } from '../utils/serverDisplayName';
 
 const AUDIOBOOK_GENRES_DISPLAY = ['Hörbuch', 'Hoerbuch', 'Hörspiel', 'Hoerspiel', 'Audiobook', 'Audio Book', 'Spoken Word', 'Spokenword', 'Podcast', 'Kapitel', 'Thriller', 'Krimi', 'Speech', 'Fantasy', 'Comedy', 'Literature'];
 
@@ -197,10 +205,54 @@ type Tab = 'general' | 'server' | 'users' | 'audio' | 'storage' | 'appearance' |
 function AddServerForm({ onSave, onCancel }: { onSave: (data: Omit<ServerProfile, 'id'>) => void; onCancel: () => void }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({ name: '', url: '', username: '', password: '' });
+  const [magicString, setMagicString] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [blockPasswordReveal, setBlockPasswordReveal] = useState(false);
 
   const update = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const handleMagicStringChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setMagicString(v);
+    const trimmed = v.trim();
+    const decoded = decodeServerMagicString(trimmed);
+    if (decoded) {
+      setShowPass(false);
+      setBlockPasswordReveal(true);
+      setForm({
+        name: (decoded.name && decoded.name.trim()) || shortHostFromServerUrl(decoded.url),
+        url: decoded.url,
+        username: decoded.username,
+        password: decoded.password,
+      });
+    }
+  };
+
+  const submit = () => {
+    const ms = magicString.trim();
+    if (ms) {
+      const decoded = decodeServerMagicString(ms);
+      if (!decoded) {
+        showToast(t('login.magicStringInvalid'), 4000, 'error');
+        return;
+      }
+      onSave({
+        name: form.name.trim() || (decoded.name && decoded.name.trim()) || shortHostFromServerUrl(decoded.url),
+        url: decoded.url,
+        username: decoded.username,
+        password: decoded.password,
+      });
+      return;
+    }
+    if (!form.url.trim()) return;
+    onSave({
+      name: form.name.trim() || form.url.trim(),
+      url: form.url.trim(),
+      username: form.username.trim(),
+      password: form.password,
+    });
+  };
 
   return (
     <div className="settings-card" style={{ marginTop: '1rem' }}>
@@ -216,34 +268,66 @@ function AddServerForm({ onSave, onCancel }: { onSave: (data: Omit<ServerProfile
       <div className="form-row" style={{ marginBottom: '0.75rem' }}>
         <div className="form-group">
           <label style={{ fontSize: 13 }}>{t('settings.serverUsername')}</label>
-          <input className="input" type="text" value={form.username} onChange={update('username')} placeholder="admin" autoComplete="off" />
+          <input
+            className="input"
+            type="text"
+            value={form.username}
+            onChange={update('username')}
+            placeholder="admin"
+            autoComplete="off"
+            readOnly={blockPasswordReveal}
+            style={blockPasswordReveal ? { cursor: 'default' } : undefined}
+          />
         </div>
         <div className="form-group">
           <label style={{ fontSize: 13 }}>{t('settings.serverPassword')}</label>
-          <div style={{ position: 'relative' }}>
+          {blockPasswordReveal ? (
             <input
               className="input"
-              type={showPass ? 'text' : 'password'}
-              value={form.password}
-              onChange={update('password')}
-              placeholder="••••••••"
-              style={{ paddingRight: '2.5rem' }}
+              type="text"
+              readOnly
+              value={DECODED_PASSWORD_VISUAL_MASK}
+              autoComplete="off"
+              aria-label={t('settings.serverPassword')}
+              style={{ letterSpacing: '0.12em', cursor: 'default' }}
             />
-            <button
-              type="button"
-              style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
-              onClick={() => setShowPass(v => !v)}
-            >
-              {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input"
+                type={showPass ? 'text' : 'password'}
+                value={form.password}
+                onChange={update('password')}
+                placeholder="••••••••"
+                style={{ paddingRight: '2.5rem' }}
+              />
+              <button
+                type="button"
+                style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
+                onClick={() => setShowPass(v => !v)}
+              >
+                {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          )}
         </div>
+      </div>
+      <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+        <label style={{ fontSize: 13 }}>{t('login.orMagicString')}</label>
+        <input
+          className="input"
+          type="text"
+          value={magicString}
+          onChange={handleMagicStringChange}
+          placeholder={t('login.magicStringPlaceholder')}
+          autoComplete="off"
+        />
       </div>
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
         <button className="btn btn-ghost" onClick={onCancel}>{t('common.cancel')}</button>
         <button
           className="btn btn-primary"
-          onClick={() => form.url.trim() && onSave({ name: form.name.trim() || form.url.trim(), url: form.url.trim(), username: form.username.trim(), password: form.password })}
+          onClick={submit}
         >
           {t('common.add')}
         </button>
@@ -276,20 +360,41 @@ function initialUserFormState(u: NdUser | undefined, allLibraries: NdLibrary[]):
 function UserForm({
   initial,
   libraries,
+  shareServerUrl,
+  ndToken,
+  onUsersDirty,
   onSave,
+  onSaveAndGetMagic,
   onCancel,
   busy,
 }: {
   initial: NdUser | null;
   libraries: NdLibrary[];
+  shareServerUrl: string;
+  ndToken: string;
+  onUsersDirty?: () => void | Promise<void>;
   onSave: (form: UserFormState) => void;
+  /** New user only: create on Navidrome then copy magic string to clipboard. */
+  onSaveAndGetMagic?: (form: UserFormState) => void | Promise<void>;
   onCancel: () => void;
   busy: boolean;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState<UserFormState>(() => initialUserFormState(initial ?? undefined, libraries));
   const [showPass, setShowPass] = useState(false);
+  const [magicGenBusy, setMagicGenBusy] = useState(false);
+  const [showNewUserRequiredErrors, setShowNewUserRequiredErrors] = useState(false);
   const isEdit = !!initial;
+
+  useEffect(() => {
+    setShowNewUserRequiredErrors(false);
+  }, [initial?.id]);
+
+  useEffect(() => {
+    if (!isEdit && form.userName.trim() && form.name.trim() && form.password.trim()) {
+      setShowNewUserRequiredErrors(false);
+    }
+  }, [isEdit, form.userName, form.name, form.password]);
 
   const set = <K extends keyof UserFormState>(k: K, v: UserFormState[K]) =>
     setForm(f => ({ ...f, [k]: v }));
@@ -302,11 +407,78 @@ function UserForm({
         : [...f.libraryIds, id],
     }));
 
+  const newUserPasswordOk = form.password.trim().length > 0;
   const canSave =
     form.userName.trim().length > 0 &&
     form.name.trim().length > 0 &&
-    form.password.length > 0 &&
+    (isEdit || newUserPasswordOk) &&
     (form.isAdmin || form.libraryIds.length > 0);
+
+  const generateMagicString = async () => {
+    if (!shareServerUrl.trim() || !form.password.trim() || !initial || !ndToken.trim()) return;
+    setMagicGenBusy(true);
+    try {
+      await ndUpdateUser(shareServerUrl.trim(), ndToken, initial.id, {
+        userName: form.userName.trim(),
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        isAdmin: form.isAdmin,
+      });
+    } catch (e) {
+      const msg = (e instanceof Error && e.message) ? e.message : (typeof e === 'string' ? e : null);
+      showToast(msg ?? t('settings.userMgmtUpdateError'), 5000, 'error');
+      return;
+    } finally {
+      setMagicGenBusy(false);
+    }
+    const str = encodeServerMagicString({
+      url: shareServerUrl.trim(),
+      username: form.userName.trim(),
+      password: form.password,
+      name: shortHostFromServerUrl(shareServerUrl),
+    });
+    const ok = await copyTextToClipboard(str);
+    showToast(
+      ok ? t('settings.userMgmtMagicStringCopied') : t('settings.userMgmtMagicStringCopyFailed'),
+      ok ? 3000 : 5000,
+      ok ? 'info' : 'error',
+    );
+    if (ok) void onUsersDirty?.();
+  };
+
+  const runSaveAndGetMagic = async () => {
+    if (!onSaveAndGetMagic) return;
+    if (!form.userName.trim() || !form.name.trim() || !form.password.trim()) {
+      setShowNewUserRequiredErrors(true);
+      showToast(t('settings.userMgmtValidationMissing'), 4000, 'error');
+      return;
+    }
+    if (!form.isAdmin && form.libraryIds.length === 0 && libraries.length > 0) {
+      showToast(t('settings.userMgmtLibrariesValidation'), 4000, 'error');
+      return;
+    }
+    setMagicGenBusy(true);
+    try {
+      await onSaveAndGetMagic(form);
+    } finally {
+      setMagicGenBusy(false);
+    }
+  };
+
+  const invalidNewUserCore =
+    !isEdit && (!form.userName.trim() || !form.name.trim() || !form.password.trim());
+
+  const trySave = () => {
+    if (invalidNewUserCore) {
+      setShowNewUserRequiredErrors(true);
+      showToast(t('settings.userMgmtValidationMissing'), 4000, 'error');
+      return;
+    }
+    onSave(form);
+  };
+
+  const markInvalid = showNewUserRequiredErrors && !isEdit;
 
   return (
     <div className="settings-card" style={{ marginBottom: '1.25rem' }}>
@@ -315,7 +487,10 @@ function UserForm({
       </h3>
       <div className="form-row" style={{ marginBottom: '0.75rem' }}>
         <div className="form-group">
-          <label style={{ fontSize: 13 }}>{t('settings.userMgmtUsername')}</label>
+          <label style={{ fontSize: 13 }}>
+            {t('settings.userMgmtUsername')}
+            {!isEdit && <span style={{ color: 'var(--text-muted)' }}> *</span>}
+          </label>
           <input
             className="input"
             type="text"
@@ -323,16 +498,23 @@ function UserForm({
             onChange={e => set('userName', e.target.value)}
             disabled={isEdit}
             autoComplete="off"
+            aria-invalid={markInvalid && !form.userName.trim()}
+            style={markInvalid && !form.userName.trim() ? { borderColor: 'var(--danger)' } : undefined}
           />
         </div>
         <div className="form-group">
-          <label style={{ fontSize: 13 }}>{t('settings.userMgmtName')}</label>
+          <label style={{ fontSize: 13 }}>
+            {t('settings.userMgmtName')}
+            {!isEdit && <span style={{ color: 'var(--text-muted)' }}> *</span>}
+          </label>
           <input
             className="input"
             type="text"
             value={form.name}
             onChange={e => set('name', e.target.value)}
             autoComplete="off"
+            aria-invalid={markInvalid && !form.name.trim()}
+            style={markInvalid && !form.name.trim() ? { borderColor: 'var(--danger)' } : undefined}
           />
         </div>
       </div>
@@ -347,7 +529,10 @@ function UserForm({
         />
       </div>
       <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-        <label style={{ fontSize: 13 }}>{t('settings.userMgmtPassword')}</label>
+        <label style={{ fontSize: 13 }}>
+          {t('settings.userMgmtPassword')}
+          {!isEdit && <span style={{ color: 'var(--text-muted)' }}> *</span>}
+        </label>
         <div style={{ position: 'relative' }}>
           <input
             className="input"
@@ -356,7 +541,11 @@ function UserForm({
             onChange={e => set('password', e.target.value)}
             placeholder="••••••••"
             autoComplete="new-password"
-            style={{ paddingRight: '2.5rem' }}
+            aria-invalid={markInvalid && !form.password.trim()}
+            style={{
+              paddingRight: '2.5rem',
+              ...(markInvalid && !form.password.trim() ? { borderColor: 'var(--danger)' } : {}),
+            }}
           />
           <button
             type="button"
@@ -429,14 +618,75 @@ function UserForm({
           </>
         )}
       </div>
+      {!form.isAdmin && !isEdit && onSaveAndGetMagic && shareServerUrl.trim() && ndToken.trim() && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div
+            role="note"
+            style={{
+              fontSize: 11,
+              lineHeight: 1.45,
+              marginBottom: 10,
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: '1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 10%, transparent)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {t('settings.userMgmtMagicStringPlaintextWarning')}
+          </div>
+          <button
+            type="button"
+            className="btn btn-surface"
+            onClick={() => void runSaveAndGetMagic()}
+            disabled={busy || magicGenBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          >
+            <Wand2 size={16} />
+            {t('settings.userMgmtSaveAndMagicString')}
+          </button>
+        </div>
+      )}
+      {!form.isAdmin && isEdit && shareServerUrl.trim() && form.password.trim().length > 0 && ndToken.trim() && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.45 }}>
+            {t('settings.userMgmtMagicStringPasswordNavHint')}
+          </div>
+          <div
+            role="note"
+            style={{
+              fontSize: 11,
+              lineHeight: 1.45,
+              marginBottom: 10,
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: '1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 10%, transparent)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {t('settings.userMgmtMagicStringPlaintextWarning')}
+          </div>
+          <button
+            type="button"
+            className="btn btn-surface"
+            onClick={() => void generateMagicString()}
+            disabled={busy || magicGenBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          >
+            <Wand2 size={16} />
+            {t('settings.userMgmtMagicStringGenerate')}
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
         <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
           {t('settings.userMgmtCancel')}
         </button>
         <button
           className="btn btn-primary"
-          onClick={() => onSave(form)}
-          disabled={busy || !canSave}
+          onClick={() => trySave()}
+          disabled={busy || (isEdit && !canSave)}
         >
           {t('settings.userMgmtSave')}
         </button>
@@ -479,6 +729,9 @@ function UserManagementSection({
   const [editing, setEditing] = useState<NdUser | 'new' | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<NdUser | null>(null);
   const [busy, setBusy] = useState(false);
+  const [magicRowUser, setMagicRowUser] = useState<NdUser | null>(null);
+  const [magicRowPassword, setMagicRowPassword] = useState('');
+  const [magicRowSubmitting, setMagicRowSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -504,9 +757,16 @@ function UserManagementSection({
     const userName = form.userName.trim();
     const name = form.name.trim();
     const email = form.email.trim();
-    if (!userName || !name || !form.password) {
-      showToast(t('settings.userMgmtValidationMissing'), 4000, 'error');
-      return;
+    if (editing === 'new') {
+      if (!userName || !name || !form.password.trim()) {
+        showToast(t('settings.userMgmtValidationMissing'), 4000, 'error');
+        return;
+      }
+    } else if (editing) {
+      if (!userName || !name) {
+        showToast(t('settings.userMgmtValidationMissingIdentity'), 4000, 'error');
+        return;
+      }
     }
     if (!form.isAdmin && form.libraryIds.length === 0 && libraries.length > 0) {
       showToast(t('settings.userMgmtLibrariesValidation'), 4000, 'error');
@@ -547,6 +807,57 @@ function UserManagementSection({
         ? t('settings.userMgmtCreateError')
         : t('settings.userMgmtUpdateError');
       showToast(msg ?? fallback, 5000, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveAndGetMagic = async (form: UserFormState) => {
+    if (editing !== 'new' || form.isAdmin) return;
+    const userName = form.userName.trim();
+    const name = form.name.trim();
+    const email = form.email.trim();
+    if (!userName || !name || !form.password.trim()) {
+      showToast(t('settings.userMgmtValidationMissing'), 4000, 'error');
+      return;
+    }
+    if (!form.isAdmin && form.libraryIds.length === 0 && libraries.length > 0) {
+      showToast(t('settings.userMgmtLibrariesValidation'), 4000, 'error');
+      return;
+    }
+    if (!token) return;
+    setBusy(true);
+    try {
+      const created = await ndCreateUser(serverUrl, token, {
+        userName, name, email, password: form.password, isAdmin: form.isAdmin,
+      });
+      const targetId = created.id;
+      showToast(t('settings.userMgmtCreated'), 3000, 'info');
+      if (!form.isAdmin && form.libraryIds.length > 0) {
+        try {
+          await ndSetUserLibraries(serverUrl, token, targetId, form.libraryIds);
+        } catch (e) {
+          const msg = (e instanceof Error && e.message) ? e.message : String(e);
+          showToast(`${t('settings.userMgmtLibrariesUpdateError')}: ${msg}`, 5000, 'error');
+        }
+      }
+      const str = encodeServerMagicString({
+        url: serverUrl.trim(),
+        username: userName,
+        password: form.password,
+        name: shortHostFromServerUrl(serverUrl),
+      });
+      const ok = await copyTextToClipboard(str);
+      showToast(
+        ok ? t('settings.userMgmtMagicStringCopied') : t('settings.userMgmtMagicStringCopyFailed'),
+        ok ? 3000 : 5000,
+        ok ? 'info' : 'error',
+      );
+      setEditing(null);
+      await load();
+    } catch (e) {
+      const msg = (e instanceof Error && e.message) ? e.message : (typeof e === 'string' ? e : null);
+      showToast(msg ?? t('settings.userMgmtCreateError'), 5000, 'error');
     } finally {
       setBusy(false);
     }
@@ -597,7 +908,11 @@ function UserManagementSection({
             <UserForm
               initial={editing === 'new' ? null : editing}
               libraries={libraries}
+              shareServerUrl={serverUrl}
+              ndToken={token}
+              onUsersDirty={load}
               onSave={handleSave}
+              onSaveAndGetMagic={editing === 'new' ? handleSaveAndGetMagic : undefined}
               onCancel={() => setEditing(null)}
               busy={busy}
             />
@@ -674,6 +989,22 @@ function UserManagementSection({
                         {libNames}
                       </span>
                     )}
+                    {!u.isAdmin && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '2px 6px', flexShrink: 0, marginLeft: libNames ? 0 : 'auto' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMagicRowUser(u);
+                          setMagicRowPassword('');
+                        }}
+                        disabled={busy}
+                        data-tooltip={t('settings.userMgmtMagicStringGenerate')}
+                      >
+                        <Wand2 size={14} />
+                      </button>
+                    )}
                     <span
                       style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginLeft: libNames ? 0 : 'auto' }}
                       data-tooltip={lastSeenAbsolute || undefined}
@@ -708,6 +1039,121 @@ function UserManagementSection({
         onConfirm={() => { if (confirmingDelete) void performDelete(confirmingDelete); }}
         onCancel={() => setConfirmingDelete(null)}
       />
+      {magicRowUser && createPortal(
+        <div
+          className="modal-overlay"
+          onClick={() => !magicRowSubmitting && setMagicRowUser(null)}
+          role="dialog"
+          aria-modal="true"
+          style={{ alignItems: 'center', paddingTop: 0 }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{ maxWidth: '400px' }}
+          >
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => !magicRowSubmitting && setMagicRowUser(null)}
+              aria-label={t('settings.userMgmtCancel')}
+            >
+              <X size={18} />
+            </button>
+            <h3 style={{ marginBottom: '0.5rem', fontFamily: 'var(--font-display)' }}>
+              {t('settings.userMgmtMagicStringModalTitle')}
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5, fontSize: 13 }}>
+              {t('settings.userMgmtMagicStringModalDesc', { username: magicRowUser.userName })}
+            </p>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', lineHeight: 1.45, fontSize: 12 }}>
+              {t('settings.userMgmtMagicStringPasswordNavHint')}
+            </p>
+            <div
+              role="note"
+              style={{
+                fontSize: 11,
+                lineHeight: 1.45,
+                marginBottom: '1rem',
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: '1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent)',
+                background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 10%, transparent)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {t('settings.userMgmtMagicStringPlaintextWarning')}
+            </div>
+            <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+              <label style={{ fontSize: 13 }}>{t('settings.userMgmtPassword')}</label>
+              <input
+                className="input"
+                type="password"
+                value={magicRowPassword}
+                onChange={e => setMagicRowPassword(e.target.value)}
+                autoComplete="off"
+                disabled={magicRowSubmitting}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => !magicRowSubmitting && setMagicRowUser(null)}
+                disabled={magicRowSubmitting}
+              >
+                {t('settings.userMgmtCancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!magicRowPassword.trim() || magicRowSubmitting}
+                onClick={() => {
+                  if (!magicRowUser || !magicRowPassword.trim() || !token) return;
+                  void (async () => {
+                    setMagicRowSubmitting(true);
+                    try {
+                      await ndUpdateUser(serverUrl, token, magicRowUser.id, {
+                        userName: magicRowUser.userName,
+                        name: magicRowUser.name,
+                        email: magicRowUser.email,
+                        password: magicRowPassword.trim(),
+                        isAdmin: magicRowUser.isAdmin,
+                      });
+                    } catch (e) {
+                      const msg = (e instanceof Error && e.message) ? e.message : (typeof e === 'string' ? e : null);
+                      showToast(msg ?? t('settings.userMgmtUpdateError'), 5000, 'error');
+                      return;
+                    } finally {
+                      setMagicRowSubmitting(false);
+                    }
+                    const str = encodeServerMagicString({
+                      url: serverUrl,
+                      username: magicRowUser.userName,
+                      password: magicRowPassword.trim(),
+                      name: shortHostFromServerUrl(serverUrl),
+                    });
+                    const ok = await copyTextToClipboard(str);
+                    showToast(
+                      ok ? t('settings.userMgmtMagicStringCopied') : t('settings.userMgmtMagicStringCopyFailed'),
+                      ok ? 3000 : 5000,
+                      ok ? 'info' : 'error',
+                    );
+                    if (ok) {
+                      setMagicRowUser(null);
+                      setMagicRowPassword('');
+                      await load();
+                    }
+                  })();
+                }}
+              >
+                {t('settings.userMgmtMagicStringModalConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </section>
   );
 }
@@ -1099,7 +1545,7 @@ export default function Settings() {
   };
 
   const deleteServer = (server: ServerProfile) => {
-    if (confirm(t('settings.confirmDeleteServer', { name: server.name || server.url }))) {
+    if (confirm(t('settings.confirmDeleteServer', { name: serverListDisplayLabel(server, auth.servers) }))) {
       auth.removeServer(server.id);
     }
   };
@@ -2779,7 +3225,7 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2px' }}>
-                            <span style={{ fontWeight: 600 }}>{srv.name || srv.url}</span>
+                            <span style={{ fontWeight: 600 }}>{serverListDisplayLabel(srv, auth.servers)}</span>
                             {isActive && (
                               <span style={{ fontSize: 11, background: 'var(--accent)', color: 'var(--ctp-crust)', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>
                                 {t('settings.serverActive')}
