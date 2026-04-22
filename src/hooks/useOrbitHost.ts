@@ -4,7 +4,8 @@ import { usePlayerStore } from '../store/playerStore';
 import {
   writeOrbitState,
   writeOrbitHeartbeat,
-  patchOrbitState,
+  sweepGuestOutboxes,
+  applyOutboxSnapshotsToState,
 } from '../utils/orbit';
 import { orbitOutboxPlaylistName, type OrbitState } from '../api/orbit';
 
@@ -45,7 +46,7 @@ export function useOrbitHost(): void {
   useEffect(() => {
     if (!active || !sessionPlaylistId) return;
 
-    const snapshotStatePatch = (): Partial<OrbitState> => {
+    const snapshotPlayerPatch = (hostUsername: string): Partial<OrbitState> => {
       const p = usePlayerStore.getState();
       const now = Date.now();
       return {
@@ -55,10 +56,11 @@ export function useOrbitHost(): void {
         currentTrack: p.currentTrack
           ? {
               trackId: p.currentTrack.id,
-              // Phase 2: host's own locally-initiated plays are marked as
-              // authored by the host. Phase 4 replaces this with addedBy
-              // pulled from the guest outbox when consuming a suggestion.
-              addedBy: useOrbitStore.getState().state?.host ?? '',
+              // Locally-initiated plays are marked as authored by the host.
+              // Guest-suggested tracks that later become `currentTrack` will
+              // carry their original attribution because the queue-consume
+              // flow keeps the `addedBy` from the guest's outbox.
+              addedBy: hostUsername,
               addedAt: now,
             }
           : null,
@@ -66,8 +68,22 @@ export function useOrbitHost(): void {
     };
 
     const pushState = async () => {
-      const next = patchOrbitState(snapshotStatePatch());
-      if (!next) return;
+      const store = useOrbitStore.getState();
+      const base = store.state;
+      if (!base) return;
+
+      // 1) Sweep every guest outbox: new suggestions + fresh heartbeats.
+      let afterSweep = base;
+      try {
+        const snaps = await sweepGuestOutboxes(base.sid, base.host);
+        afterSweep = applyOutboxSnapshotsToState(base, snaps);
+      } catch { /* best-effort; keep old participants and queue */ }
+
+      // 2) Overlay the host's live playback snapshot.
+      const next: OrbitState = { ...afterSweep, ...snapshotPlayerPatch(base.host) };
+
+      // 3) Commit locally + push remote.
+      useOrbitStore.getState().setState(next);
       try {
         await writeOrbitState(sessionPlaylistId, next);
         lastPushedAtRef.current = Date.now();

@@ -1,5 +1,6 @@
 import {
   createPlaylist,
+  updatePlaylist,
   updatePlaylistMeta,
   deletePlaylist,
   getPlaylist,
@@ -13,8 +14,11 @@ import {
   orbitSessionPlaylistName,
   parseOrbitState,
   ORBIT_DEFAULT_MAX_USERS,
+  ORBIT_PLAYLIST_PREFIX,
   ORBIT_STATE_MAX_BYTES,
   type OrbitOutboxMeta,
+  type OrbitParticipant,
+  type OrbitQueueItem,
   type OrbitState,
 } from '../api/orbit';
 
@@ -399,4 +403,158 @@ export async function leaveOrbitSession(): Promise<void> {
   }
 
   useOrbitStore.getState().reset();
+}
+
+// ── Track pipeline ──────────────────────────────────────────────────────
+
+/**
+ * Guest: suggest a track to the session.
+ *
+ * Appends the track to our own outbox playlist. The host's next sweep will
+ * consume it and publish the authoritative queue update in the state blob.
+ * No state mutation here — the guest never touches canonical state.
+ */
+export async function suggestOrbitTrack(trackId: string): Promise<void> {
+  const { role, outboxPlaylistId, sessionId } = useOrbitStore.getState();
+  if (role !== 'guest') throw new Error('Not joined to a session as a guest');
+  if (!outboxPlaylistId || !sessionId) throw new Error('No outbox bound');
+
+  // Read current outbox contents and append — createPlaylist.view with
+  // playlistId replaces songs wholesale, so we need to carry the existing
+  // list along.
+  const { songs } = await getPlaylist(outboxPlaylistId);
+  const nextIds = [...songs.map(s => s.id), trackId];
+  await updatePlaylist(outboxPlaylistId, nextIds, songs.length);
+}
+
+// ── Host-side outbox sweep ──────────────────────────────────────────────
+
+interface OutboxSnapshot {
+  user: string;
+  outboxPlaylistId: string;
+  /** Track IDs currently sitting in the outbox — these are the new suggestions. */
+  trackIds: string[];
+  /** Last heartbeat timestamp parsed from the outbox comment, or 0 if missing/broken. */
+  lastHeartbeat: number;
+}
+
+/** Extract `<username>` from a filename matching `__psyorbit_<sid>_from_<username>__`. */
+function parseOutboxPlaylistName(name: string, sid: string): string | null {
+  const prefix = `${ORBIT_PLAYLIST_PREFIX}${sid}_from_`;
+  if (!name.startsWith(prefix) || !name.endsWith('__')) return null;
+  const user = name.slice(prefix.length, name.length - 2);
+  return user.length > 0 ? user : null;
+}
+
+/**
+ * Host: list all guest outbox playlists for the current session.
+ * Skips the host's own outbox — that's heartbeat-only, not a suggestion channel.
+ */
+async function listGuestOutboxes(sid: string, hostUsername: string): Promise<Array<{ id: string; name: string; user: string }>> {
+  const all = await getPlaylists().catch(() => []);
+  const result: Array<{ id: string; name: string; user: string }> = [];
+  for (const p of all) {
+    const user = parseOutboxPlaylistName(p.name, sid);
+    if (!user || user === hostUsername) continue;
+    result.push({ id: p.id, name: p.name, user });
+  }
+  return result;
+}
+
+/**
+ * Host: read one outbox's contents (suggested tracks + heartbeat ts).
+ */
+async function readOutbox(playlistId: string): Promise<{ trackIds: string[]; lastHeartbeat: number }> {
+  try {
+    const { playlist, songs } = await getPlaylist(playlistId);
+    let ts = 0;
+    if (playlist.comment) {
+      try {
+        const meta = JSON.parse(playlist.comment) as Partial<OrbitOutboxMeta>;
+        if (typeof meta.ts === 'number') ts = meta.ts;
+      } catch { /* malformed — treat as no heartbeat */ }
+    }
+    return { trackIds: songs.map(s => s.id), lastHeartbeat: ts };
+  } catch {
+    return { trackIds: [], lastHeartbeat: 0 };
+  }
+}
+
+/**
+ * Host: sweep every guest outbox once.
+ *
+ *   - Collects suggested track IDs from each outbox (returns them so the
+ *     caller can wire them into the state queue with `addedBy` = user).
+ *   - Captures the latest heartbeat ts per user for the participants list.
+ *   - Clears the outbox track list after reading — a single-pass consume
+ *     semantic: once the host has seen a track, the guest doesn't need to
+ *     show it as "pending" any longer. The outbox's heartbeat comment is
+ *     left untouched because the guest's own heartbeat hook keeps refreshing it.
+ *
+ * Returns a list of snapshots, one per live guest outbox. Errors on
+ * individual outboxes are swallowed — best-effort.
+ */
+export async function sweepGuestOutboxes(sid: string, hostUsername: string): Promise<OutboxSnapshot[]> {
+  const outboxes = await listGuestOutboxes(sid, hostUsername);
+  const snaps: OutboxSnapshot[] = [];
+  for (const ob of outboxes) {
+    const { trackIds, lastHeartbeat } = await readOutbox(ob.id);
+    snaps.push({ user: ob.user, outboxPlaylistId: ob.id, trackIds, lastHeartbeat });
+    if (trackIds.length > 0) {
+      // Clear the outbox tracks. Leaves the heartbeat comment untouched.
+      try { await updatePlaylist(ob.id, [], trackIds.length); } catch { /* best-effort */ }
+    }
+  }
+  return snaps;
+}
+
+// ── State-blob construction from sweep results ─────────────────────────
+
+/** How long we consider a heartbeat still fresh. Longer than the guest tick so a single missed beat is tolerated. */
+export const ORBIT_HEARTBEAT_ALIVE_MS = 30_000;
+
+/**
+ * Fold sweep results into an updated `OrbitState`.
+ *
+ *   - New queue items are appended to `state.queue`, with `addedBy` = user
+ *     and `addedAt` = now. Host-authored tracks (host's own currentTrack
+ *     progression) are handled elsewhere and don't flow through this path.
+ *   - `participants` is rebuilt from scratch from the sweep heartbeats —
+ *     anyone with a fresh heartbeat (< `ORBIT_HEARTBEAT_ALIVE_MS` old) and
+ *     not in `kicked` counts as alive. Users that disappear from the sweep
+ *     age out naturally.
+ */
+export function applyOutboxSnapshotsToState(
+  state: OrbitState,
+  snapshots: OutboxSnapshot[],
+  nowMs: number = Date.now(),
+): OrbitState {
+  // ── Queue additions ──
+  const newItems: OrbitQueueItem[] = [];
+  for (const snap of snapshots) {
+    for (const trackId of snap.trackIds) {
+      newItems.push({ trackId, addedBy: snap.user, addedAt: nowMs });
+    }
+  }
+
+  // ── Participants rebuild ──
+  const prev = new Map(state.participants.map(p => [p.user, p]));
+  const participants: OrbitParticipant[] = [];
+  for (const snap of snapshots) {
+    if (state.kicked.includes(snap.user)) continue;
+    const fresh = snap.lastHeartbeat > 0 && (nowMs - snap.lastHeartbeat) < ORBIT_HEARTBEAT_ALIVE_MS;
+    if (!fresh) continue;
+    const existing = prev.get(snap.user);
+    participants.push({
+      user: snap.user,
+      joinedAt: existing?.joinedAt ?? nowMs,
+      lastHeartbeat: snap.lastHeartbeat,
+    });
+  }
+
+  return {
+    ...state,
+    queue: newItems.length > 0 ? [...state.queue, ...newItems] : state.queue,
+    participants,
+  };
 }
