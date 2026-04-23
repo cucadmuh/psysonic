@@ -21,6 +21,7 @@ import { lastfmGetToken, lastfmAuthUrl, lastfmGetSession, lastfmGetUserInfo, Las
 import LastfmIcon from '../components/LastfmIcon';
 import CustomSelect from '../components/CustomSelect';
 import SettingsSubSection from '../components/SettingsSubSection';
+import { AboutPsysonicBrandHeader } from '../components/AboutPsysonicLol';
 import { useLuckyMixAvailable } from '../hooks/useLuckyMixAvailable';
 import ThemePicker, { THEME_GROUPS } from '../components/ThemePicker';
 import { useShallow } from 'zustand/react/shallow';
@@ -142,6 +143,13 @@ const CONTRIBUTORS = [
       'WebKitGTK wheel scroll mode: smooth (kinetic) default with optional linear toggle (PR #207)',
       'ArtistCardLocal i18n: use plural-aware artists.albumCount key instead of hardcoded German',
       'NixOS / flake install guide with Cachix setup (PR #209)',
+      'Subsonic: align Rust HTTP UA with main WebView UA (PR #235)',
+      'UI: overlay scrollbars, resizer hit-test, and Linux mini-wheel (PR #255)',
+      'Server invites: magic-string paste, Navidrome admin share, add-user validation (PR #258)',
+      'Linux: stop Wayland GTK drag proxy and PsyDnD ghost (PR #268)',
+      'Sidebar: long-press drag to reorder and hide nav items (PR #269)',
+      'Sleep timer and delayed start via long-press on play/pause (PR #270)',
+      'Lucky Mix — instant queue from listening history, ratings, and AudioMuse similar tracks (PR #278)',
     ],
   },
   {
@@ -183,6 +191,8 @@ const CONTRIBUTORS = [
       'Click-to-toggle duration / remaining time in player bar with persisted preference (PR #212)',
       'Opt-in floating player bar with themed background, accent-colored border, rounded album art, and centered volume section (PR #216)',
       'Linux GPU-vendor auto-detection to configure the WebKitGTK DMA-BUF renderer (disabled on NVIDIA proprietary) (PR #217)',
+      'Artist page: continue playback when starting top songs (PR #220)',
+      'Floating player bar: scroll-padding fix (PR #221)',
     ],
   },
   {
@@ -192,6 +202,13 @@ const CONTRIBUTORS = [
       'Nightfox.nvim theme group in Open Source Classics (PR #114)',
       'Switch reqwest to rustls-tls for cross-platform TLS (PR #112)',
       'ICY stream metadata & AzuraCast Now Playing support (PR #146)',
+    ],
+  },
+  {
+    github: 'peri4ko',
+    since: '1.43.0',
+    contributions: [
+      'WebView2 idle hooks when Tauri windows are hidden — Windows GPU and compositor mitigation (PR #273)',
     ],
   },
 ] as const;
@@ -3984,17 +4001,7 @@ export default function Settings() {
             icon={<Info size={16} />}
           >
             <div className="settings-card settings-about">
-              <div className="settings-about-header">
-                <img src="/logo-psysonic.png" width={52} height={52} alt="Psysonic" style={{ borderRadius: 14 }} />
-                <div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    Psysonic
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {t('settings.aboutVersion')} {appVersion}
-                  </div>
-                </div>
-              </div>
+              <AboutPsysonicBrandHeader appVersion={appVersion} aboutVersionLabel={t('settings.aboutVersion')} />
 
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '1rem 0 0.5rem' }}>
                 {t('settings.aboutDesc')}

@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Track, usePlayerStore, songToTrack } from '../store/playerStore';
 import { useOrbitStore } from '../store/orbitStore';
 import OrbitGuestQueue from './OrbitGuestQueue';
-import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus, ArrowUpToLine, Radio, HardDrive, ChevronDown, Info, Share2 } from 'lucide-react';
+import { Play, Music, Star, X, Trash2, Save, FolderOpen, Shuffle, Infinity, Waves, MicVocal, ListMusic, Check, ListPlus, MoveRight, Radio, HardDrive, ChevronDown, Info, Share2 } from 'lucide-react';
 import { buildCoverArtUrl, coverArtCacheKey, getAlbum, getPlaylists, getPlaylist, updatePlaylist, deletePlaylist, SubsonicPlaylist } from '../api/subsonic';
 import { usePlaylistStore } from '../store/playlistStore';
 import { useCachedUrl } from './CachedImage';
@@ -602,7 +602,7 @@ function QueuePanelHostOrSolo() {
           data-tooltip={t('queue.gapless')}
           aria-label={t('queue.gapless')}
         >
-          <Infinity size={13} />
+          <MoveRight size={13} />
         </button>
         <div style={{ position: 'relative' }}>
           <button
@@ -654,7 +654,7 @@ function QueuePanelHostOrSolo() {
           data-tooltip={t('queue.infiniteQueue')}
           aria-label={t('queue.infiniteQueue')}
         >
-          <ArrowUpToLine size={13} />
+          <Infinity size={13} />
         </button>
       </div>
 
