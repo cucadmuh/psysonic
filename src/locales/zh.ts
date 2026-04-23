@@ -31,6 +31,7 @@ export const zhTranslation = {
     expandPlaylists: '展开播放列表',
     collapsePlaylists: '收起播放列表',
     more: '更多',
+    feelingLucky: '好运',
   },
   home: {
     hero: '精选',
@@ -281,6 +282,8 @@ export const zhTranslation = {
     mixByTracksDesc: '从整个媒体库随机选取曲目',
     mixByAlbums: '按专辑混音',
     mixByAlbumsDesc: '随机选取专辑，探索新音乐',
+    mixByLucky: '好运',
+    mixByLuckyDesc: '基于高频艺人、专辑和高评分歌曲的智能 Instant Mix',
   },
   randomAlbums: {
     title: '随机专辑',
@@ -332,6 +335,11 @@ export const zhTranslation = {
     filterPanelTitle: '过滤器',
     filterPanelDesc: '点击下方列表中的流派标签或艺术家名称，将其从未来的混音中排除。',
     genreClickHint: '点击流派标签将其添加为过滤关键词。\\n匹配流派、标题、专辑和艺术家。',
+  },
+  luckyMix: {
+    done: '幸运混音已就绪：{{count}} 首',
+    failed: '生成混音失败，请重试。',
+    unavailable: '此服务器不可用“好运”。',
   },
   albums: {
     title: '全部专辑',
@@ -701,6 +709,8 @@ export const zhTranslation = {
     showChangelogOnUpdate: '更新时显示"新功能"',
     showChangelogOnUpdateDesc: '更新后在「正在播放」上方显示一个低调的更新日志横幅。点击打开发行说明，X 按钮关闭。',
     randomMixTitle: '随机混音黑名单',
+    luckyMixMenuTitle: '在菜单中显示“好运”',
+    luckyMixMenuDesc: '在“创建混音”中启用“好运”，并在分离导航时作为独立菜单项显示。仅当当前服务器启用 AudioMuse 时可见。',
     randomMixBlacklistTitle: '自定义过滤关键词',
     randomMixBlacklistDesc: '当任何关键词匹配流派、标题、专辑或艺术家时，歌曲将被排除（当上方复选框开启时生效）。',
     randomMixBlacklistPlaceholder: '添加关键词…',
@@ -737,7 +747,7 @@ export const zhTranslation = {
     sidebarDrag: '拖动以重新排序',
     sidebarFixed: '始终显示',
     randomNavSplitTitle: '拆分混音导航',
-    randomNavSplitDesc: '在侧边栏中将"随机混音"和"随机专辑"显示为独立条目，而非"创建混音"合并入口。',
+    randomNavSplitDesc: '在侧边栏中将“随机混音”、“随机专辑”和“好运”显示为独立条目，而非“创建混音”合并入口。',
     tabInput: '输入',
     tabUsers: '用户',
     tabSystem: '系统',

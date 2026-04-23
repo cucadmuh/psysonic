@@ -32,6 +32,7 @@ export const enTranslation = {
     expandPlaylists: 'Expand playlists',
     collapsePlaylists: 'Collapse playlists',
     more: 'More',
+    feelingLucky: 'Lucky Mix',
   },
   home: {
     hero: 'Featured',
@@ -284,6 +285,8 @@ export const enTranslation = {
     mixByTracksDesc: 'Random selection of tracks from your entire library',
     mixByAlbums: 'Mix by Albums',
     mixByAlbumsDesc: 'Random album picks for your next discovery',
+    mixByLucky: 'Lucky Mix',
+    mixByLuckyDesc: 'Smart instant mix from your top artists, albums, and ratings',
   },
   randomAlbums: {
     title: 'Random Albums',
@@ -335,6 +338,11 @@ export const enTranslation = {
     filterPanelTitle: 'Filters',
     filterPanelDesc: 'Click a genre tag or artist name in the tracklist below to block it from future mixes.',
     genreClickHint: 'Click a genre tag to add it\nas a filter keyword.\nMatches genre, title, album & artist.',
+  },
+  luckyMix: {
+    done: 'Lucky mix ready: {{count}} tracks',
+    failed: 'Could not build lucky mix. Try again.',
+    unavailable: 'Lucky Mix is unavailable for this server.',
   },
   albums: {
     title: 'All Albums',
@@ -722,6 +730,8 @@ export const enTranslation = {
     showChangelogOnUpdate: "Show 'What's New' on update",
     showChangelogOnUpdateDesc: "Show a discreet changelog banner above Now Playing after an update. Click opens the release notes; X dismisses it.",
     randomMixTitle: 'Random Mix Blacklist',
+    luckyMixMenuTitle: 'Show Lucky Mix in menu',
+    luckyMixMenuDesc: 'Enables Lucky Mix in Build a Mix and as a separate menu item when split navigation is on. Visible only when AudioMuse is enabled on the active server.',
     randomMixBlacklistTitle: 'Custom Filter Keywords',
     randomMixBlacklistDesc: 'Songs are excluded when any keyword matches their genre, title, album, or artist (active when the checkbox above is on).',
     randomMixBlacklistPlaceholder: 'Add keyword…',
@@ -757,7 +767,7 @@ export const enTranslation = {
     sidebarDrag: 'Drag to reorder',
     sidebarFixed: 'Always visible',
     randomNavSplitTitle: 'Split Mix navigation',
-    randomNavSplitDesc: 'Show "Random Mix" and "Random Albums" as separate sidebar entries instead of the "Build a Mix" hub.',
+    randomNavSplitDesc: 'Show "Random Mix", "Random Albums", and "Lucky Mix" as separate sidebar entries instead of the "Build a Mix" hub.',
     tabInput: 'Input',
     tabUsers: 'Users',
     tabSystem: 'System',

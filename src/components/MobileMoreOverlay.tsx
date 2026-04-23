@@ -14,8 +14,11 @@ export default function MobileMoreOverlay({ onClose }: { onClose: () => void }) 
   const sidebarItems = useSidebarStore(s => s.items);
   const randomNavMode = useAuthStore(s => s.randomNavMode);
   const serverId = useAuthStore(s => s.activeServerId ?? '');
+  const showLuckyMixMenu = useAuthStore(s => s.showLuckyMixMenu);
+  const audiomuseByServer = useAuthStore(s => s.audiomuseNavidromeByServer);
   const offlineAlbums = useOfflineStore(s => s.albums);
   const hasOfflineContent = Object.values(offlineAlbums).some(a => a.serverId === serverId);
+  const luckyMixAvailable = randomNavMode === 'separate' && showLuckyMixMenu && Boolean(serverId && audiomuseByServer[serverId]);
 
   const items = sidebarItems
     .filter(cfg => {
@@ -25,6 +28,7 @@ export default function MobileMoreOverlay({ onClose }: { onClose: () => void }) 
       if (BOTTOM_NAV_ROUTES.has(item.to)) return false;
       if (randomNavMode === 'hub' && (cfg.id === 'randomMix' || cfg.id === 'randomAlbums')) return false;
       if (randomNavMode === 'separate' && cfg.id === 'randomPicker') return false;
+      if (cfg.id === 'luckyMix' && !luckyMixAvailable) return false;
       return true;
     })
     .map(cfg => ALL_NAV_ITEMS[cfg.id]);

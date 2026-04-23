@@ -17,6 +17,7 @@ import LyricsPane from './LyricsPane';
 import NowPlayingInfo from './NowPlayingInfo';
 import { TFunction } from 'i18next';
 import OverlayScrollArea from './OverlayScrollArea';
+import { useLuckyMixStore } from '../store/luckyMixStore';
 
 function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -269,6 +270,7 @@ export default function QueuePanel() {
 
   const activeTab  = useLyricsStore(s => s.activeTab);
   const setTab     = useLyricsStore(s => s.setTab);
+  const luckyRolling = useLuckyMixStore(s => s.isRolling);
 
   const [showRemainingTime, setShowRemainingTime] = useState(false);
   const [showCrossfadePopover, setShowCrossfadePopover] = useState(false);
@@ -657,7 +659,8 @@ export default function QueuePanel() {
             {t('queue.emptyQueue')}
           </div>
         ) : (
-          queue.map((track, idx) => {
+          <>
+          {queue.map((track, idx) => {
             const isPlaying = idx === queueIndex;
             const isFirstAutoAdded = track.autoAdded && (idx === 0 || !queue[idx - 1].autoAdded);
             const isFirstRadioAdded = track.radioAdded && (idx === 0 || !queue[idx - 1].radioAdded);
@@ -726,9 +729,30 @@ export default function QueuePanel() {
                   {formatTime(track.duration)}
                 </div>
               </div>
+              {luckyRolling && isPlaying && (
+                <div className="queue-lucky-loading" aria-hidden>
+                  <div className="queue-lucky-loading__dice">
+                    <div className="queue-lucky-cube queue-lucky-cube--a">
+                      <span className="lucky-mix-pip lucky-mix-pip--tl" />
+                      <span className="lucky-mix-pip lucky-mix-pip--tr" />
+                      <span className="lucky-mix-pip lucky-mix-pip--bl" />
+                      <span className="lucky-mix-pip lucky-mix-pip--br" />
+                    </div>
+                    <div className="queue-lucky-cube queue-lucky-cube--b">
+                      <span className="lucky-mix-pip lucky-mix-pip--center" />
+                    </div>
+                    <div className="queue-lucky-cube queue-lucky-cube--c">
+                      <span className="lucky-mix-pip lucky-mix-pip--tl" />
+                      <span className="lucky-mix-pip lucky-mix-pip--center" />
+                      <span className="lucky-mix-pip lucky-mix-pip--br" />
+                    </div>
+                  </div>
+                </div>
+              )}
               </React.Fragment>
             );
-          })
+          })}
+          </>
         )}
       </OverlayScrollArea>
       </>) : activeTab === 'lyrics' ? (

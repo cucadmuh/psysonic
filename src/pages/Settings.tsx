@@ -2658,6 +2658,25 @@ export default function Settings() {
 
               <div className="divider" style={{ margin: '1rem 0' }} />
 
+              <div className="settings-toggle-row" style={{ marginBottom: '1rem' }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{t('settings.luckyMixMenuTitle')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {t('settings.luckyMixMenuDesc')}
+                  </div>
+                </div>
+                <label className="toggle-switch" aria-label={t('settings.luckyMixMenuTitle')}>
+                  <input
+                    type="checkbox"
+                    checked={auth.showLuckyMixMenu}
+                    onChange={e => auth.setShowLuckyMixMenu(e.target.checked)}
+                  />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+
+              <div className="divider" style={{ margin: '1rem 0' }} />
+
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: '0.5rem', color: 'var(--text-muted)' }}>{t('settings.randomMixHardcodedTitle')}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                 {AUDIOBOOK_GENRES_DISPLAY.map(genre => (
@@ -4394,11 +4413,16 @@ function SidebarCustomizer() {
   itemsRef.current = items;
   const randomNavMode = useAuthStore(s => s.randomNavMode);
   const setRandomNavMode = useAuthStore(s => s.setRandomNavMode);
+  const activeServerId = useAuthStore(s => s.activeServerId);
+  const audiomuseByServer = useAuthStore(s => s.audiomuseNavidromeByServer);
+  const showLuckyMixMenu = useAuthStore(s => s.showLuckyMixMenu);
+  const luckyMixAvailable = randomNavMode === 'separate' && showLuckyMixMenu && Boolean(activeServerId && audiomuseByServer[activeServerId]);
 
   const libraryItems = items.filter(cfg => {
     if (!ALL_NAV_ITEMS[cfg.id] || ALL_NAV_ITEMS[cfg.id].section !== 'library') return false;
-    if (randomNavMode === 'hub' && (cfg.id === 'randomMix' || cfg.id === 'randomAlbums')) return false;
+    if (randomNavMode === 'hub' && (cfg.id === 'randomMix' || cfg.id === 'randomAlbums' || cfg.id === 'luckyMix')) return false;
     if (randomNavMode === 'separate' && cfg.id === 'randomPicker') return false;
+    if (cfg.id === 'luckyMix' && !luckyMixAvailable) return false;
     return true;
   });
   const systemItems  = items.filter(cfg => ALL_NAV_ITEMS[cfg.id]?.section === 'system');

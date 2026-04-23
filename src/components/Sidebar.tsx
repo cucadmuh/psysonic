@@ -68,6 +68,9 @@ export default function Sidebar({
   const sidebarItems = useSidebarStore(s => s.items);
   const setSidebarItems = useSidebarStore(s => s.setItems);
   const randomNavMode = useAuthStore(s => s.randomNavMode);
+  const showLuckyMixMenu = useAuthStore(s => s.showLuckyMixMenu);
+  const audiomuseByServer = useAuthStore(s => s.audiomuseNavidromeByServer);
+  const luckyMixAvailable = randomNavMode === 'separate' && showLuckyMixMenu && Boolean(serverId && audiomuseByServer[serverId]);
   const [libraryDropdownOpen, setLibraryDropdownOpen] = useState(false);
   const [playlistsExpanded, setPlaylistsExpanded] = useState(false);
   const playlistsRaw = usePlaylistStore(s => s.playlists);
@@ -95,8 +98,13 @@ export default function Sidebar({
     [sidebarItems],
   );
   const visibleLibraryConfigs = useMemo(
-    () => libraryItemsForReorder.filter(c => c.visible),
-    [libraryItemsForReorder],
+    () =>
+      libraryItemsForReorder.filter(c => {
+        if (!c.visible) return false;
+        if (c.id === 'luckyMix' && !luckyMixAvailable) return false;
+        return true;
+      }),
+    [libraryItemsForReorder, luckyMixAvailable],
   );
   const visibleSystemConfigs = useMemo(
     () => systemItemsForReorder.filter(c => c.visible),

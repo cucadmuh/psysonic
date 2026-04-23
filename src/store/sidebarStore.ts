@@ -15,6 +15,7 @@ export const DEFAULT_SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { id: 'randomPicker',  visible: true },
   { id: 'randomMix',     visible: true },
   { id: 'randomAlbums',  visible: true },
+  { id: 'luckyMix',      visible: true },
   { id: 'artists',       visible: true },
   { id: 'genres',        visible: true },
   { id: 'favorites',     visible: true },

@@ -138,6 +138,8 @@ interface AuthState {
   mixMinRatingAlbum: number;
   /** 0 = ignore; artist rating from payload / nested OpenSubsonic fields or `getArtist`. */
   mixMinRatingArtist: number;
+  /** Show "Lucky Mix" as a regular sidebar/menu item. */
+  showLuckyMixMenu: boolean;
 
   /** Subsonic music folders for the active server (not persisted; refetched on login / server change). */
   musicFolders: Array<{ id: string; name: string }>;
@@ -251,6 +253,7 @@ interface AuthState {
   setMixMinRatingSong: (v: number) => void;
   setMixMinRatingAlbum: (v: number) => void;
   setMixMinRatingArtist: (v: number) => void;
+  setShowLuckyMixMenu: (v: boolean) => void;
   setMusicFolders: (folders: Array<{ id: string; name: string }>) => void;
   setMusicLibraryFilter: (folderId: 'all' | string) => void;
 
@@ -361,6 +364,7 @@ export const useAuthStore = create<AuthState>()(
       mixMinRatingSong: 0,
       mixMinRatingAlbum: 0,
       mixMinRatingArtist: 0,
+      showLuckyMixMenu: true,
       randomNavMode: 'hub',
       musicFolders: [],
       musicLibraryFilterByServer: {},
@@ -528,6 +532,7 @@ export const useAuthStore = create<AuthState>()(
       setMixMinRatingSong: (v) => set({ mixMinRatingSong: clampMixFilterMinStars(v) }),
       setMixMinRatingAlbum: (v) => set({ mixMinRatingAlbum: clampMixFilterMinStars(v) }),
       setMixMinRatingArtist: (v) => set({ mixMinRatingArtist: clampMixFilterMinStars(v) }),
+      setShowLuckyMixMenu: (v) => set({ showLuckyMixMenu: v }),
       setRandomNavMode: (v) => set({ randomNavMode: v }),
 
       setMusicFolders: (folders) => {

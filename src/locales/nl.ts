@@ -31,6 +31,7 @@ export const nlTranslation = {
     expandPlaylists: 'Afspeellijsten uitklappen',
     collapsePlaylists: 'Afspeellijsten inklappen',
     more: 'Meer',
+    feelingLucky: 'Geluk',
   },
   home: {
     hero: 'Uitgelicht',
@@ -282,6 +283,8 @@ export const nlTranslation = {
     mixByTracksDesc: 'Willekeurige selectie uit je volledige mediatheek',
     mixByAlbums: 'Mix op albums',
     mixByAlbumsDesc: 'Willekeurige albums voor nieuwe ontdekkingen',
+    mixByLucky: 'Geluk',
+    mixByLuckyDesc: 'Slimme Instant Mix op basis van topartiesten, albums en hoge beoordelingen',
   },
   randomAlbums: {
     title: 'Willekeurige albums',
@@ -333,6 +336,11 @@ export const nlTranslation = {
     filterPanelTitle: 'Filters',
     filterPanelDesc: 'Klik op een genre-tag of artiestennaam in de lijst om deze uit toekomstige mixes te weren.',
     genreClickHint: 'Klik op een genre-tag om het\ntoe te voegen als filtertrefwoord.\nVergelijkt genre, titel, album & artiest.',
+  },
+  luckyMix: {
+    done: 'Mix klaar: {{count}} nummers',
+    failed: 'Kon de mix niet maken. Probeer opnieuw.',
+    unavailable: 'Geluk is niet beschikbaar voor deze server.',
   },
   albums: {
     title: 'Alle albums',
@@ -706,6 +714,8 @@ export const nlTranslation = {
     showChangelogOnUpdate: "'Wat is nieuw' tonen bij update",
     showChangelogOnUpdateDesc: 'Toont een discrete changelog-banner boven Now Playing na een update. Klik opent de release-notities; X verbergt hem.',
     randomMixTitle: 'Willekeurige mix-blacklist',
+    luckyMixMenuTitle: 'Toon Geluk in menu',
+    luckyMixMenuDesc: 'Schakelt Geluk in bij "Mix samenstellen" en als apart menu-item bij gesplitste navigatie. Alleen zichtbaar wanneer AudioMuse actief is op de huidige server.',
     randomMixBlacklistTitle: 'Aangepaste filtertrefwoorden',
     randomMixBlacklistDesc: 'Nummers worden uitgesloten als een trefwoord overeenkomt met hun genre, titel, album of artiest (actief wanneer het selectievakje hierboven is aangevinkt).',
     randomMixBlacklistPlaceholder: 'Trefwoord toevoegen…',
@@ -742,7 +752,7 @@ export const nlTranslation = {
     sidebarDrag: 'Slepen om te herordenen',
     sidebarFixed: 'Altijd zichtbaar',
     randomNavSplitTitle: 'Mix-navigatie splitsen',
-    randomNavSplitDesc: 'Toon "Willekeurige mix" en "Willekeurige albums" als afzonderlijke zijbalkitems in plaats van de "Mix samenstellen"-hub.',
+    randomNavSplitDesc: 'Toon "Willekeurige mix", "Willekeurige albums" en "Geluk" als afzonderlijke zijbalkitems in plaats van de "Mix samenstellen"-hub.',
     tabInput: 'Invoer',
     tabUsers: 'Gebruikers',
     shortcutsReset: 'Standaard herstellen',

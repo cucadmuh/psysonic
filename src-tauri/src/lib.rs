@@ -158,6 +158,12 @@ fn export_runtime_logs(path: String) -> Result<usize, String> {
 }
 
 #[tauri::command]
+fn frontend_debug_log(scope: String, message: String) -> Result<(), String> {
+    crate::app_deprintln!("[frontend][{}] {}", scope, message);
+    Ok(())
+}
+
+#[tauri::command]
 fn set_subsonic_wire_user_agent(
     user_agent: String,
     window_label: String,
@@ -3558,6 +3564,7 @@ pub fn run() {
             set_linux_webkit_smooth_scrolling,
             set_logging_mode,
             export_runtime_logs,
+            frontend_debug_log,
             set_subsonic_wire_user_agent,
             no_compositing_mode,
             is_tiling_wm_cmd,

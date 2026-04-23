@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Disc3, Users, Music4, Radio, Heart, BarChart3,
   HelpCircle, Tags, ListMusic, Cast, TrendingUp,
-  FolderOpen, HardDriveUpload, Wand2, Shuffle, Dices,
+  FolderOpen, HardDriveUpload, Wand2, Shuffle, Dices, Sparkles,
 } from 'lucide-react';
 
 export interface NavItemMeta {
@@ -20,6 +20,7 @@ export const ALL_NAV_ITEMS: Record<string, NavItemMeta> = {
   randomPicker: { icon: Wand2,          labelKey: 'sidebar.randomPicker', to: '/random',        section: 'library' },
   randomMix:    { icon: Shuffle,        labelKey: 'sidebar.randomMix',    to: '/random/mix',    section: 'library' },
   randomAlbums: { icon: Dices,          labelKey: 'sidebar.randomAlbums', to: '/random/albums', section: 'library' },
+  luckyMix:     { icon: Sparkles,       labelKey: 'sidebar.feelingLucky', to: '/lucky-mix',     section: 'library' },
   artists:      { icon: Users,          labelKey: 'sidebar.artists',      to: '/artists',       section: 'library' },
   genres:       { icon: Tags,           labelKey: 'sidebar.genres',       to: '/genres',        section: 'library' },
   favorites:    { icon: Heart,          labelKey: 'sidebar.favorites',    to: '/favorites',     section: 'library' },

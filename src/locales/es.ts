@@ -32,6 +32,7 @@ export const esTranslation = {
     expandPlaylists: 'Expandir listas',
     collapsePlaylists: 'Colapsar listas',
     more: 'Más',
+    feelingLucky: 'Suerte',
   },
   home: {
     hero: 'Destacado',
@@ -284,6 +285,8 @@ export const esTranslation = {
     mixByTracksDesc: 'Selección aleatoria de canciones de toda tu biblioteca',
     mixByAlbums: 'Mezcla por Álbumes',
     mixByAlbumsDesc: 'Álbumes aleatorios para tu próximo descubrimiento',
+    mixByLucky: 'Suerte',
+    mixByLuckyDesc: 'Instant Mix inteligente con artistas, álbumes y valoraciones destacadas',
   },
   randomAlbums: {
     title: 'Álbumes Aleatorios',
@@ -335,6 +338,11 @@ export const esTranslation = {
     filterPanelTitle: 'Filtros',
     filterPanelDesc: 'Click en una etiqueta de género o nombre de artista en la lista para bloquearlo de futuras mezclas.',
     genreClickHint: 'Click en una etiqueta de género para agregarla\ncomo palabra clave filtrada.\nBusca en género, título, álbum y artista.',
+  },
+  luckyMix: {
+    done: 'Mezcla lista: {{count}} canciones',
+    failed: 'No se pudo crear la mezcla. Inténtalo de nuevo.',
+    unavailable: 'Suerte no está disponible para este servidor.',
   },
   albums: {
     title: 'Todos los Álbumes',
@@ -712,6 +720,8 @@ export const esTranslation = {
     showChangelogOnUpdate: "Mostrar 'Novedades' al actualizar",
     showChangelogOnUpdateDesc: 'Muestra un discreto banner de changelog encima de Now Playing tras una actualización. Clic abre las notas de la versión; X lo oculta.',
     randomMixTitle: 'Lista negra de Mezcla Aleatoria',
+    luckyMixMenuTitle: 'Mostrar Suerte en el menú',
+    luckyMixMenuDesc: 'Activa Suerte en "Crear Mezcla" y como elemento de menú separado cuando la navegación dividida está activa. Solo visible cuando AudioMuse está activo en el servidor actual.',
     randomMixBlacklistTitle: 'Palabras Clave de Filtro Personalizadas',
     randomMixBlacklistDesc: 'Las canciones se excluyen cuando cualquier palabra clave coincide con su género, título, álbum o artista (activo cuando el checkbox de arriba está activado).',
     randomMixBlacklistPlaceholder: 'Agregar palabra clave…',
@@ -748,7 +758,7 @@ export const esTranslation = {
     sidebarDrag: 'Arrastra para reordenar',
     sidebarFixed: 'Siempre visible',
     randomNavSplitTitle: 'Dividir navegación Mix',
-    randomNavSplitDesc: 'Mostrar "Mezcla Aleatoria" y "Álbumes Aleatorios" como entradas separadas en la barra lateral en lugar del hub "Crear Mezcla".',
+    randomNavSplitDesc: 'Mostrar "Mezcla Aleatoria", "Álbumes Aleatorios" y "Suerte" como entradas separadas en la barra lateral en lugar del hub "Crear Mezcla".',
     tabInput: 'Entrada',
     tabUsers: 'Usuarios',
     tabSystem: 'Sistema',

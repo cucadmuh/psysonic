@@ -15,7 +15,7 @@ export function getLibraryItemsForReorder(
 ): SidebarItemConfig[] {
   return items.filter(cfg => {
     if (!ALL_NAV_ITEMS[cfg.id] || ALL_NAV_ITEMS[cfg.id].section !== 'library') return false;
-    if (randomNavMode === 'hub' && (cfg.id === 'randomMix' || cfg.id === 'randomAlbums')) return false;
+    if (randomNavMode === 'hub' && (cfg.id === 'randomMix' || cfg.id === 'randomAlbums' || cfg.id === 'luckyMix')) return false;
     if (randomNavMode === 'separate' && cfg.id === 'randomPicker') return false;
     return true;
   });

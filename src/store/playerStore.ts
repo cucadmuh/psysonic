@@ -197,6 +197,8 @@ interface PlayerState {
   enqueueAt: (tracks: Track[], insertIndex: number) => void;
   enqueueRadio: (tracks: Track[], artistId?: string) => void;
   setRadioArtistId: (artistId: string) => void;
+  /** For Lucky Mix: drop upcoming tail; keep the currently playing item only. */
+  pruneUpcomingToCurrent: () => void;
   clearQueue: () => void;
 
   isQueueVisible: boolean;
@@ -1360,6 +1362,25 @@ export const usePlayerStore = create<PlayerState>()(
         });
         syncQueueToServer([track], track, s.currentTime);
         if (!wasPlaying) get().resume();
+      },
+
+      pruneUpcomingToCurrent: () => {
+        const s = get();
+        if (s.currentRadio) return;
+        if (!s.currentTrack) {
+          if (s.queue.length === 0) return;
+          set({ queue: [], queueIndex: 0 });
+          syncQueueToServer([], null, 0);
+          return;
+        }
+        const at = s.queue.findIndex(t => t.id === s.currentTrack!.id);
+        const newQueue: Track[] =
+          at >= 0
+            ? s.queue.slice(0, at + 1)
+            : [s.currentTrack!];
+        const newIndex = at >= 0 ? at : 0;
+        set({ queue: newQueue, queueIndex: newIndex });
+        syncQueueToServer(newQueue, s.currentTrack, s.currentTime);
       },
 
       // ── pause / resume / togglePlay ──────────────────────────────────────────

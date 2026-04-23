@@ -1,7 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Shuffle, Dices } from 'lucide-react';
+import { Shuffle, Dices, Sparkles } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
 
 interface MixCard {
   icon: React.ElementType;
@@ -28,11 +29,26 @@ const CARDS: MixCard[] = [
 export default function RandomLanding() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const activeServerId = useAuthStore(s => s.activeServerId);
+  const showLuckyMixMenu = useAuthStore(s => s.showLuckyMixMenu);
+  const audiomuseByServer = useAuthStore(s => s.audiomuseNavidromeByServer);
+  const luckyMixAvailable = showLuckyMixMenu && Boolean(activeServerId && audiomuseByServer[activeServerId]);
+  const cards = luckyMixAvailable
+    ? [
+        ...CARDS,
+        {
+          icon: Sparkles,
+          labelKey: 'randomLanding.mixByLucky',
+          descKey: 'randomLanding.mixByLuckyDesc',
+          to: '/lucky-mix',
+        },
+      ]
+    : CARDS;
 
   return (
     <div className="random-landing">
       <div className="random-landing-grid">
-        {CARDS.map(({ icon: Icon, labelKey, descKey, to }) => (
+        {cards.map(({ icon: Icon, labelKey, descKey, to }) => (
           <button
             key={to}
             className="mix-pick-card"

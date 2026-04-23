@@ -31,6 +31,7 @@ export const deTranslation = {
     expandPlaylists: 'Playlists ausklappen',
     collapsePlaylists: 'Playlists einklappen',
     more: 'Mehr',
+    feelingLucky: 'Glück',
   },
   home: {
     hero: 'Featured',
@@ -283,6 +284,8 @@ export const deTranslation = {
     mixByTracksDesc: 'Zufällige Auswahl aus deiner gesamten Mediathek',
     mixByAlbums: 'Mix nach Alben',
     mixByAlbumsDesc: 'Zufällige Alben für neue Entdeckungen',
+    mixByLucky: 'Glück',
+    mixByLuckyDesc: 'Smarter Instant Mix aus Top-Künstlern, Alben und Bewertungen',
   },
   randomAlbums: {
     title: 'Zufallsalben',
@@ -334,6 +337,11 @@ export const deTranslation = {
     filterPanelTitle: 'Filter',
     filterPanelDesc: 'Genre-Tag oder Künstlername in der Liste anklicken, um ihn aus zukünftigen Mixes auszuschließen.',
     genreClickHint: 'Genre-Tag anklicken,\num es als Filter-Keyword hinzuzufügen.\nPrüft Genre, Titel, Album & Künstler.',
+  },
+  luckyMix: {
+    done: '„Glück“ bereit: {{count}} Titel',
+    failed: '„Glück“ konnte nicht erstellt werden. Bitte erneut versuchen.',
+    unavailable: '„Glück“ ist für diesen Server nicht verfügbar.',
   },
   albums: {
     title: 'Alle Alben',
@@ -720,6 +728,8 @@ export const deTranslation = {
     showChangelogOnUpdate: "'Was ist neu' bei Update anzeigen",
     showChangelogOnUpdateDesc: 'Blendet nach einem Update einen dezenten Changelog-Banner über Now Playing ein. Klick öffnet die Release Notes, X blendet ihn aus.',
     randomMixTitle: 'Zufallsmix-Blacklist',
+    luckyMixMenuTitle: '„Glück“ im Menü anzeigen',
+    luckyMixMenuDesc: 'Aktiviert „Glück“ im "Mix erstellen"-Hub und als separaten Menüeintrag bei getrennter Navigation. Sichtbar nur bei aktiviertem AudioMuse auf dem aktiven Server.',
     randomMixBlacklistTitle: 'Eigene Filter-Keywords',
     randomMixBlacklistDesc: 'Songs werden ausgeschlossen, wenn ein Keyword auf Genre, Titel, Album oder Künstler zutrifft (aktiv wenn die Checkbox oben an ist).',
     randomMixBlacklistPlaceholder: 'Keyword hinzufügen…',
@@ -755,7 +765,7 @@ export const deTranslation = {
     sidebarDrag: 'Ziehen zum Umsortieren',
     sidebarFixed: 'Immer sichtbar',
     randomNavSplitTitle: 'Mix-Navigation aufteilen',
-    randomNavSplitDesc: '"Zufallsmix" und "Zufallsalben" als separate Sidebar-Einträge statt als "Mix erstellen"-Hub anzeigen.',
+    randomNavSplitDesc: '"Zufallsmix", "Zufallsalben" und "Glück" als separate Sidebar-Einträge statt als "Mix erstellen"-Hub anzeigen.',
     tabInput: 'Eingabe',
     tabUsers: 'Benutzer',
     shortcutsReset: 'Auf Standard zurücksetzen',

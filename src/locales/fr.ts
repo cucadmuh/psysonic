@@ -31,6 +31,7 @@ export const frTranslation = {
     expandPlaylists: 'Développer les playlists',
     collapsePlaylists: 'Réduire les playlists',
     more: 'Plus',
+    feelingLucky: 'Chance',
   },
   home: {
     hero: 'En vedette',
@@ -283,6 +284,8 @@ export const frTranslation = {
     mixByTracksDesc: 'Sélection aléatoire de titres depuis toute votre médiathèque',
     mixByAlbums: 'Mix par albums',
     mixByAlbumsDesc: 'Albums aléatoires pour vos prochaines découvertes',
+    mixByLucky: 'Chance',
+    mixByLuckyDesc: 'Instant Mix intelligent basé sur artistes, albums et notes élevées',
   },
   randomAlbums: {
     title: 'Albums aléatoires',
@@ -334,6 +337,11 @@ export const frTranslation = {
     filterPanelTitle: 'Filtres',
     filterPanelDesc: 'Cliquez sur un tag de genre ou un nom d\'artiste dans la liste pour l\'exclure des futurs mix.',
     genreClickHint: 'Cliquez sur un tag de genre pour l\'ajouter\ncomme mot-clé de filtre.\nCorrespond au genre, titre, album et artiste.',
+  },
+  luckyMix: {
+    done: 'Mix prêt : {{count}} titres',
+    failed: 'Impossible de créer le mix. Réessayez.',
+    unavailable: 'Chance n\'est pas disponible pour ce serveur.',
   },
   albums: {
     title: 'Tous les albums',
@@ -707,6 +715,8 @@ export const frTranslation = {
     showChangelogOnUpdate: "Afficher 'Quoi de neuf' lors des mises à jour",
     showChangelogOnUpdateDesc: "Affiche une bannière discrète du changelog au-dessus de Now Playing après une mise à jour. Un clic ouvre les notes de version, le X la masque.",
     randomMixTitle: 'Liste noire du mix aléatoire',
+    luckyMixMenuTitle: 'Afficher Chance dans le menu',
+    luckyMixMenuDesc: 'Active Chance dans "Créer un mix" et comme entrée séparée quand la navigation est scindée. Visible uniquement si AudioMuse est actif sur le serveur courant.',
     randomMixBlacklistTitle: 'Mots-clés de filtre personnalisés',
     randomMixBlacklistDesc: 'Les morceaux sont exclus si un mot-clé correspond à leur genre, titre, album ou artiste (actif quand la case ci-dessus est cochée).',
     randomMixBlacklistPlaceholder: 'Ajouter un mot-clé…',
@@ -743,7 +753,7 @@ export const frTranslation = {
     sidebarDrag: 'Glisser pour réorganiser',
     sidebarFixed: 'Toujours visible',
     randomNavSplitTitle: 'Diviser la navigation Mix',
-    randomNavSplitDesc: 'Afficher "Mix Aléatoire" et "Albums Aléatoires" comme entrées séparées dans la barre latérale plutôt que le hub "Créer un Mix".',
+    randomNavSplitDesc: 'Afficher "Mix Aléatoire", "Albums Aléatoires" et "Chance" comme entrées séparées dans la barre latérale plutôt que le hub "Créer un Mix".',
     tabInput: 'Entrée',
     tabUsers: 'Utilisateurs',
     shortcutsReset: 'Réinitialiser',
