@@ -6,7 +6,6 @@ import { getSong } from '../api/subsonic';
 import {
   readOrbitState,
   writeOrbitHeartbeat,
-  leaveOrbitSession,
 } from '../utils/orbit';
 import { orbitOutboxPlaylistName, estimateLivePosition, type OrbitState } from '../api/orbit';
 
@@ -93,9 +92,13 @@ export function useOrbitGuest(): void {
       if (cancelled) return;
 
       if (!state) {
-        // Session playlist is gone — host must have nuked it. Tear down
-        // silently; the exit-modal is the "ended" path below, not this.
-        void leaveOrbitSession();
+        // Session playlist is gone — almost always means the host ended the
+        // session and the `ended:true` write was missed because we polled
+        // after the subsequent playlist delete. Surface the same modal the
+        // explicit `state.ended` branch does; the store still holds the last
+        // known state so the modal can render the host + session name copy.
+        // Outbox cleanup runs from the modal's OK handler via leaveOrbitSession.
+        useOrbitStore.getState().setPhase('ended');
         return;
       }
 

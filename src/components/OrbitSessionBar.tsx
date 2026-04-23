@@ -59,11 +59,11 @@ export default function OrbitSessionBar() {
     return () => window.clearInterval(id);
   }, [state, phase]);
 
-  // Bar is visible while active, ended (pre-ack), or explicitly kicked.
+  // Bar is visible while active, ended (pre-ack), or explicitly kicked / soft-removed.
   const shouldShowBar = !!state && (
     phase === 'active'
     || phase === 'ended'
-    || (phase === 'error' && errorMessage === 'kicked')
+    || (phase === 'error' && (errorMessage === 'kicked' || errorMessage === 'removed'))
   );
   if (!shouldShowBar || !state) return (
     <OrbitExitModal />
