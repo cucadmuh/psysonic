@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Settings,
   PanelLeftClose, PanelLeft, AudioLines, HardDriveDownload, HardDriveUpload,
-  ChevronDown, Check, Music2, X, ChevronRight, PlayCircle, Trash2,
+  ChevronDown, Check, Music2, X, ChevronRight, PlayCircle, Sparkles, Trash2,
 } from 'lucide-react';
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
@@ -31,6 +31,17 @@ import { useLuckyMixAvailable } from '../hooks/useLuckyMixAvailable';
 
 const SIDEBAR_NAV_LONG_PRESS_MS = 1000;
 const SIDEBAR_NAV_LONG_PRESS_MOVE_CANCEL_PX = 10;
+const SMART_PREFIX = 'psy-smart-';
+
+function isSmartPlaylistName(name: string): boolean {
+  return (name ?? '').toLowerCase().startsWith(SMART_PREFIX);
+}
+
+function displayPlaylistName(name: string): string {
+  const n = name ?? '';
+  if (isSmartPlaylistName(n)) return n.slice(SMART_PREFIX.length);
+  return n;
+}
 
 function isPointerOutsideAsideSidebar(clientX: number, clientY: number): boolean {
   const aside = document.querySelector('aside.sidebar');
@@ -569,11 +580,11 @@ export default function Sidebar({
                         key={pl.id}
                         to={`/playlists/${pl.id}`}
                         className={({ isActive }) => `nav-link sidebar-playlist-item ${isActive ? 'active' : ''}`}
-                        data-tooltip={isCollapsed ? pl.name : undefined}
+                        data-tooltip={isCollapsed ? displayPlaylistName(pl.name) : undefined}
                         data-tooltip-pos="bottom"
                       >
-                        <PlayCircle size={12} />
-                        <span>{pl.name}</span>
+                        {isSmartPlaylistName(pl.name) ? <Sparkles size={12} /> : <PlayCircle size={12} />}
+                        <span>{displayPlaylistName(pl.name)}</span>
                       </NavLink>
                     ))
                   )}

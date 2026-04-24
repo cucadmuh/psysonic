@@ -499,6 +499,30 @@ export async function getRandomSongs(size = 50, genre?: string, timeout = 15000)
   return data.randomSongs?.song ?? [];
 }
 
+export interface RandomSongsFilters {
+  size?: number;
+  genre?: string;
+  fromYear?: number;
+  toYear?: number;
+}
+
+/** Extended random song fetch with server-side year/genre filtering. */
+export async function getRandomSongsFiltered(
+  filters: RandomSongsFilters,
+  timeout = 15000,
+): Promise<SubsonicSong[]> {
+  const params: Record<string, string | number> = {
+    size: filters.size ?? 50,
+    _t: Date.now(),
+    ...libraryFilterParams(),
+  };
+  if (filters.genre) params.genre = filters.genre;
+  if (typeof filters.fromYear === 'number') params.fromYear = filters.fromYear;
+  if (typeof filters.toYear === 'number') params.toYear = filters.toYear;
+  const data = await api<{ randomSongs: { song: SubsonicSong[] } }>('getRandomSongs.view', params, timeout);
+  return data.randomSongs?.song ?? [];
+}
+
 export async function getSong(id: string): Promise<SubsonicSong | null> {
   try {
     const data = await api<{ song: SubsonicSong }>('getSong.view', { id });
@@ -995,7 +1019,7 @@ export function buildDownloadUrl(id: string): string {
 
 // ─── Playlists ────────────────────────────────────────────────
 export async function getPlaylists(): Promise<SubsonicPlaylist[]> {
-  const data = await api<{ playlists: { playlist: SubsonicPlaylist[] } }>('getPlaylists.view');
+  const data = await api<{ playlists: { playlist: SubsonicPlaylist[] } }>('getPlaylists.view', { _t: Date.now() });
   return data.playlists?.playlist ?? [];
 }
 

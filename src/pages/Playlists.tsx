@@ -1,16 +1,82 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ListMusic, Play, Plus, Trash2, X, CheckSquare2, Check } from 'lucide-react';
-import { getPlaylists, deletePlaylist, SubsonicPlaylist, getPlaylist, buildCoverArtUrl, coverArtCacheKey, updatePlaylist } from '../api/subsonic';
+import { ListMusic, Play, Plus, Trash2, CheckSquare2, Check, Clock3, Sparkles } from 'lucide-react';
+import { deletePlaylist, SubsonicPlaylist, getPlaylist, buildCoverArtUrl, coverArtCacheKey, updatePlaylist, getGenres, SubsonicGenre } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { usePlaylistStore } from '../store/playlistStore';
+import { useAuthStore } from '../store/authStore';
 import CachedImage from '../components/CachedImage';
+import StarRating from '../components/StarRating';
 import { useTranslation } from 'react-i18next';
 import { formatHumanHoursMinutes } from '../utils/formatHumanDuration';
 import { showToast } from '../utils/toast';
+import { ndCreateSmartPlaylist } from '../api/navidromeSmart';
 
 function formatDuration(seconds: number): string {
   return formatHumanHoursMinutes(seconds);
+}
+
+const SMART_PREFIX = 'psy-smart-';
+const LIMIT_MAX = 500;
+const YEAR_MIN = 1950;
+const YEAR_MAX = new Date().getFullYear() + 1;
+
+type GenreMode = 'include' | 'exclude';
+type YearMode = 'include' | 'exclude';
+
+type SmartFilters = {
+  name: string;
+  limit: string;
+  sort: string;
+  artistContains: string;
+  albumContains: string;
+  titleContains: string;
+  minRating: number;
+  excludeUnrated: boolean;
+  compilationOnly: boolean;
+  selectedGenres: string[];
+  genreMode: GenreMode;
+  yearFrom: number;
+  yearTo: number;
+  yearMode: YearMode;
+};
+
+type PendingSmartPlaylist = {
+  name: string;
+  id?: string;
+  firstSeenCoverArt?: string;
+  attempts: number;
+};
+
+const defaultSmartFilters: SmartFilters = {
+  name: '',
+  limit: '50',
+  sort: '+random',
+  artistContains: '',
+  albumContains: '',
+  titleContains: '',
+  minRating: 0,
+  excludeUnrated: false,
+  compilationOnly: false,
+  selectedGenres: [],
+  genreMode: 'include',
+  yearFrom: YEAR_MIN,
+  yearTo: YEAR_MAX,
+  yearMode: 'include',
+};
+
+function clampYear(v: number): number {
+  return Math.max(YEAR_MIN, Math.min(YEAR_MAX, v));
+}
+
+function isSmartPlaylistName(name: string): boolean {
+  return (name ?? '').toLowerCase().startsWith(SMART_PREFIX);
+}
+
+function displayPlaylistName(name: string): string {
+  const n = name ?? '';
+  if (isSmartPlaylistName(n)) return n.slice(SMART_PREFIX.length);
+  return n;
 }
 
 export default function Playlists() {
@@ -23,10 +89,19 @@ export default function Playlists() {
   const playlists = usePlaylistStore((s) => s.playlists);
   const fetchPlaylists = usePlaylistStore((s) => s.fetchPlaylists);
   const playlistsLoading = usePlaylistStore((s) => s.playlistsLoading);
+  const activeUsername = useAuthStore(s => s.getActiveServer()?.username ?? '');
+  const activeServerId = useAuthStore(s => s.activeServerId);
+  const subsonicIdentityByServer = useAuthStore(s => s.subsonicServerIdentityByServer);
 
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [creatingSmart, setCreatingSmart] = useState(false);
   const [newName, setNewName] = useState('');
+  const [smartFilters, setSmartFilters] = useState<SmartFilters>(defaultSmartFilters);
+  const [genres, setGenres] = useState<SubsonicGenre[]>([]);
+  const [genreQuery, setGenreQuery] = useState('');
+  const [creatingSmartBusy, setCreatingSmartBusy] = useState(false);
+  const [pendingSmart, setPendingSmart] = useState<PendingSmartPlaylist[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +109,10 @@ export default function Playlists() {
   // ── Multi-selection ──────────────────────────────────────────────────────
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const isNavidromeServer = Boolean(
+    activeServerId &&
+    (subsonicIdentityByServer[activeServerId]?.type ?? '').toLowerCase() === 'navidrome',
+  );
 
   const toggleSelectionMode = () => {
     setSelectionMode(v => !v);
@@ -54,9 +133,15 @@ export default function Playlists() {
   };
 
   const selectedPlaylists = playlists.filter(p => selectedIds.has(p.id));
+  const isPlaylistDeletable = useCallback((pl: SubsonicPlaylist) => {
+    if (!pl.owner) return true;
+    if (!activeUsername) return false;
+    return pl.owner === activeUsername;
+  }, [activeUsername]);
 
   useEffect(() => {
     fetchPlaylists().finally(() => setLoading(false));
+    getGenres().then(setGenres).catch(() => {});
   }, [fetchPlaylists]);
 
   useEffect(() => {
@@ -64,6 +149,12 @@ export default function Playlists() {
   }, [creating]);
 
   const createPlaylist = usePlaylistStore(s => s.createPlaylist);
+
+  const availableGenres = genres
+    .map(g => g.value)
+    .filter(v => !smartFilters.selectedGenres.includes(v))
+    .filter(v => !genreQuery.trim() || v.toLowerCase().includes(genreQuery.trim().toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
 
   const handleCreate = async () => {
     const name = newName.trim() || t('playlists.unnamed');
@@ -73,6 +164,143 @@ export default function Playlists() {
     setCreating(false);
     setNewName('');
   };
+
+  const buildSmartRulesPayload = (): Record<string, unknown> => {
+    const all: Record<string, unknown>[] = [];
+    if (smartFilters.artistContains.trim()) all.push({ contains: { artist: smartFilters.artistContains.trim() } });
+    if (smartFilters.albumContains.trim()) all.push({ contains: { album: smartFilters.albumContains.trim() } });
+    if (smartFilters.titleContains.trim()) all.push({ contains: { title: smartFilters.titleContains.trim() } });
+
+    const minRating = Number(smartFilters.minRating);
+    if (Number.isFinite(minRating) && minRating > 0) all.push({ gt: { rating: minRating } });
+    else if (smartFilters.excludeUnrated) all.push({ gt: { rating: 0 } });
+    if (smartFilters.compilationOnly) all.push({ is: { compilation: true } });
+
+    if (smartFilters.selectedGenres.length > 0) {
+      if (smartFilters.genreMode === 'include') {
+        all.push({ any: smartFilters.selectedGenres.map(v => ({ contains: { genre: v } })) });
+      } else {
+        for (const g of smartFilters.selectedGenres) all.push({ notContains: { genre: g } });
+      }
+    }
+
+    if (smartFilters.yearMode === 'include') {
+      all.push({ inTheRange: { year: [smartFilters.yearFrom, smartFilters.yearTo] } });
+    } else {
+      all.push({ any: [{ lt: { year: smartFilters.yearFrom } }, { gt: { year: smartFilters.yearTo } }] });
+    }
+
+    const rules: Record<string, unknown> = { all };
+    rules.limit = Math.max(1, Math.min(LIMIT_MAX, Number(smartFilters.limit) || 50));
+    rules.sort = smartFilters.sort;
+    return rules;
+  };
+
+  const handleCreateSmart = async () => {
+    if (!isNavidromeServer) {
+      showToast(t('smartPlaylists.navidromeOnly'), 3500, 'error');
+      return;
+    }
+    setCreatingSmartBusy(true);
+    try {
+      const baseName = smartFilters.name.trim() || `mix-${new Date().toISOString().slice(0, 10)}`;
+      const rules = buildSmartRulesPayload();
+      await ndCreateSmartPlaylist(`${SMART_PREFIX}${baseName}`, rules, true);
+      await fetchPlaylists();
+      const createdName = `${SMART_PREFIX}${baseName}`;
+      setPendingSmart(prev => {
+        const existing = prev.find(p => p.name === createdName);
+        if (existing) return prev;
+        const created = usePlaylistStore.getState().playlists.find(p => p.name === createdName);
+        return [
+          ...prev,
+          {
+            name: createdName,
+            id: created?.id,
+            firstSeenCoverArt: created?.coverArt,
+            attempts: 0,
+          },
+        ];
+      });
+      setCreatingSmart(false);
+      setSmartFilters(defaultSmartFilters);
+      setGenreQuery('');
+      showToast(t('smartPlaylists.created', { name: createdName }), 3500, 'success');
+    } catch {
+      showToast(t('smartPlaylists.createFailed'), 3500, 'error');
+    } finally {
+      setCreatingSmartBusy(false);
+    }
+  };
+
+  // Smart playlist rules are processed asynchronously on server.
+  // Poll list every 10s and keep waiting through Navidrome placeholder cover.
+  useEffect(() => {
+    if (pendingSmart.length === 0) return;
+    const interval = window.setInterval(async () => {
+      await fetchPlaylists();
+      const listNow = usePlaylistStore.getState().playlists;
+      const hydrated = pendingSmart.map(item => {
+        if (item.id) return item;
+        const found = listNow.find(p => p.name === item.name);
+        return found ? { ...item, id: found.id } : item;
+      });
+      // Detail endpoint tends to reflect fresh metadata earlier than list endpoint.
+      const ids = hydrated.map(p => p.id).filter((v): v is string => Boolean(v));
+      const details = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const { playlist } = await getPlaylist(id);
+            return playlist;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const freshById = new Map(
+        details.filter((p): p is SubsonicPlaylist => p !== null).map(p => [p.id, p]),
+      );
+      if (freshById.size > 0) {
+        usePlaylistStore.setState((s) => ({
+          playlists: s.playlists.map((p) => {
+            const fresh = freshById.get(p.id);
+            return fresh ? { ...p, ...fresh } : p;
+          }),
+        }));
+      }
+      const current = usePlaylistStore.getState().playlists;
+      setPendingSmart(() => {
+        const next: PendingSmartPlaylist[] = [];
+        for (const item of hydrated) {
+          const pl = item.id
+            ? current.find(p => p.id === item.id)
+            : current.find(p => p.name === item.name);
+          if (!pl) {
+            next.push({ ...item, attempts: item.attempts + 1 });
+            continue;
+          }
+          const songCount = pl.songCount ?? 0;
+          const currentCover = pl.coverArt;
+          const firstCover = item.firstSeenCoverArt ?? currentCover;
+          const placeholderStillThere = Boolean(firstCover) && currentCover === firstCover;
+          // Wait until we see actual content and cover changed from the first placeholder-ish cover.
+          // Fallback timeout keeps UI from waiting forever on servers that never update cover id.
+          const hardTimeoutReached = item.attempts >= 18; // ~3 minutes (18 * 10s)
+          const ready = songCount > 0 && (!placeholderStillThere || hardTimeoutReached);
+          if (!ready) {
+            next.push({
+              ...item,
+              id: pl.id,
+              firstSeenCoverArt: firstCover,
+              attempts: item.attempts + 1,
+            });
+          }
+        }
+        return next;
+      });
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [pendingSmart, fetchPlaylists]);
 
   const handlePlay = async (e: React.MouseEvent, pl: SubsonicPlaylist) => {
     e.stopPropagation();
@@ -93,6 +321,10 @@ export default function Playlists() {
     e.stopPropagation();
     if (deleteConfirmId !== pl.id) {
       setDeleteConfirmId(pl.id);
+      const btn = e.currentTarget as HTMLElement;
+      requestAnimationFrame(() => {
+        btn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      });
       return;
     }
     try {
@@ -109,9 +341,10 @@ export default function Playlists() {
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedPlaylists.length === 0) return;
+    const deletable = selectedPlaylists.filter(isPlaylistDeletable);
+    if (deletable.length === 0) return;
     let deleted = 0;
-    for (const pl of selectedPlaylists) {
+    for (const pl of deletable) {
       try {
         await deletePlaylist(pl.id);
         removeId(pl.id);
@@ -121,7 +354,7 @@ export default function Playlists() {
       }
     }
     usePlaylistStore.setState((s) => ({
-      playlists: s.playlists.filter((p) => !selectedIds.has(p.id)),
+      playlists: s.playlists.filter((p) => !(selectedIds.has(p.id) && isPlaylistDeletable(p))),
     }));
     clearSelection();
     if (deleted > 0) {
@@ -169,6 +402,49 @@ export default function Playlists() {
 
   return (
     <div className="content-body animate-fade-in">
+      <style>{`
+        .dual-year-range {
+          position: relative;
+          height: 34px;
+        }
+        .dual-year-range__track,
+        .dual-year-range__selected {
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: 50%;
+          height: 4px;
+          transform: translateY(-50%);
+          border-radius: 999px;
+        }
+        .dual-year-range__track { background: var(--border); }
+        .dual-year-range__selected { background: var(--accent); }
+        .dual-year-range input[type='range'] {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 34px;
+          margin: 0;
+          background: transparent;
+          -webkit-appearance: none;
+          appearance: none;
+          pointer-events: none;
+        }
+        .dual-year-range input[type='range']::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+        .dual-year-range input[type='range']::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 14px;
+          height: 14px;
+          margin-top: -5px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--bg-card);
+          pointer-events: auto;
+          cursor: pointer;
+        }
+      `}</style>
 
       {/* ── Header row ── */}
       <div className="playlists-header">
@@ -201,8 +477,13 @@ export default function Playlists() {
                   </button>
                 </>
               ) : (
-                <button className="btn btn-primary" onClick={() => setCreating(true)}>
+                <button className="btn btn-primary" onClick={() => { setCreatingSmart(false); setCreating(true); }}>
                   <Plus size={15} /> {t('playlists.newPlaylist')}
+                </button>
+              )}
+              {!creating && isNavidromeServer && (
+                <button className="btn btn-surface" onClick={() => { setCreating(false); setCreatingSmart(v => !v); }}>
+                  <Plus size={15} /> {t('smartPlaylists.create')}
                 </button>
               )}
             </>
@@ -219,6 +500,99 @@ export default function Playlists() {
           </button>
         </div>
       </div>
+      {creatingSmart && (
+        <div style={{ marginBottom: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.9rem', background: 'var(--bg-card)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: '0.65rem' }}>{t('smartPlaylists.sectionBasic')}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <input className="input" placeholder={t('smartPlaylists.name')} value={smartFilters.name} onChange={e => setSmartFilters(v => ({ ...v, name: e.target.value }))} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <input className="input" type="number" min={1} max={LIMIT_MAX} placeholder={t('smartPlaylists.limit')} value={smartFilters.limit} onChange={e => setSmartFilters(v => ({ ...v, limit: e.target.value }))} />
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('smartPlaylists.limitHint', { max: LIMIT_MAX })}</span>
+                </div>
+                <select className="input" value={smartFilters.sort} onChange={e => setSmartFilters(v => ({ ...v, sort: e.target.value }))}>
+                  <option value="+random">{t('smartPlaylists.sortRandom')}</option>
+                  <option value="+title">{t('smartPlaylists.sortTitleAsc')}</option>
+                  <option value="-title">{t('smartPlaylists.sortTitleDesc')}</option>
+                  <option value="-year">{t('smartPlaylists.sortYearDesc')}</option>
+                  <option value="+year">{t('smartPlaylists.sortYearAsc')}</option>
+                  <option value="-playcount">{t('smartPlaylists.sortPlayCountDesc')}</option>
+                </select>
+              </div>
+            </section>
+            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: '0.65rem' }}>{t('smartPlaylists.sectionGenres')}</div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{t('smartPlaylists.genreMode')}</span>
+                <button className={`btn ${smartFilters.genreMode === 'include' ? 'btn-primary' : 'btn-surface'}`} onClick={() => setSmartFilters(v => ({ ...v, genreMode: 'include' }))}>{t('smartPlaylists.genreModeInclude')}</button>
+                <button className={`btn ${smartFilters.genreMode === 'exclude' ? 'btn-primary' : 'btn-surface'}`} onClick={() => setSmartFilters(v => ({ ...v, genreMode: 'exclude' }))}>{t('smartPlaylists.genreModeExclude')}</button>
+              </div>
+              <input className="input" placeholder={t('smartPlaylists.genreSearchPlaceholder')} value={genreQuery} onChange={e => setGenreQuery(e.target.value)} style={{ marginBottom: '0.75rem' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', minHeight: 120 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t('smartPlaylists.availableGenres')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                    {availableGenres.map(g => (
+                      <button key={g} className="btn btn-surface" style={{ fontSize: 12, padding: '2px 8px' }} onClick={() => setSmartFilters(v => ({ ...v, selectedGenres: [...v.selectedGenres, g] }))}>{g}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', minHeight: 120 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t('smartPlaylists.selectedGenres')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                    {smartFilters.selectedGenres.map(g => (
+                      <button key={g} className="btn btn-surface" style={{ fontSize: 12, padding: '2px 8px' }} onClick={() => setSmartFilters(v => ({ ...v, selectedGenres: v.selectedGenres.filter(x => x !== g) }))}>× {g}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: '0.65rem' }}>{t('smartPlaylists.sectionYearsAndFilters')}</div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{t('smartPlaylists.yearMode')}</span>
+                <button className={`btn ${smartFilters.yearMode === 'include' ? 'btn-primary' : 'btn-surface'}`} onClick={() => setSmartFilters(v => ({ ...v, yearMode: 'include' }))}>{t('smartPlaylists.yearModeInclude')}</button>
+                <button className={`btn ${smartFilters.yearMode === 'exclude' ? 'btn-primary' : 'btn-surface'}`} onClick={() => setSmartFilters(v => ({ ...v, yearMode: 'exclude' }))}>{t('smartPlaylists.yearModeExclude')}</button>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
+                <span>{t('smartPlaylists.fromYear')}: {smartFilters.yearFrom}</span>
+                <span>{t('smartPlaylists.toYear')}: {smartFilters.yearTo}</span>
+              </div>
+              <div className="dual-year-range">
+                <div className="dual-year-range__track" />
+                <div className="dual-year-range__selected" style={{ left: `${((smartFilters.yearFrom - YEAR_MIN) / (YEAR_MAX - YEAR_MIN)) * 100}%`, right: `${100 - ((smartFilters.yearTo - YEAR_MIN) / (YEAR_MAX - YEAR_MIN)) * 100}%` }} />
+                <input type="range" min={YEAR_MIN} max={YEAR_MAX} value={smartFilters.yearFrom} onChange={e => setSmartFilters(v => ({ ...v, yearFrom: Math.min(clampYear(Number(e.target.value)), v.yearTo) }))} />
+                <input type="range" min={YEAR_MIN} max={YEAR_MAX} value={smartFilters.yearTo} onChange={e => setSmartFilters(v => ({ ...v, yearTo: Math.max(clampYear(Number(e.target.value)), v.yearFrom) }))} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: '0.75rem' }}>
+                <input className="input" placeholder={t('smartPlaylists.artistContains')} value={smartFilters.artistContains} onChange={e => setSmartFilters(v => ({ ...v, artistContains: e.target.value }))} />
+                <input className="input" placeholder={t('smartPlaylists.albumContains')} value={smartFilters.albumContains} onChange={e => setSmartFilters(v => ({ ...v, albumContains: e.target.value }))} />
+                <input className="input" placeholder={t('smartPlaylists.titleContains')} value={smartFilters.titleContains} onChange={e => setSmartFilters(v => ({ ...v, titleContains: e.target.value }))} />
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('smartPlaylists.minRating')}: {smartFilters.minRating}★</div>
+                <StarRating value={smartFilters.minRating} onChange={rating => setSmartFilters(v => ({ ...v, minRating: rating }))} ariaLabel={t('smartPlaylists.minRatingAria')} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('smartPlaylists.minRatingHint')}</span>
+              </div>
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input type="checkbox" checked={smartFilters.excludeUnrated} onChange={e => setSmartFilters(v => ({ ...v, excludeUnrated: e.target.checked }))} />
+                  {t('smartPlaylists.excludeUnrated')}
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input type="checkbox" checked={smartFilters.compilationOnly} onChange={e => setSmartFilters(v => ({ ...v, compilationOnly: e.target.checked }))} />
+                  {t('smartPlaylists.compilationOnly')}
+                </label>
+              </div>
+            </section>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className="btn btn-surface" onClick={() => setCreatingSmart(false)}>{t('playlists.cancel')}</button>
+              <button className="btn btn-primary" onClick={handleCreateSmart} disabled={creatingSmartBusy}>
+                <Plus size={15} /> {t('smartPlaylists.create')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Grid ── */}
       {playlists.length === 0 ? (
@@ -246,11 +620,29 @@ export default function Playlists() {
               }}
               onMouseLeave={() => { if (deleteConfirmId === pl.id) setDeleteConfirmId(null); }}
               style={selectionMode && selectedIds.has(pl.id) ? {
+                position: 'relative',
                 outline: '2px solid var(--accent)',
                 outlineOffset: '2px',
                 borderRadius: 'var(--radius-md)'
-              } : {}}
+              } : { position: 'relative' }}
             >
+              {!selectionMode && isPlaylistDeletable(pl) && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={(e) => handleDelete(e, pl)}
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    zIndex: 5,
+                    padding: 4,
+                    borderColor: deleteConfirmId === pl.id ? 'var(--color-danger, #e66)' : undefined,
+                  }}
+                  data-tooltip={deleteConfirmId === pl.id ? t('playlists.confirmDelete') : t('common.delete')}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
               {selectionMode && (
                 <div className={`album-card-select-check${selectedIds.has(pl.id) ? ' album-card-select-check--on' : ''}`}>
                   {selectedIds.has(pl.id) && <Check size={14} strokeWidth={3} />}
@@ -268,6 +660,29 @@ export default function Playlists() {
                 ) : (
                   <div className="album-card-cover-placeholder playlist-card-icon">
                     <ListMusic size={48} strokeWidth={1.2} />
+                  </div>
+                )}
+                {pendingSmart.some(p => p.id === pl.id || p.name === pl.name) && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      width: 24,
+                      height: 24,
+                      borderRadius: 999,
+                      background: 'rgba(0,0,0,0.45)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      zIndex: 8,
+                      pointerEvents: 'none',
+                    }}
+                    data-tooltip={t('common.loading')}
+                  >
+                    <Clock3 size={13} />
                   </div>
                 )}
 
@@ -288,7 +703,10 @@ export default function Playlists() {
               </div>
 
               <div className="album-card-info">
-                <div className="album-card-title">{pl.name}</div>
+                <div className="album-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {isSmartPlaylistName(pl.name) && <Sparkles size={14} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />}
+                  <span>{displayPlaylistName(pl.name)}</span>
+                </div>
                 <div className="album-card-artist">
                   {t('playlists.songs', { n: pl.songCount })}
                   {pl.duration > 0 && <> · {formatDuration(pl.duration)}</>}
@@ -298,6 +716,7 @@ export default function Playlists() {
           ))}
         </div>
       )}
+
     </div>
   );
 }
