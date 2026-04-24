@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ListMusic, Play, Plus, Trash2, CheckSquare2, Check, Clock3, Sparkles } from 'lucide-react';
-import { deletePlaylist, SubsonicPlaylist, getPlaylist, buildCoverArtUrl, coverArtCacheKey, updatePlaylist, getGenres, SubsonicGenre } from '../api/subsonic';
+import { ListMusic, Play, Plus, Trash2, CheckSquare2, Check, Clock3, Sparkles, Pencil } from 'lucide-react';
+import { deletePlaylist, SubsonicPlaylist, getPlaylist, buildCoverArtUrl, coverArtCacheKey, updatePlaylist, getGenres, SubsonicGenre, filterSongsToActiveLibrary } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { usePlaylistStore } from '../store/playlistStore';
 import { useAuthStore } from '../store/authStore';
@@ -92,6 +92,7 @@ export default function Playlists() {
   const activeUsername = useAuthStore(s => s.getActiveServer()?.username ?? '');
   const activeServerId = useAuthStore(s => s.activeServerId);
   const subsonicIdentityByServer = useAuthStore(s => s.subsonicServerIdentityByServer);
+  const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
 
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -102,6 +103,7 @@ export default function Playlists() {
   const [genreQuery, setGenreQuery] = useState('');
   const [creatingSmartBusy, setCreatingSmartBusy] = useState(false);
   const [pendingSmart, setPendingSmart] = useState<PendingSmartPlaylist[]>([]);
+  const [smartCoverIdsByPlaylist, setSmartCoverIdsByPlaylist] = useState<Record<string, string[]>>({});
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -143,6 +145,44 @@ export default function Playlists() {
     fetchPlaylists().finally(() => setLoading(false));
     getGenres().then(setGenres).catch(() => {});
   }, [fetchPlaylists]);
+
+  // Smart playlists: build 2x2 cover collage from tracks inside the active library scope.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const smart = playlists.filter(pl => isSmartPlaylistName(pl.name));
+      if (smart.length === 0) {
+        if (!cancelled) setSmartCoverIdsByPlaylist({});
+        return;
+      }
+      const rows = await Promise.all(
+        smart.map(async (pl) => {
+          try {
+            const { songs } = await getPlaylist(pl.id);
+            const filtered = await filterSongsToActiveLibrary(songs);
+            const ids: string[] = [];
+            const seen = new Set<string>();
+            for (const s of filtered) {
+              const cid = s.coverArt;
+              if (!cid || seen.has(cid)) continue;
+              seen.add(cid);
+              ids.push(cid);
+              if (ids.length >= 4) break;
+            }
+            return [pl.id, ids] as const;
+          } catch {
+            return [pl.id, [] as string[]] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const next: Record<string, string[]> = {};
+      for (const [id, ids] of rows) next[id] = ids;
+      setSmartCoverIdsByPlaylist(next);
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [playlists, musicLibraryFilterVersion]);
 
   useEffect(() => {
     if (creating) nameInputRef.current?.focus();
@@ -626,22 +666,28 @@ export default function Playlists() {
                 borderRadius: 'var(--radius-md)'
               } : { position: 'relative' }}
             >
-              {!selectionMode && isPlaylistDeletable(pl) && (
-                <button
-                  className="btn btn-ghost"
-                  onClick={(e) => handleDelete(e, pl)}
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    zIndex: 5,
-                    padding: 4,
-                    borderColor: deleteConfirmId === pl.id ? 'var(--color-danger, #e66)' : undefined,
-                  }}
-                  data-tooltip={deleteConfirmId === pl.id ? t('playlists.confirmDelete') : t('common.delete')}
-                >
-                  <Trash2 size={14} />
-                </button>
+              {!selectionMode && (
+                <div className="playlist-card-actions">
+                  <button
+                    className="playlist-card-action playlist-card-action--edit"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/playlists/${pl.id}`, { state: { openEditMeta: true } });
+                    }}
+                    data-tooltip={t('playlists.editMeta')}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  {isPlaylistDeletable(pl) && (
+                    <button
+                      className={`playlist-card-action playlist-card-action--delete${deleteConfirmId === pl.id ? ' playlist-card-action--delete-confirm' : ''}`}
+                      onClick={(e) => handleDelete(e, pl)}
+                      data-tooltip={deleteConfirmId === pl.id ? t('playlists.confirmDelete') : t('common.delete')}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
               )}
               {selectionMode && (
                 <div className={`album-card-select-check${selectedIds.has(pl.id) ? ' album-card-select-check--on' : ''}`}>
@@ -650,7 +696,24 @@ export default function Playlists() {
               )}
               {/* Cover area — server collage or fallback icon */}
               <div className="album-card-cover">
-                {pl.coverArt ? (
+                {isSmartPlaylistName(pl.name) && (smartCoverIdsByPlaylist[pl.id]?.length ?? 0) > 0 ? (
+                  <div className="playlist-cover-grid">
+                    {Array.from({ length: 4 }, (_, i) => {
+                      const id = smartCoverIdsByPlaylist[pl.id][i % smartCoverIdsByPlaylist[pl.id].length];
+                      return id ? (
+                        <CachedImage
+                          key={i}
+                          className="playlist-cover-cell"
+                          src={buildCoverArtUrl(id, 200)}
+                          cacheKey={coverArtCacheKey(id, 200)}
+                          alt=""
+                        />
+                      ) : (
+                        <div key={i} className="playlist-cover-cell playlist-cover-cell--empty" />
+                      );
+                    })}
+                  </div>
+                ) : pl.coverArt ? (
                   <CachedImage
                     src={buildCoverArtUrl(pl.coverArt, 256)}
                     cacheKey={coverArtCacheKey(pl.coverArt, 256)}

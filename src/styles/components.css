@@ -7286,43 +7286,51 @@ html.no-compositing .fs-seekbar-played {
   opacity: 0.6;
 }
 
-/* Delete button — top-right corner of card cover, hidden until hover */
-.playlist-card-delete {
+/* Playlist card actions (edit/delete) — visible on hover */
+.playlist-card-actions {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 6;
+}
+
+.album-card:hover .playlist-card-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.playlist-card-action {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
-  z-index: 2;
 }
 
-.album-card:hover .playlist-card-delete {
-  opacity: 1;
+.playlist-card-action--edit:hover {
+  background: rgba(90, 120, 255, 0.85);
+  color: #fff;
 }
 
-.playlist-card-delete:hover {
+.playlist-card-action--delete:hover {
   background: rgba(220, 60, 60, 0.85);
   color: #fff;
 }
 
-.playlist-card-delete--confirm {
+.playlist-card-action--delete-confirm {
   background: #dc3c3c !important;
   color: #fff !important;
-  opacity: 1 !important;
-  width: 30px !important;
-  height: 30px !important;
-  top: 3px !important;
-  right: 3px !important;
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
   animation: delete-confirm-pulse 0.7s ease-in-out infinite alternate;
 }

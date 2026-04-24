@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronLeft, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle, Heart, HardDriveDownload, Check, Pencil, Globe, Lock, Camera, Download, FileUp, RotateCcw, Sparkles } from 'lucide-react';
 import { useTracklistColumns, type ColDef } from '../utils/useTracklistColumns';
 import { AddToPlaylistSubmenu } from '../components/ContextMenu';
 import {
   getPlaylist, updatePlaylist, updatePlaylistMeta, uploadPlaylistCoverArt,
   search, setRating, star, unstar,
-  getRandomSongs, buildDownloadUrl, SubsonicPlaylist, SubsonicSong,
+  getRandomSongs, buildDownloadUrl, filterSongsToActiveLibrary, SubsonicPlaylist, SubsonicSong,
 } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -237,6 +237,7 @@ export default function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { playTrack, enqueue, openContextMenu, currentTrack, isPlaying, starredOverrides, setStarredOverride, userRatingOverrides } = usePlayerStore(
     useShallow(s => ({
       playTrack: s.playTrack,
@@ -413,6 +414,14 @@ export default function PlaylistDetail() {
     if (!contextMenuOpen) setContextMenuSongId(null);
   }, [contextMenuOpen]);
 
+  useEffect(() => {
+    const state = (location.state as { openEditMeta?: boolean } | null) ?? null;
+    if (state?.openEditMeta) {
+      setEditingMeta(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
+
   // ── Load ─────────────────────────────────────────────────────
   const lastModified = usePlaylistStore(s => (id ? s.lastModified[id] : undefined));
 
@@ -420,13 +429,14 @@ export default function PlaylistDetail() {
     if (!id) return;
     setLoading(true);
     getPlaylist(id)
-      .then(({ playlist, songs }) => {
+      .then(async ({ playlist, songs }) => {
+        const filteredSongs = await filterSongsToActiveLibrary(songs);
         setPlaylist(playlist);
-        setSongs(songs);
+        setSongs(filteredSongs);
         if (playlist.coverArt) setCustomCoverId(playlist.coverArt);
         const init: Record<string, number> = {};
         const starred = new Set<string>();
-        songs.forEach(s => {
+        filteredSongs.forEach(s => {
           if (s.userRating) init[s.id] = s.userRating;
           if (s.starred) starred.add(s.id);
         });
