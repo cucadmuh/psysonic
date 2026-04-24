@@ -1487,6 +1487,7 @@ export const enTranslation = {
     shuffleLabel: 'Queue reshuffles in',
     catchUpLabel: 'catch up',
     catchUpTooltip: "Jump to the host's current position",
+    hostAway: 'Host offline',
     endTooltip: 'End session',
     leaveTooltip: 'Leave session',
     participantsInviteLabel: 'Invite link',

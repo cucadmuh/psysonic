@@ -1484,6 +1484,7 @@ export const deTranslation = {
     shuffleLabel: 'Warteschlange wird neu gemischt in',
     catchUpLabel: 'aufholen',
     catchUpTooltip: 'Zur aktuellen Host-Position springen',
+    hostAway: 'Host offline',
     endTooltip: 'Session beenden',
     leaveTooltip: 'Session verlassen',
     participantsInviteLabel: 'Einladungslink',

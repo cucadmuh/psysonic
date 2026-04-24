@@ -12272,14 +12272,40 @@ html[data-psy-native-hidden="true"] *::after {
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
+.orbit-queue-head__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  min-width: 0;
+}
 .orbit-queue-head__title {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.orbit-queue-head__presence {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ctp-yellow, #f9e2af);
+  background: color-mix(in srgb, var(--ctp-yellow, #f9e2af) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ctp-yellow, #f9e2af) 40%, transparent);
+  border-radius: 999px;
+}
+.orbit-queue-head__presence svg {
+  color: var(--ctp-yellow, #f9e2af);
 }
 .orbit-queue-head__meta {
   display: flex;
