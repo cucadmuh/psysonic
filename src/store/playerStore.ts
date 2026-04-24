@@ -1210,14 +1210,22 @@ export const usePlayerStore = create<PlayerState>()(
 
       // ── playTrack ────────────────────────────────────────────────────────────
       playTrack: (track, queue, manual = true, _orbitConfirmed = false) => {
-        // Orbit bulk-gate: a >1-track queue inside an active session is
-        // a "Play All / Play Album"-style action — confirm with the user
-        // before it lands on every guest's player.
+        // Orbit bulk-gate: only gate when the `queue` argument *replaces*
+        // the current queue (Play All / Play Album / Play Playlist / Hero
+        // play buttons). Navigation calls — queue-row click, next(),
+        // previous() — pass the existing queue back through playTrack just
+        // to move the index; they are not bulk operations and must not
+        // trigger the confirm dialog (#234 regression).
         if (!_orbitConfirmed && queue && queue.length > 1) {
-          void orbitBulkGuard(queue.length).then(ok => {
-            if (ok) get().playTrack(track, queue, manual, true);
-          });
-          return;
+          const current = get().queue;
+          const sameAsCurrent = queue.length === current.length
+            && queue.every((t, i) => current[i]?.id === t.id);
+          if (!sameAsCurrent) {
+            void orbitBulkGuard(queue.length).then(ok => {
+              if (ok) get().playTrack(track, queue, manual, true);
+            });
+            return;
+          }
         }
 
         // Ghost-command guard: if a gapless switch happened within 500 ms,
