@@ -96,10 +96,11 @@ export default function OrbitSessionBar() {
   };
 
   const onExit = () => {
-    // Guests in an active session get a confirm — leaving is voluntary and
-    // a fat-finger shouldn't drop them out. Host-end and post-end/kicked
-    // dismissals exit immediately (the session is already over there).
-    if (role === 'guest' && phase === 'active') {
+    // Active-session exits get a confirm — guests don't want to drop out on
+    // a fat-finger, and the host's X ends the session for everyone, so
+    // accidentally clicking it is even worse. Post-end/kicked dismissals
+    // skip the confirm (the session is already over there).
+    if (phase === 'active' && (role === 'guest' || role === 'host')) {
       setConfirmLeave(true);
       return;
     }
@@ -239,10 +240,17 @@ export default function OrbitSessionBar() {
       <OrbitExitModal />
       <ConfirmModal
         open={confirmLeave}
-        title={t('orbit.confirmLeaveTitle')}
-        message={t('orbit.confirmLeaveBody', { name: state.name, host: state.host })}
-        confirmLabel={t('orbit.confirmLeaveConfirm')}
+        title={role === 'host'
+          ? t('orbit.confirmEndTitle')
+          : t('orbit.confirmLeaveTitle')}
+        message={role === 'host'
+          ? t('orbit.confirmEndBody', { name: state.name })
+          : t('orbit.confirmLeaveBody', { name: state.name, host: state.host })}
+        confirmLabel={role === 'host'
+          ? t('orbit.confirmEndConfirm')
+          : t('orbit.confirmLeaveConfirm')}
         cancelLabel={t('orbit.confirmCancel')}
+        danger={role === 'host'}
         onConfirm={() => { setConfirmLeave(false); void performExit(); }}
         onCancel={() => setConfirmLeave(false)}
       />
