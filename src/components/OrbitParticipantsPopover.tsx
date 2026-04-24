@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Crown, User, UserMinus, ShieldOff } from 'lucide-react';
+import { Crown, User, UserMinus, ShieldOff, Mic, MicOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useOrbitStore } from '../store/orbitStore';
-import { kickOrbitParticipant, removeOrbitParticipant } from '../utils/orbit';
+import { kickOrbitParticipant, removeOrbitParticipant, setOrbitSuggestionBlocked } from '../utils/orbit';
 import ConfirmModal from './ConfirmModal';
 
 interface Props {
@@ -90,35 +90,50 @@ export default function OrbitParticipantsPopover({ anchorRef, onClose }: Props) 
         <div className="orbit-participants-pop__empty">{t('orbit.participantsEmpty')}</div>
       )}
 
-      {state.participants.map(p => (
-        <div key={p.user} className="orbit-participants-pop__row">
-          <User size={13} />
-          <span className="orbit-participants-pop__name">{p.user}</span>
-          <span className="orbit-participants-pop__meta">{joinedFor(p.joinedAt, nowMs)}</span>
-          {role === 'host' && (
-            <div className="orbit-participants-pop__actions">
-              <button
-                type="button"
-                className="orbit-participants-pop__kick"
-                onClick={() => setConfirm({ user: p.user, mode: 'remove' })}
-                data-tooltip={t('orbit.participantsRemoveTooltip')}
-                aria-label={t('orbit.participantsRemoveAria', { user: p.user })}
-              >
-                <UserMinus size={12} />
-              </button>
-              <button
-                type="button"
-                className="orbit-participants-pop__kick orbit-participants-pop__kick--ban"
-                onClick={() => setConfirm({ user: p.user, mode: 'ban' })}
-                data-tooltip={t('orbit.participantsBanTooltip')}
-                aria-label={t('orbit.participantsBanAria', { user: p.user })}
-              >
-                <ShieldOff size={12} />
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
+      {state.participants.map(p => {
+        const isMuted = state.suggestionBlocked?.includes(p.user) ?? false;
+        return (
+          <div key={p.user} className="orbit-participants-pop__row">
+            <User size={13} />
+            <span className="orbit-participants-pop__name">{p.user}</span>
+            <span className="orbit-participants-pop__meta">{joinedFor(p.joinedAt, nowMs)}</span>
+            {role === 'host' && (
+              <div className="orbit-participants-pop__actions">
+                <button
+                  type="button"
+                  className={`orbit-participants-pop__kick${isMuted ? ' is-active' : ''}`}
+                  onClick={() => { void setOrbitSuggestionBlocked(p.user, !isMuted); }}
+                  data-tooltip={isMuted ? t('orbit.participantsUnmuteTooltip') : t('orbit.participantsMuteTooltip')}
+                  aria-label={isMuted
+                    ? t('orbit.participantsUnmuteAria', { user: p.user })
+                    : t('orbit.participantsMuteAria',   { user: p.user })}
+                  aria-pressed={isMuted}
+                >
+                  {isMuted ? <MicOff size={12} /> : <Mic size={12} />}
+                </button>
+                <button
+                  type="button"
+                  className="orbit-participants-pop__kick"
+                  onClick={() => setConfirm({ user: p.user, mode: 'remove' })}
+                  data-tooltip={t('orbit.participantsRemoveTooltip')}
+                  aria-label={t('orbit.participantsRemoveAria', { user: p.user })}
+                >
+                  <UserMinus size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="orbit-participants-pop__kick orbit-participants-pop__kick--ban"
+                  onClick={() => setConfirm({ user: p.user, mode: 'ban' })}
+                  data-tooltip={t('orbit.participantsBanTooltip')}
+                  aria-label={t('orbit.participantsBanAria', { user: p.user })}
+                >
+                  <ShieldOff size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
     <ConfirmModal
       open={!!confirm}

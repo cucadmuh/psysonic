@@ -100,6 +100,12 @@ export interface OrbitState {
   ended?: boolean;
   /** Host-settable session rules; absent on older clients — treat missing as all-defaults. */
   settings?: OrbitSettings;
+  /**
+   * Usernames muted by the host: their outbox is still polled (so heartbeats
+   * keep them visible as participants) but new track suggestions are dropped
+   * before they reach the approval list. Symmetric — host can re-enable.
+   */
+  suggestionBlocked?: string[];
 }
 
 /**
@@ -121,6 +127,13 @@ export interface OrbitSettings {
    * field fall back to 15 via `effectiveShuffleIntervalMs`.
    */
   shuffleIntervalMin?: OrbitShuffleIntervalMin;
+  /**
+   * Cap on simultaneously-pending guest suggestions. 0 = unlimited.
+   * When the cap is reached, the host's outbox sweep drops new suggestions
+   * until existing ones are approved or declined; the guest UI surfaces
+   * the count so users know to wait.
+   */
+  maxPending?: number;
 }
 
 export const ORBIT_DEFAULT_SETTINGS: OrbitSettings = {
@@ -128,6 +141,8 @@ export const ORBIT_DEFAULT_SETTINGS: OrbitSettings = {
   autoApprove: false,
   autoShuffle: true,
   shuffleIntervalMin: 15,
+  // 0 = unlimited; host opts in via the session-settings popover.
+  maxPending: 0,
 };
 
 /** What the guest's outbox-playlist comment holds (heartbeat only, for now). */
@@ -176,6 +191,7 @@ export function makeInitialOrbitState(args: {
     participants: [],
     kicked: [],
     removed: [],
+    suggestionBlocked: [],
     playQueue: [],
     playQueueTotal: 0,
     settings: { ...ORBIT_DEFAULT_SETTINGS },
@@ -201,6 +217,8 @@ export function parseOrbitState(raw: unknown): OrbitState | null {
   // the attribution UI, not correctness.
   // `removed` is optional (older hosts won't write it); coerce to [] if absent or malformed.
   if (!Array.isArray(s.removed)) s.removed = [];
+  // `suggestionBlocked` is optional too — older hosts predate the mute feature.
+  if (!Array.isArray(s.suggestionBlocked)) s.suggestionBlocked = [];
   // `playQueue` / `playQueueTotal` are optional (older hosts won't write them).
   if (!Array.isArray(s.playQueue)) s.playQueue = [];
   if (typeof s.playQueueTotal !== 'number') s.playQueueTotal = (s.playQueue?.length ?? 0);

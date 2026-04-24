@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Wifi, WifiOff } from 'lucide-react';
+import { Users, Wifi, WifiOff, Inbox } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useOrbitStore } from '../store/orbitStore';
 import type { OrbitState } from '../api/orbit';
@@ -36,6 +36,15 @@ export default function OrbitQueueHead({ state }: Props) {
   const names = [state.host, ...state.participants.map(p => p.user)];
   const showPresence = role === 'guest' && state.positionAt > 0;
   const hostAway = showPresence && (nowMs - state.positionAt) > HOST_AWAY_THRESHOLD_MS;
+  const cap = state.settings?.maxPending ?? 0;
+  // Approximate visible-pending count — same heuristic as evaluateOrbitSuggestGate.
+  // Conservative for guests (over-counts declined entries) but the host's
+  // own queue view sees the exact number because it has the merged/declined
+  // sets locally; we don't bother surfacing the exact count here either way
+  // since guests just need to know if they're near the cap.
+  const pendingCount = cap > 0
+    ? state.queue.filter(q => q.addedBy !== state.host).length
+    : 0;
 
   return (
     <div className="orbit-queue-head">
@@ -54,6 +63,15 @@ export default function OrbitQueueHead({ state }: Props) {
       <div className="orbit-queue-head__meta">
         <Users size={11} />
         <span className="orbit-queue-head__names">{names.join(', ')}</span>
+        {cap > 0 && (
+          <span
+            className={`orbit-queue-head__pending${pendingCount >= cap ? ' is-full' : ''}`}
+            data-tooltip={t('orbit.pendingCounterTooltip')}
+          >
+            <Inbox size={11} />
+            <span>{t('orbit.pendingCounter', { count: pendingCount, max: cap })}</span>
+          </span>
+        )}
       </div>
     </div>
   );

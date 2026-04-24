@@ -1,7 +1,12 @@
 import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOrbitStore } from '../store/orbitStore';
-import { suggestOrbitTrack, hostEnqueueToOrbit } from '../utils/orbit';
+import {
+  suggestOrbitTrack,
+  hostEnqueueToOrbit,
+  evaluateOrbitSuggestGate,
+  OrbitSuggestBlockedError,
+} from '../utils/orbit';
 import { showToast } from '../utils/toast';
 
 /**
@@ -43,9 +48,26 @@ export function useOrbitSongRowBehavior() {
       clickTimerRef.current = null;
     }
     if (orbitRole === 'guest') {
+      const gate = evaluateOrbitSuggestGate();
+      if (!gate.allowed && gate.reason === 'muted') {
+        showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
+        return;
+      }
+      if (!gate.allowed && gate.reason === 'cap-reached') {
+        showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
+        return;
+      }
       suggestOrbitTrack(songId)
         .then(() => showToast(t('orbit.ctxSuggestedToast'), 2200, 'info'))
-        .catch(() => showToast(t('orbit.ctxSuggestFailed'), 3000, 'error'));
+        .catch(err => {
+          if (err instanceof OrbitSuggestBlockedError && err.reason === 'muted') {
+            showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
+          } else if (err instanceof OrbitSuggestBlockedError && err.reason === 'cap-reached') {
+            showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
+          } else {
+            showToast(t('orbit.ctxSuggestFailed'), 3000, 'error');
+          }
+        });
     } else if (orbitRole === 'host') {
       hostEnqueueToOrbit(songId)
         .then(() => showToast(t('orbit.ctxAddedHostToast'), 2200, 'info'))

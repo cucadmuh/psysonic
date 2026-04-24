@@ -87,7 +87,12 @@ export function useOrbitHost(): void {
       let afterSweep = base;
       try {
         const snaps = await sweepGuestOutboxes(base.sid, base.host);
-        afterSweep = applyOutboxSnapshotsToState(base, snaps);
+        // Hand the cap-check the host's local merged/declined sets so it can
+        // tell which `state.queue` items are still actually awaiting approval.
+        afterSweep = applyOutboxSnapshotsToState(base, snaps, Date.now(), {
+          mergedKeys: new Set(store.mergedSuggestionKeys),
+          declinedKeys: new Set(store.declinedSuggestionKeys),
+        });
       } catch { /* best-effort; keep old participants and queue */ }
 
       // 2) Merge newly-suggested items into the host's local play queue so
