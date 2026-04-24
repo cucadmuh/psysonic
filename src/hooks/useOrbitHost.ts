@@ -87,12 +87,7 @@ export function useOrbitHost(): void {
       let afterSweep = base;
       try {
         const snaps = await sweepGuestOutboxes(base.sid, base.host);
-        // Hand the cap-check the host's local merged/declined sets so it can
-        // tell which `state.queue` items are still actually awaiting approval.
-        afterSweep = applyOutboxSnapshotsToState(base, snaps, Date.now(), {
-          mergedKeys: new Set(store.mergedSuggestionKeys),
-          declinedKeys: new Set(store.declinedSuggestionKeys),
-        });
+        afterSweep = applyOutboxSnapshotsToState(base, snaps);
       } catch { /* best-effort; keep old participants and queue */ }
 
       // 2) Merge newly-suggested items into the host's local play queue so
@@ -130,24 +125,11 @@ export function useOrbitHost(): void {
         trackId: t.id,
         addedBy: suggesterByTrack.get(t.id) ?? base.host,
       }));
-      // Authoritative pending count — same predicate the approval list uses
-      // (state.queue minus host-authored, minus merged, minus declined). We
-      // recompute fresh each tick from the *current* store sets so an approve
-      // / decline that happened mid-sweep is reflected on the very next push.
-      const mergedNow = new Set(useOrbitStore.getState().mergedSuggestionKeys);
-      const declinedNow = new Set(useOrbitStore.getState().declinedSuggestionKeys);
-      const pendingApprovalCount = afterShuffle.queue.filter(q =>
-        q.addedBy !== afterShuffle.host
-        && !mergedNow.has(suggestionKey(q))
-        && !declinedNow.has(suggestionKey(q))
-      ).length;
-
       const next: OrbitState = {
         ...afterShuffle,
         ...snapshotPlayerPatch(base.host),
         playQueue,
         playQueueTotal: upcoming.length,
-        pendingApprovalCount,
       };
 
       // 5) Commit locally + push remote.

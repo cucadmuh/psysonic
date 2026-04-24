@@ -53,17 +53,11 @@ export function useOrbitSongRowBehavior() {
         showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
         return;
       }
-      if (!gate.allowed && gate.reason === 'cap-reached') {
-        showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
-        return;
-      }
       suggestOrbitTrack(songId)
         .then(() => showToast(t('orbit.ctxSuggestedToast'), 2200, 'info'))
         .catch(err => {
           if (err instanceof OrbitSuggestBlockedError && err.reason === 'muted') {
             showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
-          } else if (err instanceof OrbitSuggestBlockedError && err.reason === 'cap-reached') {
-            showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
           } else {
             showToast(t('orbit.ctxSuggestFailed'), 3000, 'error');
           }

@@ -106,14 +106,6 @@ export interface OrbitState {
    * before they reach the approval list. Symmetric — host can re-enable.
    */
   suggestionBlocked?: string[];
-  /**
-   * Authoritative count of suggestions actually waiting on host action right
-   * now (`state.queue` minus host-authored, merged, declined). The host
-   * rewrites it every tick — guests can't compute it themselves because the
-   * merged/declined sets live in the host's local store. Older clients that
-   * don't write the field fall back to a `state.queue` count in the UI.
-   */
-  pendingApprovalCount?: number;
 }
 
 /**
@@ -135,13 +127,6 @@ export interface OrbitSettings {
    * field fall back to 15 via `effectiveShuffleIntervalMs`.
    */
   shuffleIntervalMin?: OrbitShuffleIntervalMin;
-  /**
-   * Cap on simultaneously-pending guest suggestions. 0 = unlimited.
-   * When the cap is reached, the host's outbox sweep drops new suggestions
-   * until existing ones are approved or declined; the guest UI surfaces
-   * the count so users know to wait.
-   */
-  maxPending?: number;
 }
 
 export const ORBIT_DEFAULT_SETTINGS: OrbitSettings = {
@@ -149,8 +134,6 @@ export const ORBIT_DEFAULT_SETTINGS: OrbitSettings = {
   autoApprove: false,
   autoShuffle: true,
   shuffleIntervalMin: 15,
-  // 0 = unlimited; host opts in via the session-settings popover.
-  maxPending: 0,
 };
 
 /** What the guest's outbox-playlist comment holds (heartbeat only, for now). */

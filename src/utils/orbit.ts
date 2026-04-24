@@ -458,36 +458,19 @@ export async function leaveOrbitSession(): Promise<void> {
  */
 /** Why a guest's suggestion would be blocked, in priority order. `null` means
  *  the suggestion can proceed. */
-export type OrbitSuggestGateReason = 'not-guest' | 'muted' | 'cap-reached' | null;
+export type OrbitSuggestGateReason = 'not-guest' | 'muted' | null;
 
 /**
  * Evaluate whether the local guest is allowed to send a new suggestion right
  * now — used by both the UI (to disable buttons / show toasts) and
  * {@link suggestOrbitTrack} as a defensive check.
- *
- * Mute check uses the host-pushed `state.suggestionBlocked` list. Cap check
- * is approximate from the guest's POV: it counts every non-host entry in
- * `state.queue` plus the local `pendingSuggestions` list that hasn't been
- * reconciled yet. We can't subtract host-side merged/declined sets — the
- * guest never sees them — so the count is conservative (over-, not under-).
  */
 export function evaluateOrbitSuggestGate(): { allowed: boolean; reason: OrbitSuggestGateReason } {
-  const { role, state, pendingSuggestions } = useOrbitStore.getState();
+  const { role, state } = useOrbitStore.getState();
   if (role !== 'guest' || !state) return { allowed: false, reason: 'not-guest' };
   const username = useAuthStore.getState().getActiveServer()?.username ?? '';
   if (state.suggestionBlocked?.includes(username)) {
     return { allowed: false, reason: 'muted' };
-  }
-  const cap = state.settings?.maxPending ?? 0;
-  if (cap > 0) {
-    // Prefer the host-pushed authoritative count when present; fall back to a
-    // raw queue scan for older hosts. Add the local guest's pending list on
-    // top — those are tracks the host hasn't swept in yet.
-    const knownPending = state.pendingApprovalCount
-      ?? state.queue.filter(q => q.addedBy !== state.host).length;
-    if (knownPending + pendingSuggestions.length >= cap) {
-      return { allowed: false, reason: 'cap-reached' };
-    }
   }
   return { allowed: true, reason: null };
 }
@@ -949,7 +932,6 @@ export function applyOutboxSnapshotsToState(
   state: OrbitState,
   snapshots: OutboxSnapshot[],
   nowMs: number = Date.now(),
-  opts?: { mergedKeys?: ReadonlySet<string>; declinedKeys?: ReadonlySet<string> },
 ): OrbitState {
   // ── Queue additions ──
   // Guest outboxes are append-only from the host's POV — the host reads the
@@ -965,35 +947,17 @@ export function applyOutboxSnapshotsToState(
     existingKeys.add(`${state.currentTrack.addedBy} ${state.currentTrack.trackId}`);
   }
 
-  // Compute remaining slots under the host's pending-approval cap. Items the
-  // host has merged or declined have left the approval queue and don't
-  // occupy a slot any more — without those sets we conservatively count
-  // every non-host queue entry as pending. Plus drop any new suggestion
-  // from a user the host has muted.
+  // Drop any new suggestion from a user the host has muted before the
+  // dedupe scan — they shouldn't count against the queue at all.
   const blocked = new Set(state.suggestionBlocked ?? []);
-  const cap = state.settings?.maxPending ?? 0;
-  const merged = opts?.mergedKeys ?? new Set<string>();
-  const declined = opts?.declinedKeys ?? new Set<string>();
-  const pendingCount = cap > 0
-    ? state.queue.filter(q =>
-        q.addedBy !== state.host
-        && !merged.has(suggestionKey(q))
-        && !declined.has(suggestionKey(q))
-      ).length
-    : 0;
-  let remaining = cap > 0 ? Math.max(0, cap - pendingCount) : Infinity;
-
   const newItems: OrbitQueueItem[] = [];
-  outer:
   for (const snap of snapshots) {
     if (blocked.has(snap.user)) continue;
     for (const trackId of snap.trackIds) {
-      if (remaining <= 0) break outer;
       const key = `${snap.user} ${trackId}`;
       if (existingKeys.has(key)) continue;
       existingKeys.add(key);
       newItems.push({ trackId, addedBy: snap.user, addedAt: nowMs });
-      remaining--;
     }
   }
 

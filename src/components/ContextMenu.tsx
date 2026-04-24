@@ -1452,27 +1452,18 @@ export default function ContextMenu() {
                 <ListPlus size={14} /> {t('contextMenu.addToQueue')}
               </div>
               {orbitRole === 'guest' && (() => {
-                const gate = evaluateOrbitSuggestGate();
-                const muted = gate.reason === 'muted';
-                const capReached = gate.reason === 'cap-reached';
-                const disabled = muted || capReached;
-                const tooltip = muted
-                  ? t('orbit.suggestBlockedMuted')
-                  : capReached ? t('orbit.suggestBlockedCap') : '';
+                const muted = evaluateOrbitSuggestGate().reason === 'muted';
                 return (
                   <div
-                    className={`context-menu-item${disabled ? ' is-disabled' : ''}`}
-                    {...(disabled ? { 'data-tooltip': tooltip } : {})}
+                    className={`context-menu-item${muted ? ' is-disabled' : ''}`}
+                    {...(muted ? { 'data-tooltip': t('orbit.suggestBlockedMuted') } : {})}
                     onClick={() => handleAction(() => {
-                      if (muted)      { showToast(t('orbit.suggestBlockedMuted'), 3500, 'error'); return; }
-                      if (capReached) { showToast(t('orbit.suggestBlockedCap'),   3500, 'info');  return; }
+                      if (muted) { showToast(t('orbit.suggestBlockedMuted'), 3500, 'error'); return; }
                       suggestOrbitTrack(song.id)
                         .then(() => showToast(t('orbit.ctxSuggestedToast'), 2200, 'info'))
                         .catch(err => {
                           if (err instanceof OrbitSuggestBlockedError && err.reason === 'muted') {
                             showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
-                          } else if (err instanceof OrbitSuggestBlockedError && err.reason === 'cap-reached') {
-                            showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
                           } else {
                             showToast(t('orbit.ctxSuggestFailed'), 3000, 'error');
                           }
@@ -1625,27 +1616,18 @@ export default function ContextMenu() {
                 <ListPlus size={14} /> {t('contextMenu.addToQueue')}
               </div>
               {orbitRole === 'guest' && (() => {
-                const gate = evaluateOrbitSuggestGate();
-                const muted = gate.reason === 'muted';
-                const capReached = gate.reason === 'cap-reached';
-                const disabled = muted || capReached;
-                const tooltip = muted
-                  ? t('orbit.suggestBlockedMuted')
-                  : capReached ? t('orbit.suggestBlockedCap') : '';
+                const muted = evaluateOrbitSuggestGate().reason === 'muted';
                 return (
                   <div
-                    className={`context-menu-item${disabled ? ' is-disabled' : ''}`}
-                    {...(disabled ? { 'data-tooltip': tooltip } : {})}
+                    className={`context-menu-item${muted ? ' is-disabled' : ''}`}
+                    {...(muted ? { 'data-tooltip': t('orbit.suggestBlockedMuted') } : {})}
                     onClick={() => handleAction(() => {
-                      if (muted)      { showToast(t('orbit.suggestBlockedMuted'), 3500, 'error'); return; }
-                      if (capReached) { showToast(t('orbit.suggestBlockedCap'),   3500, 'info');  return; }
+                      if (muted) { showToast(t('orbit.suggestBlockedMuted'), 3500, 'error'); return; }
                       suggestOrbitTrack(song.id)
                         .then(() => showToast(t('orbit.ctxSuggestedToast'), 2200, 'info'))
                         .catch(err => {
                           if (err instanceof OrbitSuggestBlockedError && err.reason === 'muted') {
                             showToast(t('orbit.suggestBlockedMuted'), 3500, 'error');
-                          } else if (err instanceof OrbitSuggestBlockedError && err.reason === 'cap-reached') {
-                            showToast(t('orbit.suggestBlockedCap'), 3500, 'info');
                           } else {
                             showToast(t('orbit.ctxSuggestFailed'), 3000, 'error');
                           }

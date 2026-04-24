@@ -12388,22 +12388,6 @@ html[data-psy-native-hidden="true"] *::after {
 .orbit-settings-pop__row--stacked:hover {
   background: transparent;
 }
-.orbit-settings-pop__number {
-  width: 64px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  background: var(--ctp-surface0, rgba(127, 127, 127, 0.12));
-  border: 1px solid color-mix(in srgb, var(--text-secondary) 18%, transparent);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  flex-shrink: 0;
-}
-.orbit-settings-pop__number:focus {
-  outline: none;
-  border-color: var(--accent);
-}
 
 .orbit-settings-pop__preset-group {
   display: flex;
@@ -12540,26 +12524,6 @@ html[data-psy-native-hidden="true"] *::after {
   white-space: nowrap;
   min-width: 0;
 }
-.orbit-queue-head__pending {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-.orbit-queue-head__pending.is-full {
-  color: var(--ctp-red, #f38ba8);
-  background: color-mix(in srgb, var(--ctp-red, #f38ba8) 14%, transparent);
-  border-color: color-mix(in srgb, var(--ctp-red, #f38ba8) 40%, transparent);
-}
-.orbit-queue-head__pending svg { color: inherit; }
 
 .orbit-guest-queue__current {
   position: relative;

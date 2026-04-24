@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Wifi, WifiOff, Inbox } from 'lucide-react';
+import { Users, Wifi, WifiOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useOrbitStore } from '../store/orbitStore';
 import type { OrbitState } from '../api/orbit';
@@ -36,15 +36,6 @@ export default function OrbitQueueHead({ state }: Props) {
   const names = [state.host, ...state.participants.map(p => p.user)];
   const showPresence = role === 'guest' && state.positionAt > 0;
   const hostAway = showPresence && (nowMs - state.positionAt) > HOST_AWAY_THRESHOLD_MS;
-  const cap = state.settings?.maxPending ?? 0;
-  // Authoritative count comes from the host's own tick (state.pendingApprovalCount).
-  // Older clients that predate that field fall back to the raw queue length
-  // — that one over-counts because merged/declined items stay in state.queue
-  // as history, but it's the best a non-host client can do.
-  const pendingCount = cap > 0
-    ? (state.pendingApprovalCount
-      ?? state.queue.filter(q => q.addedBy !== state.host).length)
-    : 0;
 
   return (
     <div className="orbit-queue-head">
@@ -63,15 +54,6 @@ export default function OrbitQueueHead({ state }: Props) {
       <div className="orbit-queue-head__meta">
         <Users size={11} />
         <span className="orbit-queue-head__names">{names.join(', ')}</span>
-        {cap > 0 && (
-          <span
-            className={`orbit-queue-head__pending${pendingCount >= cap ? ' is-full' : ''}`}
-            data-tooltip={t('orbit.pendingCounterTooltip')}
-          >
-            <Inbox size={11} />
-            <span>{t('orbit.pendingCounter', { count: pendingCount, max: cap })}</span>
-          </span>
-        )}
       </div>
     </div>
   );

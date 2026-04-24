@@ -82,27 +82,6 @@ export default function OrbitSettingsPopover({ anchorRef, onClose }: Props) {
         </span>
       </label>
 
-      <label className="orbit-settings-pop__row">
-        <div className="orbit-settings-pop__text">
-          <div className="orbit-settings-pop__label">{t('orbit.settingMaxPending')}</div>
-          <div className="orbit-settings-pop__hint">{t('orbit.settingMaxPendingHint')}</div>
-        </div>
-        <input
-          type="number"
-          min={0}
-          max={999}
-          step={1}
-          value={settings.maxPending ?? 0}
-          onChange={e => {
-            const raw = parseInt(e.target.value, 10);
-            const next = Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 999) : 0;
-            void updateOrbitSettings({ maxPending: next });
-          }}
-          className="orbit-settings-pop__number"
-          aria-label={t('orbit.settingMaxPending')}
-        />
-      </label>
-
       <div className="orbit-settings-pop__row orbit-settings-pop__row--stacked">
         <div className="orbit-settings-pop__text">
           <div className="orbit-settings-pop__label">{t('orbit.settingShuffleInterval')}</div>
