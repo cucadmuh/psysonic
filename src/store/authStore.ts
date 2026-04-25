@@ -64,6 +64,9 @@ interface AuthState {
   showArtistImages: boolean;
   showTrayIcon: boolean;
   minimizeToTray: boolean;
+  /** Whether the "Orbit" topbar trigger is rendered. Users who never
+   *  touch Orbit can hide it so the header stays uncluttered. */
+  showOrbitTrigger: boolean;
   discordRichPresence: boolean;
   enableAppleMusicCoversDiscord: boolean;
   /** Opt-in: fetch upcoming tour dates from Bandsintown for the Now-Playing info panel. */
@@ -222,6 +225,7 @@ interface AuthState {
   setShowArtistImages: (v: boolean) => void;
   setShowTrayIcon: (v: boolean) => void;
   setMinimizeToTray: (v: boolean) => void;
+  setShowOrbitTrigger: (v: boolean) => void;
   setDiscordRichPresence: (v: boolean) => void;
   setEnableAppleMusicCoversDiscord: (v: boolean) => void;
   setEnableBandsintown: (v: boolean) => void;
@@ -334,6 +338,7 @@ export const useAuthStore = create<AuthState>()(
       showArtistImages: false,
       showTrayIcon: true,
       minimizeToTray: false,
+      showOrbitTrigger: true,
       discordRichPresence: false,
       enableAppleMusicCoversDiscord: false,
       enableBandsintown: false,
@@ -478,6 +483,7 @@ export const useAuthStore = create<AuthState>()(
       setShowArtistImages: (v) => set({ showArtistImages: v }),
       setShowTrayIcon: (v) => set({ showTrayIcon: v }),
       setMinimizeToTray: (v) => set({ minimizeToTray: v }),
+      setShowOrbitTrigger: (v) => set({ showOrbitTrigger: v }),
       setDiscordRichPresence: (v) => set({ discordRichPresence: v }),
       setEnableAppleMusicCoversDiscord: (v) => set({ enableAppleMusicCoversDiscord: v }),
       setEnableBandsintown: (v) => set({ enableBandsintown: v }),

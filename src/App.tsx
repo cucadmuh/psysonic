@@ -46,12 +46,16 @@ const LabelAlbums    = lazy(() => import('./pages/LabelAlbums'));
 const AdvancedSearch = lazy(() => import('./pages/AdvancedSearch'));
 const FolderBrowser  = lazy(() => import('./pages/FolderBrowser'));
 const InternetRadio  = lazy(() => import('./pages/InternetRadio'));
+const Tracks         = lazy(() => import('./pages/Tracks'));
 import MiniPlayer from './components/MiniPlayer';
 import { initMiniPlayerBridgeOnMain } from './utils/miniPlayerBridge';
 import FullscreenPlayer from './components/FullscreenPlayer';
 import ContextMenu from './components/ContextMenu';
 import SongInfoModal from './components/SongInfoModal';
 import DownloadFolderModal from './components/DownloadFolderModal';
+import GlobalConfirmModal from './components/GlobalConfirmModal';
+import OrbitAccountPicker from './components/OrbitAccountPicker';
+import OrbitHelpModal from './components/OrbitHelpModal';
 import { DragDropProvider } from './contexts/DragDropContext';
 import TooltipPortal from './components/TooltipPortal';
 import OverlayScrollArea from './components/OverlayScrollArea';
@@ -64,6 +68,12 @@ import GenreDetail from './pages/GenreDetail';
 import ExportPickerModal from './components/ExportPickerModal';
 import AppUpdater from './components/AppUpdater';
 import TitleBar from './components/TitleBar';
+import OrbitSessionBar from './components/OrbitSessionBar';
+import OrbitStartTrigger from './components/OrbitStartTrigger';
+import { useOrbitHost } from './hooks/useOrbitHost';
+import { useOrbitGuest } from './hooks/useOrbitGuest';
+import { cleanupOrphanedOrbitPlaylists, endOrbitSession, leaveOrbitSession } from './utils/orbit';
+import { useOrbitStore } from './store/orbitStore';
 import { IS_LINUX, IS_MACOS, IS_WINDOWS } from './utils/platform';
 import { version } from '../package.json';
 import { useConnectionStatus } from './hooks/useConnectionStatus';
@@ -130,6 +140,10 @@ function AppShell() {
   const isMobile = useIsMobile();
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
   const [isTilingWm, setIsTilingWm] = useState(false);
+
+  // Orbit session hooks: idle until the local store marks a role.
+  useOrbitHost();
+  useOrbitGuest();
 
   useEffect(() => {
     if (!IS_LINUX) return;
@@ -235,6 +249,14 @@ function AppShell() {
       cancelled = true;
     };
   }, [isLoggedIn, activeServerId, setMusicFolders, setEntityRatingSupport]);
+
+  // Orbit orphan sweep — delete our own leftover session / outbox playlists
+  // from crashed or force-closed sessions so they don't clutter the ND
+  // playlist view. Runs once per login; safe and best-effort.
+  useEffect(() => {
+    if (!isLoggedIn || !activeServerId) return;
+    void cleanupOrphanedOrbitPlaylists();
+  }, [isLoggedIn, activeServerId]);
 
   // Reset scroll position on route change (main viewport is overlay scroll)
   useEffect(() => {
@@ -421,6 +443,7 @@ function AppShell() {
           <ConnectionIndicator status={connStatus} isLan={isLan} serverName={serverName} />
           <LastfmIndicator />
           <NowPlayingDropdown />
+          <OrbitStartTrigger />
           <button
             className="queue-toggle-btn"
             onClick={toggleQueue}
@@ -430,6 +453,7 @@ function AppShell() {
             {isQueueVisible ? <PanelRightClose size={18} /> : <PanelRight size={18} />}
           </button>
         </header>
+        <OrbitSessionBar />
         {connStatus === 'disconnected' && (
           <OfflineBanner onRetry={connRetry} isChecking={connRetrying} showSettingsLink={!hasOfflineContent} serverName={serverName} />
         )}
@@ -445,6 +469,7 @@ function AppShell() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/albums" element={<Albums />} />
+                <Route path="/tracks" element={<Tracks />} />
                 <Route path="/random" element={<RandomLanding />} />
                 <Route path="/random/albums" element={<RandomAlbums />} />
                 <Route path="/album/:id" element={<AlbumDetail />} />
@@ -498,6 +523,9 @@ function AppShell() {
       <ContextMenu />
       <SongInfoModal />
       <DownloadFolderModal />
+      <GlobalConfirmModal />
+      <OrbitAccountPicker />
+      <OrbitHelpModal />
       <TooltipPortal />
       <AppUpdater />
     </div>
@@ -940,6 +968,19 @@ function TauriEventBridge() {
           await invoke('pause_rendering').catch(() => {});
           await getCurrentWindow().hide();
         } else {
+          // Clean up an active Orbit session before we go down — leaving
+          // the session playlists behind would litter the server. Capped at
+          // 1500 ms so a slow server can't keep the app hanging on quit; the
+          // next launch's orphan sweep is the safety net for anything that
+          // didn't make it out in time.
+          const role = useOrbitStore.getState().role;
+          if (role === 'host' || role === 'guest') {
+            const teardown = role === 'host' ? endOrbitSession() : leaveOrbitSession();
+            await Promise.race([
+              teardown.catch(() => {}),
+              new Promise(r => setTimeout(r, 1500)),
+            ]);
+          }
           await invoke('exit_app');
         }
       });
@@ -1066,6 +1107,7 @@ export default function App() {
     return (
       <DragDropProvider>
         <MiniPlayer />
+        <GlobalConfirmModal />
         <TooltipPortal />
       </DragDropProvider>
     );
