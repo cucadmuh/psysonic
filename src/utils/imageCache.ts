@@ -3,22 +3,18 @@ import { useAuthStore } from '../store/authStore';
 const DB_NAME = 'psysonic-img-cache';
 const STORE_NAME = 'images';
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const MAX_MEMORY_CACHE = 150; // max object URLs kept in RAM
+const MAX_BLOB_CACHE = 200; // hot in-memory blob entries (LRU)
 const MAX_CONCURRENT_FETCHES = 5;
 
-// In-memory map: cacheKey → object URL (insertion-order = LRU approximation)
-const objectUrlCache = new Map<string, string>();
+// In-memory blob cache: cacheKey → Blob (insertion-order = LRU approximation).
+// Only the Map entry is dropped on overflow — the underlying Blob is freed by
+// the GC once no <img>/<canvas>/object URL still references it. Each consumer
+// is responsible for its own URL.createObjectURL lifecycle.
+const blobCache = new Map<string, Blob>();
 
-// Concurrency limiter for network fetches.
-// Each queue entry is a resolver that signals "slot acquired".
 let activeFetches = 0;
 const fetchQueue: Array<() => void> = [];
 
-/**
- * Acquires a fetch slot. Returns true if a slot was granted, false if the
- * provided AbortSignal fired while the call was waiting in the queue (in that
- * case no slot is held and the caller must NOT call releaseFetchSlot).
- */
 function acquireFetchSlot(signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return Promise.resolve(false);
   if (activeFetches < MAX_CONCURRENT_FETCHES) {
@@ -31,7 +27,6 @@ function acquireFetchSlot(signal?: AbortSignal): Promise<boolean> {
       resolve(true);
     };
     const onAbort = () => {
-      // Remove from queue without consuming a slot — no releaseFetchSlot needed.
       const idx = fetchQueue.indexOf(onGrant);
       if (idx !== -1) fetchQueue.splice(idx, 1);
       resolve(false);
@@ -47,12 +42,13 @@ function releaseFetchSlot(): void {
   if (next) { activeFetches++; next(); }
 }
 
-function evictMemoryIfNeeded(): void {
-  while (objectUrlCache.size > MAX_MEMORY_CACHE) {
-    const oldestKey = objectUrlCache.keys().next().value;
-    if (!oldestKey) break;
-    URL.revokeObjectURL(objectUrlCache.get(oldestKey)!);
-    objectUrlCache.delete(oldestKey);
+function rememberBlob(key: string, blob: Blob): void {
+  blobCache.delete(key); // re-insert at end → marks as recently used
+  blobCache.set(key, blob);
+  while (blobCache.size > MAX_BLOB_CACHE) {
+    const oldest = blobCache.keys().next().value;
+    if (!oldest) break;
+    blobCache.delete(oldest);
   }
 }
 
@@ -79,7 +75,7 @@ function openDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function getBlob(key: string): Promise<Blob | null> {
+async function getBlobFromIDB(key: string): Promise<Blob | null> {
   try {
     const database = await openDB();
     return new Promise(resolve => {
@@ -95,7 +91,6 @@ async function getBlob(key: string): Promise<Blob | null> {
   }
 }
 
-/** Evicts oldest IDB entries until total blob size is below maxBytes. Fire-and-forget. */
 async function evictDiskIfNeeded(maxBytes: number): Promise<void> {
   try {
     const database = await openDB();
@@ -116,7 +111,6 @@ async function evictDiskIfNeeded(maxBytes: number): Promise<void> {
     let total = entries.reduce((acc, e) => acc + e.size, 0);
     if (total <= maxBytes) return;
 
-    // Oldest first
     entries.sort((a, b) => a.timestamp - b.timestamp);
 
     const tx = database.transaction(STORE_NAME, 'readwrite');
@@ -124,12 +118,7 @@ async function evictDiskIfNeeded(maxBytes: number): Promise<void> {
     for (const entry of entries) {
       if (total <= maxBytes) break;
       store.delete(entry.key);
-      // Also purge from memory cache
-      const objUrl = objectUrlCache.get(entry.key);
-      if (objUrl) {
-        URL.revokeObjectURL(objUrl);
-        objectUrlCache.delete(entry.key);
-      }
+      blobCache.delete(entry.key);
       total -= entry.size;
     }
   } catch {
@@ -146,7 +135,6 @@ async function putBlob(key: string, blob: Blob): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
-    // Enforce disk limit after write (fire-and-forget)
     const maxBytes = useAuthStore.getState().maxCacheMb * 1024 * 1024;
     evictDiskIfNeeded(maxBytes);
   } catch {
@@ -154,7 +142,6 @@ async function putBlob(key: string, blob: Blob): Promise<void> {
   }
 }
 
-/** Returns the total size in bytes of all blobs stored in IndexedDB. */
 export async function getImageCacheSize(): Promise<number> {
   try {
     const database = await openDB();
@@ -171,13 +158,8 @@ export async function getImageCacheSize(): Promise<number> {
   }
 }
 
-/** Removes a single cache entry from both in-memory and IndexedDB caches. */
 export async function invalidateCacheKey(cacheKey: string): Promise<void> {
-  const existing = objectUrlCache.get(cacheKey);
-  if (existing) {
-    URL.revokeObjectURL(existing);
-    objectUrlCache.delete(cacheKey);
-  }
+  blobCache.delete(cacheKey);
   try {
     const database = await openDB();
     await new Promise<void>(resolve => {
@@ -191,22 +173,14 @@ export async function invalidateCacheKey(cacheKey: string): Promise<void> {
   }
 }
 
-/**
- * Invalidates all cached sizes for a given cover art entity (artist, radio, playlist, album).
- * Call this after uploading or deleting a cover image so the UI re-fetches from the server.
- */
 export async function invalidateCoverArt(entityId: string): Promise<void> {
   const serverId = useAuthStore.getState().getActiveServer()?.id ?? '_';
   const sizes = [40, 64, 128, 200, 256, 300, 500, 2000];
   await Promise.all(sizes.map(size => invalidateCacheKey(`${serverId}:cover:${entityId}:${size}`)));
 }
 
-/** Clears all entries from IndexedDB and revokes all in-memory object URLs. */
 export async function clearImageCache(): Promise<void> {
-  for (const url of objectUrlCache.values()) {
-    URL.revokeObjectURL(url);
-  }
-  objectUrlCache.clear();
+  blobCache.clear();
   try {
     const database = await openDB();
     await new Promise<void>(resolve => {
@@ -221,49 +195,45 @@ export async function clearImageCache(): Promise<void> {
 }
 
 /**
- * Returns a cached object URL for an image.
+ * Returns the cached Blob for an image, fetching it if necessary. Callers own
+ * any object URL they create from the returned blob and must revoke it when
+ * done — there is no shared URL pool.
+ *
  * @param fetchUrl  The actual URL to fetch from (may contain ephemeral auth params).
  * @param cacheKey  A stable key that identifies the image across sessions.
- * @param signal    Optional AbortSignal — aborts queue-waiting and in-flight fetches
- *                  so navigating away does not leave zombie fetches draining I/O.
+ * @param signal    Optional AbortSignal — aborts queue-waiting and in-flight fetches.
  */
-export async function getCachedUrl(fetchUrl: string, cacheKey: string, signal?: AbortSignal): Promise<string> {
-  if (!fetchUrl || signal?.aborted) return '';
+export async function getCachedBlob(fetchUrl: string, cacheKey: string, signal?: AbortSignal): Promise<Blob | null> {
+  if (!fetchUrl || signal?.aborted) return null;
 
-  // 1. In-memory hit (same session)
-  const existing = objectUrlCache.get(cacheKey);
-  if (existing) return existing;
-
-  // 2. IndexedDB hit (persisted from previous session)
-  const blob = await getBlob(cacheKey);
-  if (signal?.aborted) return '';
-  if (blob) {
-    const objUrl = URL.createObjectURL(blob);
-    objectUrlCache.set(cacheKey, objUrl);
-    evictMemoryIfNeeded();
-    return objUrl;
+  const memHit = blobCache.get(cacheKey);
+  if (memHit) {
+    rememberBlob(cacheKey, memHit); // refresh LRU position
+    return memHit;
   }
 
-  // 3. Network fetch with concurrency limit → store in IDB → return object URL.
-  // acquireFetchSlot returns false (without holding a slot) when aborted in queue.
+  const idbHit = await getBlobFromIDB(cacheKey);
+  if (signal?.aborted) return null;
+  if (idbHit) {
+    rememberBlob(cacheKey, idbHit);
+    return idbHit;
+  }
+
   const acquired = await acquireFetchSlot(signal);
   if (!acquired || signal?.aborted) {
     if (acquired) releaseFetchSlot();
-    return '';
+    return null;
   }
   try {
-    const resp = await fetch(fetchUrl);
-    if (!resp.ok) return fetchUrl;
+    const resp = await fetch(fetchUrl, { signal });
+    if (!resp.ok) return null;
     const newBlob = await resp.blob();
-    if (signal?.aborted) return '';
-    putBlob(cacheKey, newBlob); // fire-and-forget (includes disk eviction)
-    const objUrl = URL.createObjectURL(newBlob);
-    objectUrlCache.set(cacheKey, objUrl);
-    evictMemoryIfNeeded();
-    return objUrl;
-  } catch (e) {
-    // AbortError → return '' (component is gone). Other errors → return raw URL.
-    return e instanceof DOMException && e.name === 'AbortError' ? '' : fetchUrl;
+    if (signal?.aborted) return null;
+    putBlob(cacheKey, newBlob); // fire-and-forget
+    rememberBlob(cacheKey, newBlob);
+    return newBlob;
+  } catch {
+    return null;
   } finally {
     releaseFetchSlot();
   }

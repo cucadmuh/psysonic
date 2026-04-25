@@ -1,12 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getCachedUrl } from '../utils/imageCache';
+import { getCachedBlob } from '../utils/imageCache';
 
 interface CachedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string;
   cacheKey: string;
 }
 
+// Delay between the consumer dropping a cached URL and the actual revoke,
+// giving the DOM <img> time to finish its decode of the URL we just took
+// away. 500 ms is comfortably above any realistic decode latency without
+// being long enough to leak meaningful memory.
+const URL_REVOKE_DELAY_MS = 500;
+
 /**
+ * Returns an object URL for a cached image. Each call owns its own URL: it
+ * is created when the blob arrives and revoked (after a small grace delay)
+ * on cleanup. There is no shared URL pool — the previous global LRU caused
+ * "Failed to load resource" errors when an in-use URL got revoked because a
+ * different consumer pushed it out of the cache.
+ *
  * @param fallbackToFetch  If true (default), returns the raw fetchUrl while the
  *   blob is still resolving — useful for <img> tags so the browser starts
  *   loading immediately.  Pass false for CSS background-image consumers that
@@ -17,11 +29,22 @@ export function useCachedUrl(fetchUrl: string, cacheKey: string, fallbackToFetch
   useEffect(() => {
     if (!fetchUrl) { setResolved(''); return; }
     const controller = new AbortController();
+    let createdUrl: string | null = null;
     setResolved('');
-    getCachedUrl(fetchUrl, cacheKey, controller.signal).then(url => {
-      if (!controller.signal.aborted) setResolved(url);
+    getCachedBlob(fetchUrl, cacheKey, controller.signal).then(blob => {
+      if (controller.signal.aborted) return;
+      if (blob) {
+        createdUrl = URL.createObjectURL(blob);
+        setResolved(createdUrl);
+      }
     });
-    return () => { controller.abort(); };
+    return () => {
+      controller.abort();
+      if (createdUrl) {
+        const url = createdUrl;
+        setTimeout(() => URL.revokeObjectURL(url), URL_REVOKE_DELAY_MS);
+      }
+    };
   }, [fetchUrl, cacheKey]);
   return fallbackToFetch ? (resolved || fetchUrl) : resolved;
 }

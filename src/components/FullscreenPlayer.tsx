@@ -7,7 +7,7 @@ import {
 import { usePlayerStore } from '../store/playerStore';
 import { buildCoverArtUrl, coverArtCacheKey, getArtistInfo, star, unstar } from '../api/subsonic';
 import { useCachedUrl } from './CachedImage';
-import { getCachedUrl } from '../utils/imageCache';
+import { getCachedBlob } from '../utils/imageCache';
 import { extractCoverColors } from '../utils/dynamicColors';
 import { useTranslation } from 'react-i18next';
 import { useLyrics, type WordLyricsLine } from '../hooks/useLyrics';
@@ -740,7 +740,7 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
     if (!nextCoverArt) return;
     const url = buildCoverArtUrl(nextCoverArt, 300);
     const key = coverArtCacheKey(nextCoverArt, 300);
-    getCachedUrl(url, key).catch(() => {});
+    getCachedBlob(url, key).catch(() => {});
   }, [nextCoverArt]);
 
   // Lyrics settings popover state
