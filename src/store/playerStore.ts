@@ -678,6 +678,8 @@ async function refreshWaveformForTrack(trackId: string) {
   if (!trackId) return;
   try {
     const row = await invoke<WaveformCachePayload | null>('analysis_get_waveform_for_track', { trackId });
+    // Never apply bins for a non-current track (e.g. gapless byte-preload fetches the neighbour).
+    if (usePlayerStore.getState().currentTrack?.id !== trackId) return;
     const bins = row ? coerceWaveformBins(row.bins) : null;
     if (!bins || bins.length === 0) {
       usePlayerStore.setState({
@@ -945,8 +947,8 @@ function handleAudioProgress(current_time: number, duration: number) {
     // Byte pre-download — runs early so bytes are cached by chain time.
     if ((shouldBytePreload || shouldBytePreloadForGaplessBackup) && nextTrack.id !== bytePreloadingId) {
       bytePreloadingId = nextTrack.id;
-      // Keep analysis context warm for the upcoming track before any source swap.
-      void refreshWaveformForTrack(nextTrack.id);
+      // Loudness cache only — do not call refreshWaveformForTrack(next): it writes global
+      // waveformBins and would replace the current track's seekbar while still playing it.
       void refreshLoudnessForTrack(nextTrack.id, { syncPlayingEngine: false });
       if (import.meta.env.DEV) {
         console.info('[psysonic][preload-request]', {
