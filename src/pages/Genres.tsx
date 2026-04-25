@@ -1,35 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  Headphones, Zap, Music2, Music, Cpu, Mic, Radio, Cloud,
-  Leaf, Heart, Sun, Flame, Film, Globe, BookOpen, Podcast, Star,
-  Tags, type LucideIcon,
-} from 'lucide-react';
+import { Tags } from 'lucide-react';
 import { getGenres, SubsonicGenre } from '../api/subsonic';
 import { APP_MAIN_SCROLL_VIEWPORT_ID } from '../constants/appScroll';
-
-function getGenreIcon(name: string): LucideIcon {
-  const n = name.toLowerCase();
-  if (/ambient|drone|new age/.test(n)) return Cloud;
-  if (/metal|hardcore|thrash|death|grind|doom/.test(n)) return Zap;
-  if (/rock/.test(n)) return Radio;
-  if (/jazz/.test(n)) return Music2;
-  if (/classical|orchestra|chamber|baroque|opera|symphon/.test(n)) return Music;
-  if (/electronic|techno|edm|house|trance|electro|synth/.test(n)) return Cpu;
-  if (/hip.?hop|rap/.test(n)) return Mic;
-  if (/pop/.test(n)) return Star;
-  if (/folk|country|bluegrass|americana/.test(n)) return Leaf;
-  if (/blues/.test(n)) return Music2;
-  if (/soul|r.?b|funk|gospel/.test(n)) return Heart;
-  if (/reggae|ska|dub/.test(n)) return Sun;
-  if (/punk/.test(n)) return Flame;
-  if (/soundtrack|score|ost|film|movie|cinema/.test(n)) return Film;
-  if (/world|latin|afro|celtic|tribal|traditional/.test(n)) return Globe;
-  if (/audiobook|spoken|hörbuch|speech|comedy/.test(n)) return BookOpen;
-  if (/podcast/.test(n)) return Podcast;
-  return Headphones;
-}
 
 const CTP_COLORS = [
   'var(--ctp-rosewater)', 'var(--ctp-flamingo)', 'var(--ctp-pink)', 'var(--ctp-mauve)',
@@ -45,63 +19,39 @@ function genreColor(name: string): string {
 }
 
 const SCROLL_KEY = 'genres-scroll';
-const VISIBLE_KEY = 'genres-visible';
-const PAGE_SIZE = 60;
+const FONT_MIN_REM = 0.78;
+const FONT_MAX_REM = 1.7;
 
 export default function Genres() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [rawGenres, setRawGenres] = useState<SubsonicGenre[]>([]);
   const [loading, setLoading] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(() => {
-    // Restore the previous visibleCount when navigating back from a detail
-    // page so scroll position lines up with rendered cards.
-    const saved = sessionStorage.getItem(VISIBLE_KEY);
-    return saved ? Math.max(PAGE_SIZE, parseInt(saved, 10)) : PAGE_SIZE;
-  });
-  const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     getGenres()
       .then(data => setRawGenres(data))
       .finally(() => setLoading(false));
-  }, []); // getGenres is not folder-scoped — no dep on musicLibraryFilterVersion
+  }, []);
 
-  // Memoised sort — without this the page re-sorted 500+ entries on every
-  // unrelated re-render (e.g. theme change, sidebar toggle).
   const genres = useMemo(
     () => [...rawGenres].sort((a, b) => b.albumCount - a.albumCount),
     [rawGenres],
   );
 
-  const visible = useMemo(() => genres.slice(0, visibleCount), [genres, visibleCount]);
-  const hasMore = visibleCount < genres.length;
+  // Log-scale font sizing — flattens the long tail (a 1000-album genre and a
+  // 50-album genre look distinct, but a 1-album genre still has a readable size).
+  const maxLog = useMemo(() => {
+    if (genres.length === 0) return 1;
+    return Math.log(Math.max(2, genres[0].albumCount));
+  }, [genres]);
 
-  // Infinite scroll — render the next batch when the user is ~1.5 screens
-  // away from the sentinel, so the rest of the watermarks never block first
-  // paint of the page.
-  useEffect(() => {
-    if (!hasMore) return;
-    const root = document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID);
-    const observer = new IntersectionObserver(
-      entries => { if (entries[0].isIntersecting) setVisibleCount(c => c + PAGE_SIZE); },
-      {
-        root: root instanceof HTMLElement ? root : null,
-        rootMargin: '1500px',
-      },
-    );
-    if (observerTarget.current) observer.observe(observerTarget.current);
-    return () => observer.disconnect();
-  }, [hasMore]);
-
-  // Restore scroll position after genres are rendered
   useEffect(() => {
     if (loading || genres.length === 0) return;
     const saved = sessionStorage.getItem(SCROLL_KEY);
     if (!saved) return;
     const pos = parseInt(saved, 10);
     sessionStorage.removeItem(SCROLL_KEY);
-    sessionStorage.removeItem(VISIBLE_KEY);
     requestAnimationFrame(() => {
       const el = document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID);
       if (el) el.scrollTop = pos;
@@ -110,10 +60,7 @@ export default function Genres() {
 
   const handleGenreClick = (genreValue: string) => {
     const el = document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID);
-    if (el) {
-      sessionStorage.setItem(SCROLL_KEY, String(el.scrollTop));
-      sessionStorage.setItem(VISIBLE_KEY, String(visibleCount));
-    }
+    if (el) sessionStorage.setItem(SCROLL_KEY, String(el.scrollTop));
     navigate(`/genres/${encodeURIComponent(genreValue)}`);
   };
 
@@ -132,36 +79,29 @@ export default function Genres() {
       {loading && <p className="loading-text">{t('genres.loading')}</p>}
       {!loading && genres.length === 0 && <p className="loading-text">{t('genres.empty')}</p>}
 
-      {!loading && visible.length > 0 && (
-        <>
-          <div className="album-grid-wrap">
-            {visible.map(genre => {
-              const Icon = getGenreIcon(genre.value);
-              const color = genreColor(genre.value);
-              return (
-                <div
-                  key={genre.value}
-                  className="genre-card"
-                  style={{ '--genre-color': color } as React.CSSProperties}
-                  onClick={() => handleGenreClick(genre.value)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => e.key === 'Enter' && handleGenreClick(genre.value)}
-                  data-tooltip={genre.value}
-                >
-                  <div className="genre-card-watermark">
-                    <Icon size={80} strokeWidth={1.2} />
-                  </div>
-                  <p className="genre-card-name">{genre.value}</p>
-                  <p className="genre-card-count">
-                    {t('genres.albumCount', { count: genre.albumCount })}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-          {hasMore && <div ref={observerTarget} style={{ height: 1 }} />}
-        </>
+      {!loading && genres.length > 0 && (
+        <div className="genre-cloud">
+          {genres.map(genre => {
+            const ratio = Math.log(Math.max(2, genre.albumCount)) / maxLog;
+            const fontRem = FONT_MIN_REM + ratio * (FONT_MAX_REM - FONT_MIN_REM);
+            const color = genreColor(genre.value);
+            return (
+              <button
+                key={genre.value}
+                type="button"
+                className="genre-pill"
+                style={{
+                  '--genre-color': color,
+                  fontSize: `${fontRem.toFixed(3)}rem`,
+                } as React.CSSProperties}
+                onClick={() => handleGenreClick(genre.value)}
+                data-tooltip={t('genres.albumCount', { count: genre.albumCount })}
+              >
+                {genre.value}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
