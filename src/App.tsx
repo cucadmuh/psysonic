@@ -116,12 +116,20 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 /**
  * Avoid grabbing the queue resizer when aiming at the main overlay scrollbar.
  * Uses the real main viewport edge (not innerWidth − queueWidth — sidebar/zoom skew that).
- * Only the main-route thumb counts (not queue/mini thumbs, which share the same class).
+ * Only the main-route thumb counts (not queue/mini/sidebar thumbs — selector is scoped).
+ *
+ * The queue resizer is 6px and sits on the main|queue seam with ~3px overlapping the main
+ * column (layout.css `.resizer-queue`). Treating `clientX <= mainRight` as "main" suppressed
+ * that overlap and felt like a dead resize strip at certain widths. Thumb hit slop must not
+ * extend past `mainRight` or it steals grabs on the resizer.
  */
 function shouldSuppressQueueResizerMouseDown(clientX: number, clientY: number, queueWidth: number): boolean {
   const vp = document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID) as HTMLElement | null;
   const mainRight = vp ? vp.getBoundingClientRect().right : window.innerWidth - queueWidth;
-  if (clientX <= mainRight) return true;
+  /** Pixels of the resizer that lie left of the main column's right edge (see `.resizer-queue`). */
+  const RESIZER_BLEED_INTO_MAIN = 4;
+
+  if (clientX <= mainRight - RESIZER_BLEED_INTO_MAIN) return true;
 
   const thumbs = document.querySelectorAll<HTMLElement>('.app-shell-route-scroll .overlay-scroll__thumb');
   const xSlop = 22;
@@ -130,7 +138,8 @@ function shouldSuppressQueueResizerMouseDown(clientX: number, clientY: number, q
     const r = thumbs[i].getBoundingClientRect();
     if (r.height < 4 || r.width < 1) continue;
     if (clientY < r.top - vPad || clientY > r.bottom + vPad) continue;
-    if (clientX >= r.left - 6 && clientX <= r.right + xSlop) return true;
+    const thumbHitRight = Math.min(r.right + xSlop, mainRight);
+    if (clientX >= r.left - 6 && clientX <= thumbHitRight) return true;
   }
   return false;
 }
