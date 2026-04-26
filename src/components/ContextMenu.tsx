@@ -34,6 +34,13 @@ function sanitizeFilename(name: string): string {
     .substring(0, 200) || 'download';
 }
 
+/** Psysonic smart playlists (Navidrome); not valid targets for manual add-to-playlist. */
+const SMART_PLAYLIST_PREFIX = 'psy-smart-';
+
+function isSmartPlaylistName(name: string | undefined | null): boolean {
+  return (name ?? '').toLowerCase().startsWith(SMART_PLAYLIST_PREFIX);
+}
+
 /** Fisher-Yates in-place shuffle — returns a new array, does not mutate the input. */
 function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr];
@@ -66,16 +73,18 @@ export function AddToPlaylistSubmenu({ songIds, onDone, dropDown, triggerId }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sort playlists by recent usage
+  // Sort playlists by recent usage (exclude app smart playlists — not editable as normal lists)
   const playlists = useMemo(() => {
-    return [...storePlaylists].sort((a, b) => {
-      const ai = recentIds.indexOf(a.id);
-      const bi = recentIds.indexOf(b.id);
-      if (ai === -1 && bi === -1) return a.name.localeCompare(b.name);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
+    return [...storePlaylists]
+      .filter(p => !isSmartPlaylistName(p.name))
+      .sort((a, b) => {
+        const ai = recentIds.indexOf(a.id);
+        const bi = recentIds.indexOf(b.id);
+        if (ai === -1 && bi === -1) return a.name.localeCompare(b.name);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
   }, [storePlaylists, recentIds]);
 
   // Flip submenu left if it would overflow the right edge of the viewport
@@ -337,7 +346,9 @@ function MultiAlbumToPlaylistSubmenu({ albumIds, onDone, triggerId }: { albumIds
 
     // Sort playlists from store (no fetch needed, prevents flash)
     const playlists = useMemo(() => {
-      return [...storePlaylists].sort((a, b) => a.name.localeCompare(b.name));
+      return [...storePlaylists]
+        .filter(p => !isSmartPlaylistName(p.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
     }, [storePlaylists]);
 
     useLayoutEffect(() => {
@@ -546,7 +557,9 @@ function MultiArtistToPlaylistSubmenu({ artistIds, onDone, triggerId }: { artist
 
     useEffect(() => {
       getPlaylists().then((all) => {
-        setPlaylists(all.sort((a, b) => a.name.localeCompare(b.name)));
+        setPlaylists(
+          all.filter(p => !isSmartPlaylistName(p.name)).sort((a, b) => a.name.localeCompare(b.name)),
+        );
       }).catch(() => {});
     }, []);
 
@@ -669,9 +682,11 @@ function SinglePlaylistToPlaylistSubmenu({ playlist, onDone, triggerId }: { play
   const [flipUp, setFlipUp] = useState(false);
   const storePlaylists = usePlaylistStore((s) => s.playlists);
 
-  // Filter out the current playlist from the list
+  // Filter out the current playlist and smart playlists from the list
   const allPlaylists = useMemo(() => {
-    return storePlaylists.filter((p) => p.id !== playlist.id);
+    return storePlaylists.filter(
+      (p) => p.id !== playlist.id && !isSmartPlaylistName(p.name),
+    );
   }, [storePlaylists, playlist.id]);
 
   useLayoutEffect(() => {
@@ -814,10 +829,12 @@ function MultiPlaylistToPlaylistSubmenu({ playlists, onDone, triggerId }: { play
   const [flipUp, setFlipUp] = useState(false);
   const storePlaylists = usePlaylistStore((s) => s.playlists);
 
-  // Filter out the selected playlists from the list
+  // Filter out the selected playlists and smart playlists from the list
   const allPlaylists = useMemo(() => {
     const selectedIds = new Set(playlists.map(p => p.id));
-    return storePlaylists.filter((p) => !selectedIds.has(p.id));
+    return storePlaylists.filter(
+      (p) => !selectedIds.has(p.id) && !isSmartPlaylistName(p.name),
+    );
   }, [storePlaylists, playlists]);
 
   useLayoutEffect(() => {
@@ -1745,6 +1762,19 @@ export default function ContextMenu() {
             <>
               <div className="context-menu-item" onClick={() => handleAction(() => navigate(`/album/${album.id}`))}>
                 <Play size={14} /> {t('contextMenu.openAlbum')}
+              </div>
+              <div className="context-menu-item" onClick={() => handleAction(async () => {
+                const albumData = await getAlbum(album.id);
+                const tracks = albumData.songs.map(songToTrack);
+                if (tracks.length === 0) return;
+                if (!currentTrack) {
+                  playTrack(tracks[0], tracks);
+                  return;
+                }
+                const currentIdx = usePlayerStore.getState().queueIndex;
+                usePlayerStore.getState().enqueueAt(tracks, currentIdx + 1);
+              })}>
+                <ChevronRight size={14} /> {t('contextMenu.playNext')}
               </div>
               <div className="context-menu-item" onClick={() => handleAction(async () => {
                 const albumData = await getAlbum(album.id);
