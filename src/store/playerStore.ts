@@ -235,6 +235,21 @@ interface PlayerState {
   /** Shuffle only the tracks after the current one — leaves played history intact. */
   shuffleUpcomingQueue: () => void;
 
+  /**
+   * Revert the last explicit queue edit (enqueue, reorder, remove, shuffle, manual
+   * `playTrack`, …). Returns true if a snapshot was applied. Snapshots include queue,
+   * current track, playback time, progress, and pause state. If the undone edit did
+   * not change which song is current (reorder, enqueue, remove another row, …), only
+   * the queue is restored and playback continues; otherwise the Rust engine is
+   * resynced to the snapshot track/position. Does not cover `clearQueue` or automatic advances from
+   * `next()` / gapless.
+   * If the snapshot had no `currentTrack` but playback is active, the playing track
+   * is kept: prepended when missing from the restored queue, otherwise re-bound by id.
+   */
+  undoLastQueueEdit: () => boolean;
+  /** Ctrl+Shift+Z / Cmd+Shift+Z — opposite of `undoLastQueueEdit` while redo stack is non-empty. */
+  redoLastQueueEdit: () => boolean;
+
   toggleLastfmLove: () => void;
   setLastfmLoved: (v: boolean) => void;
   setLastfmLovedForSong: (title: string, artist: string, v: boolean) => void;
@@ -337,6 +352,111 @@ let cachedLoudnessGainByTrackId: Record<string, number> = {};
 let stableLoudnessGainByTrackId: Record<string, true> = {};
 let lastNormalizationUiUpdateAtMs = 0;
 
+/** Bounded stack of queue snapshots for Ctrl+Z / Cmd+Z undo. */
+const QUEUE_UNDO_MAX = 32;
+type QueueUndoSnapshot = {
+  queue: Track[];
+  queueIndex: number;
+  currentTrack: Track | null;
+  /** Seconds — captured with the snapshot (older entries may omit). */
+  currentTime?: number;
+  progress?: number;
+  isPlaying?: boolean;
+};
+const queueUndoStack: QueueUndoSnapshot[] = [];
+const queueRedoStack: QueueUndoSnapshot[] = [];
+
+function shallowCloneQueueTracks(queue: Track[]): Track[] {
+  return queue.map(t => ({ ...t }));
+}
+
+function queueUndoSnapshotFromState(s: PlayerState): QueueUndoSnapshot {
+  return {
+    queue: shallowCloneQueueTracks(s.queue),
+    queueIndex: s.queueIndex,
+    currentTrack: s.currentTrack ? { ...s.currentTrack } : null,
+    currentTime: s.currentTime,
+    progress: s.progress,
+    isPlaying: s.isPlaying,
+  };
+}
+
+function pushQueueUndoFromGetter(get: () => PlayerState) {
+  queueRedoStack.length = 0;
+  queueUndoStack.push(queueUndoSnapshotFromState(get()));
+  while (queueUndoStack.length > QUEUE_UNDO_MAX) queueUndoStack.shift();
+}
+
+/** Reload Rust audio to match a queue-undo snapshot (Zustand alone does not move the engine). */
+function queueUndoRestoreAudioEngine(opts: {
+  generation: number;
+  track: Track;
+  queue: Track[];
+  queueIndex: number;
+  atSeconds: number;
+  wantPlaying: boolean;
+}): void {
+  const { generation, track, queue, queueIndex, atSeconds, wantPlaying } = opts;
+  const authState = useAuthStore.getState();
+  const vol = usePlayerStore.getState().volume;
+  const coldPrev = queueIndex > 0 ? queue[queueIndex - 1] : null;
+  const coldNext = queueIndex + 1 < queue.length ? queue[queueIndex + 1] : null;
+  const replayGainDb = resolveReplayGainDb(
+    track, coldPrev, coldNext,
+    isReplayGainActive(), authState.replayGainMode,
+  );
+  const replayGainPeak = isReplayGainActive() ? (track.replayGainPeak ?? null) : null;
+  const url = resolvePlaybackUrl(track.id, authState.activeServerId ?? '');
+  const keepPreloadHint = usePlayerStore.getState().enginePreloadedTrackId === track.id;
+  setDeferHotCachePrefetch(true);
+  invoke('audio_play', {
+    url,
+    volume: vol,
+    durationHint: track.duration,
+    replayGainDb,
+    replayGainPeak,
+    loudnessGainDb: loudnessGainDbForEngineBind(track.id),
+    preGainDb: authState.replayGainPreGainDb,
+    fallbackDb: authState.replayGainFallbackDb,
+    manual: false,
+    hiResEnabled: authState.enableHiRes,
+    analysisTrackId: track.id,
+  })
+    .then(() => {
+      if (playGeneration !== generation) return;
+      if (keepPreloadHint) {
+        usePlayerStore.setState({ enginePreloadedTrackId: null });
+      }
+      const dur = track.duration && track.duration > 0 ? track.duration : null;
+      const seekTo = Math.max(0, atSeconds);
+      const canSeek = seekTo > 0.05 && (dur == null || seekTo < dur - 0.05);
+      const afterSeek = () => {
+        if (playGeneration !== generation) return;
+        if (!wantPlaying) {
+          invoke('audio_pause').catch(console.error);
+          isAudioPaused = true;
+          usePlayerStore.setState({ isPlaying: false });
+        } else {
+          isAudioPaused = false;
+        }
+      };
+      if (canSeek) {
+        void invoke('audio_seek', { seconds: seekTo }).then(afterSeek).catch(afterSeek);
+      } else {
+        afterSeek();
+      }
+    })
+    .catch((err: unknown) => {
+      if (playGeneration !== generation) return;
+      console.error('[psysonic] queue-undo audio_play failed:', err);
+      usePlayerStore.setState({ isPlaying: false });
+    })
+    .finally(() => {
+      setDeferHotCachePrefetch(false);
+    });
+  touchHotCacheOnPlayback(track.id, authState.activeServerId ?? '');
+}
+
 function emitNormalizationDebug(step: string, details?: Record<string, unknown>) {
   if (useAuthStore.getState().loggingMode !== 'debug') return;
   void invoke('frontend_debug_log', {
@@ -349,6 +469,22 @@ function normalizeAnalysisTrackId(trackId?: string | null): string | null {
   if (!trackId) return null;
   if (trackId.startsWith('stream:')) return trackId.slice('stream:'.length);
   return trackId;
+}
+
+/** Compare track ids across `stream:` / bare Subsonic forms. */
+function sameQueueTrackId(a: string | undefined | null, b: string | undefined | null): boolean {
+  if (a == null || b == null) return false;
+  const na = normalizeAnalysisTrackId(a) ?? a;
+  const nb = normalizeAnalysisTrackId(b) ?? b;
+  return na === nb;
+}
+
+function queuesStructuralEqual(a: Track[], b: Track[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!sameQueueTrackId(a[i]?.id, b[i]?.id)) return false;
+  }
+  return true;
 }
 
 function normalizationAlmostEqual(a: number | null, b: number | null, eps = 0.12): boolean {
@@ -1660,7 +1796,161 @@ export function initAudioListeners(): () => void {
 
 export const usePlayerStore = create<PlayerState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      function applyQueueHistorySnapshot(snap: QueueUndoSnapshot, prior: PlayerState): boolean {
+        if (prior.currentRadio) {
+          clearRadioReconnectTimer();
+          radioStopping = true;
+          radioAudio.pause();
+          radioAudio.src = '';
+        }
+        let nextQueue = shallowCloneQueueTracks(snap.queue);
+        let nextIndex = snap.queueIndex;
+        let nextTrack = snap.currentTrack ? { ...snap.currentTrack } : null;
+
+        if (snap.currentTrack == null && prior.currentTrack) {
+          const playing = prior.currentTrack;
+          const pos = nextQueue.findIndex(t => sameQueueTrackId(t.id, playing.id));
+          if (pos === -1) {
+            nextQueue = [{ ...playing }, ...nextQueue];
+            nextIndex = 0;
+            nextTrack = { ...playing };
+          } else {
+            nextTrack = { ...playing };
+            nextIndex = pos;
+          }
+        }
+
+        nextIndex = Math.max(0, Math.min(nextIndex, Math.max(0, nextQueue.length - 1)));
+
+        const keepPlaybackFromPrior =
+          prior.currentTrack != null
+          && nextTrack != null
+          && sameQueueTrackId(prior.currentTrack.id, nextTrack.id)
+          && nextQueue.some(t => sameQueueTrackId(t.id, prior.currentTrack!.id))
+          && (
+            (snap.currentTrack != null && sameQueueTrackId(prior.currentTrack.id, snap.currentTrack.id))
+            || snap.currentTrack == null
+          );
+
+        if (keepPlaybackFromPrior) {
+          const playingKeep = prior.currentTrack;
+          if (playingKeep) {
+            const idxPrior = nextQueue.findIndex(t => sameQueueTrackId(t.id, playingKeep.id));
+            if (idxPrior >= 0) {
+              nextIndex = idxPrior;
+              nextTrack = { ...playingKeep };
+            }
+          }
+        }
+
+        let tRestoreRaw = typeof snap.currentTime === 'number' && Number.isFinite(snap.currentTime)
+          ? snap.currentTime
+          : 0;
+        let playingRestore = snap.isPlaying !== false;
+        if (keepPlaybackFromPrior && prior.currentTrack) {
+          tRestoreRaw = prior.currentTime;
+          playingRestore = prior.isPlaying;
+        }
+        const durForProgress = nextTrack?.duration && nextTrack.duration > 0 ? nextTrack.duration : null;
+        let pRestore = typeof snap.progress === 'number' && Number.isFinite(snap.progress)
+          ? snap.progress
+          : (durForProgress != null && durForProgress > 0
+            ? Math.max(0, Math.min(1, tRestoreRaw / durForProgress))
+            : 0);
+        if (keepPlaybackFromPrior) {
+          pRestore = prior.progress;
+        }
+        const tRestore = durForProgress != null
+          ? Math.max(0, Math.min(tRestoreRaw, durForProgress))
+          : Math.max(0, tRestoreRaw);
+
+        const keepWaveform =
+          prior.currentTrack?.id != null &&
+          nextTrack?.id != null &&
+          sameQueueTrackId(prior.currentTrack.id, nextTrack.id);
+        const norm =
+          nextTrack != null
+            ? deriveNormalizationSnapshot(nextTrack, nextQueue, nextIndex)
+            : ({
+                normalizationNowDb: null,
+                normalizationTargetLufs: null,
+                normalizationEngineLive: 'off',
+              } as Pick<
+                PlayerState,
+                'normalizationNowDb' | 'normalizationTargetLufs' | 'normalizationEngineLive'
+              >);
+        const authSnap = useAuthStore.getState();
+        const playbackSourceUndo = nextTrack
+          ? getPlaybackSourceKind(nextTrack.id, authSnap.activeServerId ?? '', null)
+          : null;
+        const playbackSourceFinal = keepPlaybackFromPrior && prior.currentPlaybackSource != null
+          ? prior.currentPlaybackSource
+          : playbackSourceUndo;
+
+        clearAllPlaybackScheduleTimers();
+        set({
+          scheduledPauseAtMs: null,
+          scheduledPauseStartMs: null,
+          scheduledResumeAtMs: null,
+          scheduledResumeStartMs: null,
+        });
+
+        gaplessPreloadingId = null;
+        bytePreloadingId = null;
+
+        let gen = playGeneration;
+        const resyncEngine = Boolean(nextTrack) && !keepPlaybackFromPrior;
+        if (resyncEngine || !nextTrack) {
+          gen = ++playGeneration;
+          if (resyncEngine) {
+            isAudioPaused = false;
+          }
+        }
+
+        set({
+          queue: nextQueue,
+          queueIndex: nextIndex,
+          currentTrack: nextTrack,
+          currentRadio: null,
+          currentTime: tRestore,
+          progress: pRestore,
+          isPlaying: playingRestore,
+          waveformBins: keepWaveform ? prior.waveformBins : null,
+          enginePreloadedTrackId: keepPlaybackFromPrior ? prior.enginePreloadedTrackId : null,
+          currentPlaybackSource: playbackSourceFinal,
+          ...norm,
+        });
+
+        if (!nextTrack) {
+          invoke('audio_stop').catch(console.error);
+          isAudioPaused = false;
+          syncQueueToServer(nextQueue, null, 0);
+          return true;
+        }
+
+        void refreshWaveformForTrack(nextTrack.id);
+        void refreshLoudnessForTrack(nextTrack.id);
+        get().updateReplayGainForCurrentTrack();
+
+        if (!keepPlaybackFromPrior) {
+          const { nowPlayingEnabled: npUndo } = useAuthStore.getState();
+          if (npUndo) reportNowPlaying(nextTrack.id);
+
+          queueUndoRestoreAudioEngine({
+            generation: gen,
+            track: nextTrack,
+            queue: nextQueue,
+            queueIndex: nextIndex,
+            atSeconds: tRestore,
+            wantPlaying: playingRestore,
+          });
+        }
+        syncQueueToServer(nextQueue, nextTrack, tRestore);
+        return true;
+      }
+
+      return {
       currentTrack: null,
       waveformBins: null,
       normalizationNowDb: null,
@@ -1868,7 +2158,7 @@ export const usePlayerStore = create<PlayerState>()(
         if (!_orbitConfirmed && queue && queue.length > 1) {
           const current = get().queue;
           const sameAsCurrent = queue.length === current.length
-            && queue.every((t, i) => current[i]?.id === t.id);
+            && queue.every((t, i) => sameQueueTrackId(current[i]?.id, t.id));
           if (!sameAsCurrent) {
             void orbitBulkGuard(queue.length).then(ok => {
               if (!ok) return;
@@ -1919,7 +2209,10 @@ export const usePlayerStore = create<PlayerState>()(
           seekFallbackVisualTarget = null;
         }
         const newQueue = queue ?? state.queue;
-        const idx = newQueue.findIndex(t => t.id === track.id);
+        const idx = newQueue.findIndex(t => sameQueueTrackId(t.id, track.id));
+        if (manual) {
+          pushQueueUndoFromGetter(get);
+        }
         const pendingVisualTarget = seekFallbackVisualTarget?.trackId === track.id
           ? seekFallbackVisualTarget.seconds
           : null;
@@ -2042,6 +2335,7 @@ export const usePlayerStore = create<PlayerState>()(
           get().playTrack(track, [track]);
           return;
         }
+        pushQueueUndoFromGetter(get);
         const wasPlaying = s.isPlaying;
         set({
           queue: [track],
@@ -2057,10 +2351,12 @@ export const usePlayerStore = create<PlayerState>()(
         if (s.currentRadio) return;
         if (!s.currentTrack) {
           if (s.queue.length === 0) return;
+          pushQueueUndoFromGetter(get);
           set({ queue: [], queueIndex: 0 });
           syncQueueToServer([], null, 0);
           return;
         }
+        pushQueueUndoFromGetter(get);
         const at = s.queue.findIndex(t => t.id === s.currentTrack!.id);
         const newQueue: Track[] =
           at >= 0
@@ -2500,6 +2796,7 @@ export const usePlayerStore = create<PlayerState>()(
           });
           return;
         }
+        pushQueueUndoFromGetter(get);
         set(state => {
           // Insert before the first upcoming auto-added track so the
           // "Added automatically" separator always stays at the boundary.
@@ -2523,6 +2820,7 @@ export const usePlayerStore = create<PlayerState>()(
 
       enqueueRadio: (tracks, artistId) => {
         if (artistId) currentRadioArtistId = artistId;
+        pushQueueUndoFromGetter(get);
         set(state => {
           // Drop all upcoming (not yet played) radio tracks — clicking "Start Radio"
           // again replaces the pending radio batch instead of stacking on top.
@@ -2550,6 +2848,7 @@ export const usePlayerStore = create<PlayerState>()(
           });
           return;
         }
+        pushQueueUndoFromGetter(get);
         set(state => {
           const idx = Math.max(0, Math.min(insertIndex, state.queue.length));
           const newQueue = [
@@ -2576,6 +2875,7 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       reorderQueue: (startIndex, endIndex) => {
+        pushQueueUndoFromGetter(get);
         const { queue, queueIndex, currentTrack } = get();
         const result = Array.from(queue);
         const [removed] = result.splice(startIndex, 1);
@@ -2589,6 +2889,7 @@ export const usePlayerStore = create<PlayerState>()(
       shuffleQueue: () => {
         const { queue, currentTrack } = get();
         if (queue.length < 2) return;
+        pushQueueUndoFromGetter(get);
         const currentIdx = currentTrack ? queue.findIndex(t => t.id === currentTrack.id) : -1;
         const others = queue.filter((_, i) => i !== currentIdx);
         for (let i = others.length - 1; i > 0; i--) {
@@ -2608,6 +2909,7 @@ export const usePlayerStore = create<PlayerState>()(
         const upcomingStart = queueIndex + 1;
         const upcomingCount = queue.length - upcomingStart;
         if (upcomingCount < 2) return;
+        pushQueueUndoFromGetter(get);
         const head     = queue.slice(0, upcomingStart);
         const upcoming = queue.slice(upcomingStart);
         for (let i = upcoming.length - 1; i > 0; i--) {
@@ -2619,7 +2921,26 @@ export const usePlayerStore = create<PlayerState>()(
         syncQueueToServer(result, currentTrack, get().currentTime);
       },
 
+      undoLastQueueEdit: () => {
+        const prior = get();
+        const snap = queueUndoStack.pop();
+        if (!snap) return false;
+        queueRedoStack.push(queueUndoSnapshotFromState(prior));
+        while (queueRedoStack.length > QUEUE_UNDO_MAX) queueRedoStack.shift();
+        return applyQueueHistorySnapshot(snap, prior);
+      },
+
+      redoLastQueueEdit: () => {
+        const prior = get();
+        const snap = queueRedoStack.pop();
+        if (!snap) return false;
+        queueUndoStack.push(queueUndoSnapshotFromState(prior));
+        while (queueUndoStack.length > QUEUE_UNDO_MAX) queueUndoStack.shift();
+        return applyQueueHistorySnapshot(snap, prior);
+      },
+
       removeTrack: (index) => {
+        pushQueueUndoFromGetter(get);
         const { queue, queueIndex } = get();
         const newQueue = [...queue];
         newQueue.splice(index, 1);
@@ -2703,7 +3024,8 @@ export const usePlayerStore = create<PlayerState>()(
           fallbackDb: authState.replayGainFallbackDb,
         });
        },
-    }),
+    };
+    },
     {
       name: 'psysonic-player',
       storage: createJSONStorage(() => localStorage),
@@ -2725,3 +3047,51 @@ export const usePlayerStore = create<PlayerState>()(
     }
   )
 );
+
+const QUEUE_UNDO_HOTKEY_FLAG = '__psyQueueUndoListenerInstalled';
+
+/** True when the event path includes a real text field — skip queue undo so Ctrl+Z stays native there. */
+function keyboardEventTargetIsEditableField(e: KeyboardEvent): boolean {
+  for (const n of e.composedPath()) {
+    if (!(n instanceof HTMLElement)) continue;
+    const tag = n.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (n.isContentEditable) return true;
+  }
+  return false;
+}
+
+/**
+ * Ctrl+Z / Cmd+Z undo and Ctrl+Shift+Z / Cmd+Shift+Z redo for the queue — document capture.
+ * Call once at startup (e.g. from main.tsx); idempotent. Skips the mini-player window.
+ */
+export function installQueueUndoHotkey(): void {
+  if (typeof window === 'undefined') return;
+  const w = window as unknown as Record<string, unknown>;
+  if (w[QUEUE_UNDO_HOTKEY_FLAG]) return;
+  const label = w.__PSY_WINDOW_LABEL__;
+  if (label === 'mini') return;
+  w[QUEUE_UNDO_HOTKEY_FLAG] = true;
+  document.addEventListener(
+    'keydown',
+    (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.code !== 'KeyZ' && String(e.key || '').toLowerCase() !== 'z') return;
+      if (keyboardEventTargetIsEditableField(e)) return;
+
+      if (e.shiftKey) {
+        if (usePlayerStore.getState().redoLastQueueEdit()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+
+      if (usePlayerStore.getState().undoLastQueueEdit()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true,
+  );
+}

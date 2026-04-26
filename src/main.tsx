@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import App from './App';
+import { installQueueUndoHotkey } from './store/playerStore';
 import './i18n';
 import './styles/theme.css';
 import './styles/layout.css';
@@ -45,6 +46,8 @@ try {
 } catch {
   // Ignore parse / non-Tauri.
 }
+
+installQueueUndoHotkey();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <StrictMode>

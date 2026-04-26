@@ -198,6 +198,14 @@ export function initMiniPlayerBridgeOnMain(): () => void {
     usePlayerStore.getState().shuffleQueue();
   });
 
+  const undoQueueUnlisten = listen('mini:undo-queue', () => {
+    usePlayerStore.getState().undoLastQueueEdit();
+  });
+
+  const redoQueueUnlisten = listen('mini:redo-queue', () => {
+    usePlayerStore.getState().redoLastQueueEdit();
+  });
+
   // Gapless ↔ Crossfade are mutually exclusive (see CLAUDE.md). Bridge handles
   // the exclusion so the mini doesn't need to know about both states to act.
   const gaplessUnlisten = listen<{ value: boolean }>('mini:set-gapless', (e) => {
@@ -241,6 +249,8 @@ export function initMiniPlayerBridgeOnMain(): () => void {
     navigateUnlisten.then(fn => fn()).catch(() => {});
     volumeUnlisten.then(fn => fn()).catch(() => {});
     shuffleUnlisten.then(fn => fn()).catch(() => {});
+    undoQueueUnlisten.then(fn => fn()).catch(() => {});
+    redoQueueUnlisten.then(fn => fn()).catch(() => {});
     gaplessUnlisten.then(fn => fn()).catch(() => {});
     crossfadeUnlisten.then(fn => fn()).catch(() => {});
     infiniteQueueUnlisten.then(fn => fn()).catch(() => {});

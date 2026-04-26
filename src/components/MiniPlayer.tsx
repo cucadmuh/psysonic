@@ -221,6 +221,16 @@ export default function MiniPlayer() {
         return;
       }
 
+      if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key?.toLowerCase() === 'z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          emit('mini:redo-queue', {}).catch(() => {});
+        } else {
+          emit('mini:undo-queue', {}).catch(() => {});
+        }
+        return;
+      }
+
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         emit('mini:control', 'toggle').catch(() => {});

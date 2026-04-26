@@ -93,7 +93,13 @@ import { initHotCachePrefetch } from './hotCachePrefetch';
 import i18n from './i18n';
 import { playByOpaqueId } from './utils/playByOpaqueId';
 import { switchActiveServer } from './utils/switchActiveServer';
-import { usePlayerStore, initAudioListeners, songToTrack, shuffleArray, flushPlayQueuePosition } from './store/playerStore';
+import {
+  usePlayerStore,
+  initAudioListeners,
+  songToTrack,
+  shuffleArray,
+  flushPlayQueuePosition,
+} from './store/playerStore';
 import { useThemeStore } from './store/themeStore';
 import { useThemeScheduler } from './hooks/useThemeScheduler';
 import { useFontStore } from './store/fontStore';
@@ -858,8 +864,10 @@ function TauriEventBridge() {
   // Configurable keybindings
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const el = e.target as HTMLElement;
+      const tag = el?.tagName;
+      const editable = Boolean(el?.isContentEditable);
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable) return;
 
       const chord = buildInAppBinding(e);
       if (chord) {
