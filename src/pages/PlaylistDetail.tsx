@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronLeft, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle, Heart, HardDriveDownload, Check, Pencil, Globe, Lock, Camera, Download, FileUp, RotateCcw, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Play, ListPlus, Trash2, Search, X, Loader2, Plus, GripVertical, Star, RefreshCw, Shuffle, Heart, HardDriveDownload, Check, Pencil, Globe, Lock, Camera, Download, FileUp, RotateCcw, Sparkles, Square } from 'lucide-react';
 import { useTracklistColumns, type ColDef } from '../utils/useTracklistColumns';
 import { AddToPlaylistSubmenu } from '../components/ContextMenu';
 import {
   getPlaylist, updatePlaylist, updatePlaylistMeta, uploadPlaylistCoverArt,
   search, setRating, star, unstar,
-  getRandomSongs, buildDownloadUrl, filterSongsToActiveLibrary, SubsonicPlaylist, SubsonicSong,
+  getRandomSongs, buildDownloadUrl, buildStreamUrl, filterSongsToActiveLibrary, SubsonicPlaylist, SubsonicSong,
 } from '../api/subsonic';
 import { usePlayerStore, songToTrack } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -292,6 +292,10 @@ export default function PlaylistDetail() {
   const [sortClickCount, setSortClickCount] = useState(0);
   const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const previewResumeRef = useRef<boolean>(false);
   const [contextMenuSongId, setContextMenuSongId] = useState<string | null>(null);
   const contextMenuOpen = usePlayerStore(s => s.contextMenu.isOpen);
   const zipDownloads = useZipDownloadStore(s => s.downloads);
@@ -916,13 +920,110 @@ export default function PlaylistDetail() {
   // ── Add ───────────────────────────────────────────────────────
   const addSong = (song: SubsonicSong) => {
     if (songs.some(s => s.id === song.id)) return;
+    const scrollHost = document.querySelector('.main-content') as HTMLElement | null;
+    const savedScroll = scrollHost?.scrollTop ?? 0;
     const next = [...songs, song];
     setSongs(next);
     savePlaylist(next);
     setSuggestions(prev => prev.filter(s => s.id !== song.id));
     setSearchResults(prev => prev.filter(s => s.id !== song.id));
+    if (scrollHost) {
+      requestAnimationFrame(() => { scrollHost.scrollTop = savedScroll; });
+    }
     showToast(t('playlists.addSuccess', { count: 1, playlist: playlist?.name }));
   };
+
+  // ── Preview (30s mid-song sample via parallel HTML5 audio) ────
+  // Session counter invalidates `loadedmetadata`/`error` callbacks
+  // bound to a previous preview that the user has already switched
+  // away from — without it, a slow-to-load preview can `play()` on a
+  // discarded element while the new one is still loading.
+  const previewSessionRef = useRef<number>(0);
+
+  const stopPreview = useCallback(() => {
+    previewSessionRef.current++;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.src = '';
+      previewAudioRef.current = null;
+    }
+    if (previewTimerRef.current !== null) {
+      clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    if (previewResumeRef.current) {
+      previewResumeRef.current = false;
+      usePlayerStore.getState().resume();
+    }
+    setPreviewingId(null);
+  }, []);
+
+  const startPreview = useCallback((song: SubsonicSong) => {
+    if (previewingId === song.id) {
+      stopPreview();
+      return;
+    }
+    // Tear down audio + timer but keep the resume flag so the main
+    // player only resumes after the *last* preview ends.
+    previewSessionRef.current++;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.src = '';
+      previewAudioRef.current = null;
+    }
+    if (previewTimerRef.current !== null) {
+      clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    if (!previewResumeRef.current && usePlayerStore.getState().isPlaying) {
+      usePlayerStore.getState().pause();
+      previewResumeRef.current = true;
+    }
+    const session = ++previewSessionRef.current;
+    const audio = new Audio();
+    // Match the rough loudness compensation the main Rust player applies,
+    // otherwise unanalysed previews blast out at full natural level
+    // while the main player serves cache-corrected tracks.
+    const baseVolume = usePlayerStore.getState().volume;
+    const auth = useAuthStore.getState();
+    const attenuationDb = auth.normalizationEngine === 'loudness'
+      ? Math.min(0, auth.loudnessPreAnalysisAttenuationDb)
+      : 0;
+    audio.volume = Math.max(0, Math.min(1, baseVolume * Math.pow(10, attenuationDb / 20)));
+    audio.preload = 'auto';
+    audio.addEventListener('loadedmetadata', () => {
+      if (previewSessionRef.current !== session) return;
+      const dur = audio.duration && Number.isFinite(audio.duration)
+        ? audio.duration
+        : (song.duration ?? 0);
+      audio.currentTime = Math.max(0, dur * 0.33);
+      audio.play().catch(() => {
+        if (previewSessionRef.current === session) stopPreview();
+      });
+    }, { once: true });
+    audio.addEventListener('error', () => {
+      if (previewSessionRef.current === session) stopPreview();
+    }, { once: true });
+    audio.src = buildStreamUrl(song.id);
+    previewAudioRef.current = audio;
+    setPreviewingId(song.id);
+    previewTimerRef.current = window.setTimeout(stopPreview, 30000);
+  }, [previewingId, stopPreview]);
+
+  useEffect(() => {
+    const unsub = usePlayerStore.subscribe((state, prev) => {
+      if (state.isPlaying && !prev.isPlaying && previewAudioRef.current) {
+        // Main playback resumed externally (spacebar, mediakey, suggestion-row click).
+        // Cancel the preview without resuming again.
+        previewResumeRef.current = false;
+        stopPreview();
+      }
+    });
+    return () => {
+      unsub();
+      stopPreview();
+    };
+  }, [stopPreview]);
 
   // ── Rating / Star ─────────────────────────────────────────────
   const handleRate = (songId: string, rating: number) => {
@@ -1717,7 +1818,10 @@ export default function PlaylistDetail() {
       {/* ── Suggestions ── */}
       <div className="playlist-suggestions tracklist">
         <div className="playlist-suggestions-header">
-          <h2 className="section-title" style={{ marginBottom: 0 }}>{t('playlists.suggestions')}</h2>
+          <div className="playlist-suggestions-title">
+            <h2 className="section-title" style={{ marginBottom: 0 }}>{t('playlists.suggestions')}</h2>
+            <span className="playlist-suggestions-hint">{t('playlists.suggestionsHint')}</span>
+          </div>
           <button
             className="btn btn-surface"
             onClick={() => loadSuggestions(songs)}
@@ -1755,7 +1859,7 @@ export default function PlaylistDetail() {
                 style={gridStyle}
                 onMouseEnter={() => setHoveredSuggestionId(song.id)}
                 onMouseLeave={() => setHoveredSuggestionId(null)}
-                onClick={e => {
+                onDoubleClick={e => {
                   if ((e.target as HTMLElement).closest('button, a, input')) return;
                   addSong(song);
                 }}
@@ -1768,7 +1872,48 @@ export default function PlaylistDetail() {
                 {visibleCols.map(colDef => {
                   switch (colDef.key) {
                     case 'num': return <div key="num" className="track-num" style={{ color: 'var(--text-muted)' }}>{idx + 1}</div>;
-                    case 'title': return <div key="title" className="track-info"><span className="track-title">{song.title}</span></div>;
+                    case 'title': return (
+                      <div key="title" className="track-info track-info-suggestion">
+                        <button
+                          className="playlist-suggestion-play-btn"
+                          onClick={e => {
+                            e.stopPropagation();
+                            const { queue, queueIndex, currentTrack, playTrack } = usePlayerStore.getState();
+                            const track = songToTrack(song);
+                            if (!currentTrack || queue.length === 0) {
+                              playTrack(track, [track]);
+                              return;
+                            }
+                            const insertAt = Math.min(queueIndex + 1, queue.length);
+                            const newQueue = [
+                              ...queue.slice(0, insertAt),
+                              track,
+                              ...queue.slice(insertAt),
+                            ];
+                            playTrack(track, newQueue);
+                          }}
+                          data-tooltip={t('playlists.playNextSuggestion')}
+                          aria-label={t('playlists.playNextSuggestion')}
+                        >
+                          <Play size={10} fill="currentColor" strokeWidth={0} className="playlist-suggestion-play-icon" />
+                        </button>
+                        <button
+                          className={`playlist-suggestion-preview-btn${previewingId === song.id ? ' is-previewing' : ''}`}
+                          onClick={e => { e.stopPropagation(); startPreview(song); }}
+                          data-tooltip={previewingId === song.id ? t('playlists.previewStop') : t('playlists.preview')}
+                          aria-label={previewingId === song.id ? t('playlists.previewStop') : t('playlists.preview')}
+                        >
+                          <svg className="playlist-suggestion-preview-ring" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10.5" className="playlist-suggestion-preview-ring-track" />
+                            <circle cx="12" cy="12" r="10.5" className="playlist-suggestion-preview-ring-progress" />
+                          </svg>
+                          {previewingId === song.id
+                            ? <Square size={9} fill="currentColor" strokeWidth={0} className="playlist-suggestion-preview-icon" />
+                            : <ChevronRight size={14} className="playlist-suggestion-preview-icon playlist-suggestion-preview-icon-play" />}
+                        </button>
+                        <span className="track-title">{song.title}</span>
+                      </div>
+                    );
                     case 'artist': return (
                       <div key="artist" className="track-artist-cell">
                         <span className={`track-artist${song.artistId ? ' track-artist-link' : ''}`} style={{ cursor: song.artistId ? 'pointer' : 'default' }} onClick={e => { if (song.artistId) { e.stopPropagation(); navigate(`/artist/${song.artistId}`); } }}>{song.artist}</span>
