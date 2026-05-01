@@ -1765,7 +1765,28 @@
 }
 
 .playlist-suggestion-preview-btn.is-previewing .playlist-suggestion-preview-ring-progress {
-  animation: playlist-preview-progress 30s linear forwards;
+  animation: playlist-preview-progress var(--preview-duration, 30s) linear forwards;
+}
+
+/* Settings opt-out: a single root attribute hides every inline preview button
+   without forcing every tracklist to plumb the flag through props. Master
+   wins — when off, every preview button is hidden regardless of per-location
+   state. */
+html[data-track-previews="off"] .playlist-suggestion-preview-btn {
+  display: none;
+}
+
+/* Per-location hide: each tracklist container marks its scope via
+   `data-preview-loc="<id>"`. When the matching root attribute is "off", only
+   buttons inside that scope disappear. Attribute names are stored lowercase
+   by the DOM so `randomMix` becomes `randommix`. */
+html[data-track-previews-suggestions="off"] [data-preview-loc="suggestions"] .playlist-suggestion-preview-btn,
+html[data-track-previews-albums="off"]      [data-preview-loc="albums"]      .playlist-suggestion-preview-btn,
+html[data-track-previews-playlists="off"]   [data-preview-loc="playlists"]   .playlist-suggestion-preview-btn,
+html[data-track-previews-favorites="off"]   [data-preview-loc="favorites"]   .playlist-suggestion-preview-btn,
+html[data-track-previews-artist="off"]      [data-preview-loc="artist"]      .playlist-suggestion-preview-btn,
+html[data-track-previews-randommix="off"]   [data-preview-loc="randomMix"]   .playlist-suggestion-preview-btn {
+  display: none;
 }
 
 @keyframes playlist-preview-progress {
@@ -1864,6 +1885,25 @@
 /* Paused state: show play icon statically (no hover needed) */
 .track-num.track-num-paused .track-num-play { display: flex; opacity: 0.5; }
 .track-row:hover .track-num.track-num-paused .track-num-play { opacity: 1; }
+
+/* ── Tracklists with inline action buttons (AlbumTrackList & co.) ──────────
+   Track number stays static instead of swapping to a play icon on hover.
+   The dedicated Play + Preview buttons in the title cell take over both
+   click-to-play and click-to-preview.  Active+playing rows still show the
+   eq-bars, active+paused rows fall back to the static number.
+   These rules MUST come after the legacy `.track-row:hover` swap rules so
+   the cascade overrides them. */
+.track-row-with-actions:hover .track-num-number { display: inline; }
+.track-row-with-actions .track-num { cursor: default; }
+.track-row-with-actions .track-num.track-num-active .track-num-number { display: inline; }
+.track-row-with-actions:hover .track-num.track-num-active .track-num-eq { display: flex; }
+
+/* Mirror the suggestion preview-button hover-highlight here so the icon
+   reaches full opacity / accent colour when the row is hovered. */
+.track-row-with-actions:hover .playlist-suggestion-preview-btn {
+  opacity: 1;
+  color: var(--accent);
+}
 
 /* Equalizer bars — shown for the currently playing track */
 .eq-bars {
