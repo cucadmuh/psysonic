@@ -98,6 +98,15 @@ The top header behavior was reworked for narrow widths: search, Live and Orbit c
 Waveform mouse-wheel seeking now uses fixed step-based jumps with debounce smoothing for more predictable navigation and less jitter during rapid scrolling.
 
 
+### Queue — Drag Outside to Remove
+
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#420](https://github.com/Psychotoxical/psysonic/pull/420)**
+
+You can remove a track from the play queue by dragging its row **outside** the queue sidebar (main window) or outside the mini player’s queue list. Drop targets still support reordering when you release inside the queue area.
+
+The drag ghost shows a **trash** affordance only while the cursor is outside the queue bounds; inside the queue it behaves as a normal reorder drag. The mouse-event `psy-drop` path now carries cursor coordinates so removal can be detected when the drop target is not the queue panel itself.
+
+
 ## Fixed
 
 - **Settings → Audio no longer blanks the app on macOS** *(Issue [#382](https://github.com/Psychotoxical/psysonic/issues/382), PR [#384](https://github.com/Psychotoxical/psysonic/pull/384), by [@Psychotoxical](https://github.com/Psychotoxical))*: Fixed a macOS-only crash where opening Settings → Audio could turn the whole app into a blank window. The Equalizer canvas now waits until it has valid layout dimensions before drawing, and redraws automatically once the section is visible.
