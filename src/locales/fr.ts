@@ -1178,6 +1178,8 @@ export const frTranslation = {
     prev: 'Piste précédente',
     play: 'Lecture',
     pause: 'Pause',
+    previewActive: 'Aperçu en cours',
+    previewLabel: 'Aperçu',
     delayModalTitle: 'Minuteur',
     delayPauseSection: 'Pause après',
     delayStartSection: 'Démarrage après',

@@ -1177,6 +1177,8 @@ export const nlTranslation = {
     prev: 'Vorig nummer',
     play: 'Afspelen',
     pause: 'Pauzeren',
+    previewActive: 'Voorbeeld speelt af',
+    previewLabel: 'Voorbeeld',
     delayModalTitle: 'Timer',
     delayPauseSection: 'Pauzeren na',
     delayStartSection: 'Starten na',
