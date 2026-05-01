@@ -113,6 +113,25 @@ import PasteClipboardHandler from './components/PasteClipboardHandler';
 
 /** Volume before last `psysonic --player mute` (CLI only; in-memory). */
 let cliPremuteVolume: number | null = null;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'psysonic_sidebar_collapsed';
+
+function readInitialSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistSidebarCollapsed(collapsed: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Ignore storage failures and keep in-memory UI state.
+  }
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, servers, activeServerId } = useAuthStore();
@@ -142,7 +161,13 @@ function shouldSuppressQueueResizerMouseDown(clientX: number, clientY: number, q
   const xSlop = 22;
   const vPad = 40;
   for (let i = 0; i < thumbs.length; i++) {
-    const r = thumbs[i].getBoundingClientRect();
+    const thumb = thumbs[i];
+    const style = window.getComputedStyle(thumb);
+    const pointerActive = style.pointerEvents !== 'none';
+    const visible = Number.parseFloat(style.opacity || '0') > 0.01;
+    if (!pointerActive && !visible) continue;
+
+    const r = thumb.getBoundingClientRect();
     if (r.height < 4 || r.width < 1) continue;
     if (clientY < r.top - vPad || clientY > r.bottom + vPad) continue;
     const thumbHitRight = Math.min(r.right + xSlop, mainRight);
@@ -313,11 +338,15 @@ function AppShell() {
           await appWindow.setTitle(title);
           await invoke('set_tray_tooltip', {
             tooltip: `${currentTrack.artist} – ${currentTrack.title}`,
+            playbackState: isPlaying ? 'play' : 'pause',
           }).catch(() => {});
         } else {
           document.title = 'Psysonic';
           await appWindow.setTitle('Psysonic');
-          await invoke('set_tray_tooltip', { tooltip: '' }).catch(() => {});
+          await invoke('set_tray_tooltip', {
+            tooltip: '',
+            playbackState: 'stop',
+          }).catch(() => {});
         }
       } catch (err) {}
     };
@@ -344,15 +373,16 @@ function AppShell() {
   // sidebar (WhatsNewBanner) that links to the /whats-new page — no auto
   // modal takeover on startup.
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('psysonic_sidebar_collapsed') === 'true';
-  });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readInitialSidebarCollapsed);
   const [queueWidth, setQueueWidth] = useState(340);
   const [isDraggingQueue, setIsDraggingQueue] = useState(false);
+  const [queueHandleTop, setQueueHandleTop] = useState<number | null>(null);
+  const [isMainScrolling, setIsMainScrolling] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem('psysonic_sidebar_collapsed', isSidebarCollapsed.toString());
-  }, [isSidebarCollapsed]);
+  const setSidebarCollapsed = useCallback((collapsed: boolean) => {
+    persistSidebarCollapsed(collapsed);
+    setIsSidebarCollapsed(collapsed);
+  }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDraggingQueue) {
@@ -383,6 +413,107 @@ function AppShell() {
       document.body.classList.remove('is-dragging');
     };
   }, [isDraggingQueue, handleMouseMove, handleMouseUp]);
+
+  useEffect(() => {
+    const viewports = new Set<HTMLElement>();
+    const appViewport = document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID);
+    if (appViewport) viewports.add(appViewport);
+    const nowPlayingViewport = document.querySelector<HTMLElement>('.np-main__viewport');
+    if (nowPlayingViewport) viewports.add(nowPlayingViewport);
+    if (viewports.size === 0) return;
+
+    let scrollHideTimer: number | null = null;
+
+    const onScroll = () => {
+      setIsMainScrolling(true);
+      if (scrollHideTimer != null) window.clearTimeout(scrollHideTimer);
+      scrollHideTimer = window.setTimeout(() => {
+        setIsMainScrolling(false);
+        scrollHideTimer = null;
+      }, 180);
+    };
+
+    viewports.forEach(viewport => {
+      viewport.addEventListener('scroll', onScroll, { passive: true });
+    });
+    return () => {
+      viewports.forEach(viewport => {
+        viewport.removeEventListener('scroll', onScroll);
+      });
+      if (scrollHideTimer != null) window.clearTimeout(scrollHideTimer);
+      setIsMainScrolling(false);
+    };
+  }, [location.pathname]);
+
+  const syncQueueHandleTop = useCallback(() => {
+    const leftBtn = document.querySelector('.sidebar .collapse-btn') as HTMLElement | null;
+    if (!leftBtn) return;
+    const r = leftBtn.getBoundingClientRect();
+    setQueueHandleTop(r.top + r.height / 2);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile) return;
+    const leftBtn = document.querySelector('.sidebar .collapse-btn') as HTMLElement | null;
+    if (!leftBtn) return;
+
+    syncQueueHandleTop();
+    const raf = requestAnimationFrame(syncQueueHandleTop);
+
+    const onResize = () => syncQueueHandleTop();
+    window.addEventListener('resize', onResize);
+    const observer = new ResizeObserver(onResize);
+    observer.observe(leftBtn);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      observer.disconnect();
+    };
+  }, [isMobile, isSidebarCollapsed, syncQueueHandleTop]);
+
+  const handleQueueHandleMouseDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const DRAG_THRESHOLD_PX = 4;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let didDrag = false;
+
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp, true);
+      document.body.style.cursor = '';
+      document.body.classList.remove('is-dragging');
+    };
+
+    const applyWidthFromClientX = (clientX: number) => {
+      const newWidth = Math.max(310, Math.min(window.innerWidth - clientX, 500));
+      setQueueWidth(newWidth);
+    };
+
+    const onMove = (me: MouseEvent) => {
+      const movedEnough = Math.hypot(me.clientX - startX, me.clientY - startY) >= DRAG_THRESHOLD_PX;
+      if (!didDrag && movedEnough) {
+        didDrag = true;
+        if (!isQueueVisible) toggleQueue();
+        document.body.style.cursor = 'col-resize';
+        document.body.classList.add('is-dragging');
+      }
+      if (!didDrag) return;
+      applyWidthFromClientX(me.clientX);
+    };
+
+    const onUp = () => {
+      cleanup();
+      if (!didDrag) toggleQueue();
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp, true);
+  }, [isQueueVisible, toggleQueue]);
 
   // ── Global DnD fix for Linux/WebKitGTK / Wayland ─────────────────
   // dragover/dragenter: WebKitGTK needs preventDefault so external drops are not
@@ -460,7 +591,9 @@ function AppShell() {
       data-fullscreen={isWindowFullscreen || undefined}
       style={{
         '--sidebar-width': isMobile ? '0px' : (isSidebarCollapsed ? '72px' : 'clamp(200px, 15vw, 220px)'),
-        '--queue-width': isMobile ? '0px' : (isQueueVisible ? `${queueWidth}px` : '0px')
+        '--queue-width': isMobile
+          ? '0px'
+          : (isQueueVisible ? `${queueWidth}px` : '0px')
       } as React.CSSProperties}
       onContextMenu={e => e.preventDefault()}
     >
@@ -468,7 +601,7 @@ function AppShell() {
       {!isMobile && (
         <Sidebar
           isCollapsed={isSidebarCollapsed}
-          toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          toggleCollapse={() => setSidebarCollapsed(!isSidebarCollapsed)}
         />
       )}
       <main className="main-content">
@@ -480,14 +613,16 @@ function AppShell() {
           <LastfmIndicator />
           <NowPlayingDropdown />
           <OrbitStartTrigger />
-          <button
-            className="queue-toggle-btn"
-            onClick={toggleQueue}
-            data-tooltip={t('player.toggleQueue')}
-            data-tooltip-pos="bottom"
-          >
-            {isQueueVisible ? <PanelRightClose size={18} /> : <PanelRight size={18} />}
-          </button>
+          {!isMobile && !isQueueVisible && (
+            <button
+              className="queue-toggle-btn"
+              onClick={toggleQueue}
+              data-tooltip={t('player.toggleQueue')}
+              data-tooltip-pos="bottom"
+            >
+              <PanelRight size={18} />
+            </button>
+          )}
         </header>
         <OrbitSessionBar />
         {connStatus === 'disconnected' && (
@@ -543,12 +678,45 @@ function AppShell() {
           className="resizer resizer-queue" 
           onMouseDown={(e) => {
             e.preventDefault();
-            if (document.body.classList.contains('is-overlay-scrollbar-thumb-drag')) return;
+            if (document.body.classList.contains('is-overlay-scrollbar-thumb-drag')) {
+              // Self-heal stale drag flag: if no thumb is actually dragging,
+              // unblock the queue resizer immediately.
+              const activeThumbDrag = document.querySelector('.overlay-scroll__thumb.is-thumb-dragging');
+              if (!activeThumbDrag) {
+                document.body.classList.remove('is-overlay-scrollbar-thumb-drag');
+              } else {
+                return;
+              }
+            }
             if (shouldSuppressQueueResizerMouseDown(e.clientX, e.clientY, queueWidth)) return;
             setIsDraggingQueue(true);
           }}
-          style={{ display: isQueueVisible ? 'block' : 'none' }}
+          style={{
+            display: isQueueVisible ? 'block' : 'none',
+            right: `${Math.max(0, queueWidth - 3)}px`,
+          }}
         />
+      )}
+      {!isMobile && isQueueVisible && (
+        <button
+          type="button"
+          className="resizer-queue-handle"
+          onMouseDown={handleQueueHandleMouseDown}
+          style={{
+            position: 'fixed',
+            top: queueHandleTop != null ? `${queueHandleTop}px` : '50%',
+            right: `${Math.max(0, queueWidth - 11)}px`,
+            transform: 'translateY(-50%)',
+            zIndex: 101,
+            opacity: isMainScrolling ? 0 : 1,
+            pointerEvents: isMainScrolling ? 'none' : 'auto',
+          }}
+          data-tooltip={t('player.collapseQueueResize')}
+          data-tooltip-pos="left"
+          aria-label={t('player.collapseQueueResize')}
+        >
+          {isQueueVisible ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+        </button>
       )}
       {!isMobile && <QueuePanel />}
       {isMobile && !isMobilePlayer && <BottomNav />}

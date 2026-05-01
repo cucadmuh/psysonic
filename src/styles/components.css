@@ -452,6 +452,23 @@
   pointer-events: none;
 }
 
+.album-card-new-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--accent);
+  color: var(--ctp-crust);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  z-index: 2;
+  pointer-events: none;
+}
+
 .album-card-play-overlay {
   position: absolute;
   inset: 0;
@@ -633,9 +650,72 @@
 /* ─ Live Search ─ */
 .live-search {
   position: relative;
-  min-width: 280px;
+  min-width: 240px;
   max-width: 420px;
-  flex: 1;
+  flex: 1 1 320px;
+}
+
+/* JS-computed collapse mode (budget-based, with hysteresis) */
+.live-search[data-collapsed] {
+  min-width: 34px;
+  max-width: 34px;
+  flex: 0 0 34px;
+}
+
+.live-search[data-collapsed]:not([data-active]) .live-search-input-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-card) 84%, transparent);
+  cursor: text;
+}
+
+.live-search[data-collapsed]:not([data-active]) .live-search-icon {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.live-search[data-collapsed]:not([data-active]) .live-search-field {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.live-search[data-collapsed][data-active] {
+  min-width: 34px;
+  max-width: 34px;
+  flex: 0 0 34px;
+}
+
+.live-search[data-collapsed][data-active] .live-search-input-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: min(420px, calc(100vw - 2 * var(--space-4)));
+  z-index: 25;
+}
+
+.live-search[data-collapsed][data-active] .live-search-field {
+  width: 100%;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.live-search[data-collapsed]:not([data-active]) .live-search-clear,
+.live-search[data-collapsed]:not([data-active]) .live-search-adv-btn {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.live-search[data-collapsed][data-active] .live-search-dropdown {
+  left: 0;
+  right: auto;
+  width: min(420px, calc(100vw - 2 * var(--space-4)));
 }
 
 .live-search-input-wrap {
@@ -1183,12 +1263,34 @@
 .album-detail-badge {
   margin-bottom: 0.5rem;
   background: var(--accent);
-  color: #fff;
+  color: var(--ctp-crust);
 }
 
 .album-detail-back {
   margin-bottom: 1rem;
   gap: 6px;
+}
+
+.album-track-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 16px 8px;
+  flex-wrap: wrap;
+}
+
+.album-track-toolbar-filter {
+  position: relative;
+  flex: 1 1 160px;
+  max-width: 260px;
+}
+
+.album-track-toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
 }
 
 .album-info-dot {
@@ -3565,6 +3667,17 @@ html[data-track-previews-randommix="off"]   [data-preview-loc="randomMix"]   .pl
 }
 
 /* ─ Help Page ─ */
+.help-columns {
+  columns: 2;
+  column-gap: 1.25rem;
+}
+
+@media (max-width: 1200px) {
+  .help-columns {
+    columns: 1;
+  }
+}
+
 .help-list {
   display: flex;
   flex-direction: column;
@@ -3755,11 +3868,13 @@ html[data-track-previews-randommix="off"]   [data-preview-loc="randomMix"]   .pl
 
 .lyrics-pane {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.lyrics-pane__viewport {
   overflow-x: hidden;
   /* scroll-behavior intentionally left to auto — JS drives smooth scroll imperatively */
   padding: 16px 16px 8px;
-  scrollbar-width: thin;
 }
 
 .lyrics-pane-empty {
@@ -5745,13 +5860,13 @@ html.no-compositing .fs-seekbar-played {
 
 .stats-overview {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--space-4);
 }
 
 @media (max-width: 600px) {
   .stats-overview {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
 
@@ -5769,10 +5884,12 @@ html.no-compositing .fs-seekbar-played {
 
 .stats-card-value {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: clamp(1.45rem, 3.4vw, 2rem);
   font-weight: 800;
   color: var(--accent);
   line-height: 1;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .stats-card-label {
@@ -6004,6 +6121,7 @@ html.no-compositing .fs-seekbar-played {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   background:
     radial-gradient(ellipse at 20% 0%, color-mix(in srgb, var(--accent) 10%, var(--bg-main)) 0%, transparent 60%),
     radial-gradient(ellipse at 80% 100%, color-mix(in srgb, var(--ctp-blue) 8%, var(--bg-main)) 0%, transparent 60%),
@@ -6013,7 +6131,10 @@ html.no-compositing .fs-seekbar-played {
 /* Main scrollable content */
 .np-main {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.np-main__viewport {
   padding: 28px 28px 40px;
   display: flex;
   flex-direction: column;
@@ -10942,7 +11063,10 @@ html[data-psy-native-hidden="true"] *::after {
 /* ── Now Playing Info panel ──────────────────────────────────────────────── */
 .np-info {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.np-info__viewport {
   overflow-x: hidden;
   padding: 6px 16px 20px;
   display: block;
@@ -11076,8 +11200,9 @@ html[data-psy-native-hidden="true"] *::after {
 }
 .np-info-tour > .np-info-tour-item + .np-info-tour-item { margin-top: 6px; }
 .np-info-tour-item {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
   padding: 10px 12px;
   background: var(--bg-elevated);
@@ -11088,6 +11213,7 @@ html[data-psy-native-hidden="true"] *::after {
   text-align: left;
   width: 100%;
   min-width: 0;        /* allow children to shrink past their min-content */
+  max-width: 100%;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -11126,6 +11252,7 @@ html[data-psy-native-hidden="true"] *::after {
    * overflows the parent ul on WebKit. */
   flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -11142,9 +11269,10 @@ html[data-psy-native-hidden="true"] *::after {
 .np-info-tour-place {
   font-size: 11.5px;
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   text-align: left;
 }
 .np-info-tour-when { color: var(--text-secondary); }
@@ -11831,6 +11959,112 @@ html[data-psy-native-hidden="true"] *::after {
   .np-dash-hero-title { font-size: 24px; }
 }
 
+/* Prefer container-based adaptation (main-content width can be narrow on desktop). */
+@container (max-width: 900px) {
+  .np-dash-grid {
+    flex-direction: column;
+    gap: 14px;
+    align-items: stretch;
+  }
+
+  .np-dash-col {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 0;
+    gap: 14px;
+  }
+
+  .np-dash-card-wrap {
+    display: block;
+    width: 100%;
+  }
+
+  .np-dash-card,
+  .np-info-card {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .np-dash-hero {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 20px;
+    align-items: stretch;
+  }
+
+  .np-dash-hero-cover {
+    width: 180px;
+    height: 180px;
+    margin: 0 auto;
+  }
+
+  .np-dash-hero-body {
+    gap: 10px;
+  }
+
+  .np-dash-hero-title {
+    font-size: 24px;
+    line-height: 1.2;
+    overflow-wrap: break-word;
+  }
+
+  .np-dash-hero-sub,
+  .np-dash-hero-lfm-row {
+    font-size: 13px;
+  }
+
+  .np-dash-hero-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@container (max-width: 760px) {
+  .np-main__viewport {
+    padding: 16px 14px 24px;
+    gap: 12px;
+  }
+
+  .np-dash {
+    gap: 12px;
+  }
+
+  .np-dash-hero {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .np-dash-hero-cover {
+    width: 150px;
+    height: 150px;
+  }
+
+  .np-dash-hero-title {
+    font-size: 21px;
+    overflow-wrap: anywhere;
+  }
+
+  .np-dash-hero-sub {
+    gap: 5px;
+  }
+
+  .np-dash-hero-lfm {
+    padding: 10px 11px;
+  }
+
+  .np-info-card {
+    padding: 14px 15px;
+  }
+
+  .np-card-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .np-dash-col {
+    gap: 12px;
+  }
+}
+
 .app-shell[data-mobile] .np-dash-grid { flex-direction: column; }
 .app-shell[data-mobile] .np-dash-hero { grid-template-columns: 1fr; }
 .app-shell[data-mobile] .np-dash-hero-cover { width: 160px; height: 160px; margin: 0 auto; }
@@ -12260,6 +12494,21 @@ html[data-psy-native-hidden="true"] *::after {
   box-shadow: 0 0 12px -3px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .orbit-start-trigger:hover .orbit-start-trigger__spin { transform: rotate(45deg); }
+
+/* Collapse Live/Orbit labels in a sticky low-space mode (with hysteresis). */
+.content-header[data-live-header-compact] .now-playing-dropdown__trigger,
+.content-header[data-live-header-compact] .orbit-start-trigger {
+  padding-left: 0.55rem !important;
+  padding-right: 0.55rem !important;
+  gap: 0.35rem !important;
+  min-width: 36px;
+  justify-content: center;
+}
+
+.content-header[data-live-header-compact] .now-playing-dropdown__label,
+.content-header[data-live-header-compact] .orbit-start-trigger__label {
+  display: none !important;
+}
 
 /* Launch popover — three-option menu anchored below the topbar trigger. */
 .orbit-launch-pop {

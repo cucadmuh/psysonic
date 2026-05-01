@@ -6,7 +6,7 @@ import { useOfflineJobStore } from '../store/offlineJobStore';
 import { useDeviceSyncJobStore } from '../store/deviceSyncJobStore';
 import { useAuthStore } from '../store/authStore';
 import { useSidebarStore, type SidebarItemConfig } from '../store/sidebarStore';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Settings,
@@ -16,7 +16,7 @@ import {
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
 import WhatsNewBanner from './WhatsNewBanner';
-import { getPlaylists } from '../api/subsonic';
+import { getAlbumList, getPlaylists } from '../api/subsonic';
 import { usePlaylistStore } from '../store/playlistStore';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import OverlayScrollArea from './OverlayScrollArea';
@@ -32,6 +32,10 @@ import { useLuckyMixAvailable } from '../hooks/useLuckyMixAvailable';
 const SIDEBAR_NAV_LONG_PRESS_MS = 1000;
 const SIDEBAR_NAV_LONG_PRESS_MOVE_CANCEL_PX = 10;
 const SMART_PREFIX = 'psy-smart-';
+const NEW_RELEASES_UNREAD_STORAGE_PREFIX = 'psy_new_releases_unread_seen_v1';
+const NEW_RELEASES_UNREAD_SAMPLE_SIZE = 80;
+const NEW_RELEASES_UNREAD_POLL_MS = 2 * 60 * 1000;
+const NEW_RELEASES_RESET_DELAY_MS = 5_000;
 
 function isSmartPlaylistName(name: string): boolean {
   return (name ?? '').toLowerCase().startsWith(SMART_PREFIX);
@@ -59,6 +63,7 @@ export default function Sidebar({
   toggleCollapse?: () => void;
 }) {
   const { t } = useTranslation();
+  const location = useLocation();
   const isPlaying   = usePlayerStore(s => s.isPlaying);
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const offlineJobs = useOfflineJobStore(s => s.jobs);
@@ -95,6 +100,8 @@ export default function Sidebar({
   }, [playlistsRaw]);
   const [dropdownRect, setDropdownRect] = useState({ top: 0, left: 0, width: 0 });
   const libraryTriggerRef = useRef<HTMLButtonElement>(null);
+  const [sidebarViewportEl, setSidebarViewportEl] = useState<HTMLDivElement | null>(null);
+  const [isSidebarScrolling, setIsSidebarScrolling] = useState(false);
   const showLibraryPicker = !isCollapsed && isLoggedIn && musicFolders.length > 1;
 
   const filterId = serverId ? (musicLibraryFilterByServer[serverId] ?? 'all') : 'all';
@@ -140,6 +147,106 @@ export default function Sidebar({
   const suppressNavClickRef = useRef(false);
   const lastPointerDuringNavDndRef = useRef({ x: 0, y: 0 });
   const [navDndTrashHint, setNavDndTrashHint] = useState<{ x: number; y: number } | null>(null);
+  const [newReleasesUnreadCount, setNewReleasesUnreadCount] = useState(0);
+  const newReleasesRefreshSeqRef = useRef(0);
+  const newReleasesPageEnteredAtRef = useRef<number | null>(null);
+  const newReleasesResetTimerRef = useRef<number | null>(null);
+
+  const newReleasesSeenStorageKey = useMemo(
+    () => `${NEW_RELEASES_UNREAD_STORAGE_PREFIX}:${serverId || 'no-server'}:${filterId || 'all'}`,
+    [serverId, filterId],
+  );
+  const newReleasesSeenAllScopeStorageKey = useMemo(
+    () => `${NEW_RELEASES_UNREAD_STORAGE_PREFIX}:${serverId || 'no-server'}:all`,
+    [serverId],
+  );
+
+  const readSeenNewReleaseIdsByKey = useCallback((key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const readSeenNewReleaseIds = useCallback(
+    () => readSeenNewReleaseIdsByKey(newReleasesSeenStorageKey),
+    [newReleasesSeenStorageKey, readSeenNewReleaseIdsByKey],
+  );
+
+  const writeSeenNewReleaseIdsByKey = useCallback((key: string, ids: string[]) => {
+    const normalized = Array.from(new Set(ids.filter(Boolean))).slice(0, 500);
+    localStorage.setItem(key, JSON.stringify(normalized));
+  }, []);
+
+  const writeSeenNewReleaseIds = useCallback(
+    (ids: string[]) => writeSeenNewReleaseIdsByKey(newReleasesSeenStorageKey, ids),
+    [newReleasesSeenStorageKey, writeSeenNewReleaseIdsByKey],
+  );
+
+  const refreshNewReleasesUnread = useCallback(async (markAsSeen = false) => {
+    const seq = ++newReleasesRefreshSeqRef.current;
+    const isCurrent = () => seq === newReleasesRefreshSeqRef.current;
+
+    if (!isLoggedIn || !serverId) {
+      if (isCurrent()) setNewReleasesUnreadCount(0);
+      return;
+    }
+
+    try {
+      const newest = await getAlbumList('newest', NEW_RELEASES_UNREAD_SAMPLE_SIZE, 0);
+      const newestIds = newest.map(a => a.id).filter(Boolean);
+      let seenIds = readSeenNewReleaseIds();
+
+      // For a concrete library scope, bootstrap from the server-wide "all libraries"
+      // baseline when available, so switching scope doesn't hide existing unread.
+      if (seenIds.length === 0 && filterId !== 'all') {
+        const allScopeSeen = readSeenNewReleaseIdsByKey(newReleasesSeenAllScopeStorageKey);
+        if (allScopeSeen.length > 0) {
+          seenIds = allScopeSeen;
+          writeSeenNewReleaseIdsByKey(newReleasesSeenStorageKey, allScopeSeen);
+        }
+      }
+
+      if (seenIds.length === 0) {
+        // First bootstrap for this server/scope: baseline is "already seen".
+        writeSeenNewReleaseIds(newestIds);
+        if (isCurrent()) setNewReleasesUnreadCount(0);
+        return;
+      }
+
+      if (markAsSeen) {
+        writeSeenNewReleaseIds([...seenIds, ...newestIds]);
+        // Keep server-wide baseline in sync so scope fallback never resurrects
+        // already-viewed items after opening the New Releases page.
+        const allScopeSeen = readSeenNewReleaseIdsByKey(newReleasesSeenAllScopeStorageKey);
+        writeSeenNewReleaseIdsByKey(newReleasesSeenAllScopeStorageKey, [...allScopeSeen, ...newestIds]);
+        if (isCurrent()) setNewReleasesUnreadCount(0);
+        return;
+      }
+
+      const seenSet = new Set(seenIds);
+      let unread = newestIds.reduce((count, id) => count + (seenSet.has(id) ? 0 : 1), 0);
+
+      if (isCurrent()) setNewReleasesUnreadCount(unread);
+    } catch {
+      // Keep previous value on transient network/API errors.
+    }
+  }, [
+    filterId,
+    isLoggedIn,
+    newReleasesSeenAllScopeStorageKey,
+    newReleasesSeenStorageKey,
+    readSeenNewReleaseIds,
+    readSeenNewReleaseIdsByKey,
+    serverId,
+    writeSeenNewReleaseIds,
+    writeSeenNewReleaseIdsByKey,
+  ]);
 
   useEffect(() => {
     if (!navDnd) return;
@@ -236,6 +343,8 @@ export default function Sidebar({
 
     const onUp = (e: PointerEvent) => {
       lastPointerDuringNavDndRef.current = { x: e.clientX, y: e.clientY };
+      // Prevent synthetic click/navigation right after finishing a drag gesture.
+      suppressNavClickRef.current = true;
       endDrag(true);
     };
 
@@ -399,6 +508,70 @@ export default function Sidebar({
     longPressTimersRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    if (!sidebarViewportEl) return;
+    let hideTimer: number | null = null;
+
+    const onScroll = () => {
+      setIsSidebarScrolling(true);
+      if (hideTimer != null) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => {
+        setIsSidebarScrolling(false);
+        hideTimer = null;
+      }, 180);
+    };
+
+    sidebarViewportEl.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      sidebarViewportEl.removeEventListener('scroll', onScroll);
+      if (hideTimer != null) window.clearTimeout(hideTimer);
+    };
+  }, [sidebarViewportEl]);
+
+  useEffect(() => {
+    const onNewReleasesPage = location.pathname.startsWith('/new-releases');
+    if (newReleasesResetTimerRef.current != null) {
+      window.clearTimeout(newReleasesResetTimerRef.current);
+      newReleasesResetTimerRef.current = null;
+    }
+
+    if (onNewReleasesPage) {
+      if (newReleasesPageEnteredAtRef.current == null) {
+        newReleasesPageEnteredAtRef.current = Date.now();
+      }
+      const elapsed = Date.now() - newReleasesPageEnteredAtRef.current;
+      const shouldMarkAsSeen = elapsed >= NEW_RELEASES_RESET_DELAY_MS;
+      void refreshNewReleasesUnread(shouldMarkAsSeen);
+      if (!shouldMarkAsSeen) {
+        const remaining = NEW_RELEASES_RESET_DELAY_MS - elapsed;
+        newReleasesResetTimerRef.current = window.setTimeout(() => {
+          newReleasesResetTimerRef.current = null;
+          void refreshNewReleasesUnread(true);
+        }, remaining);
+      }
+    } else {
+      newReleasesPageEnteredAtRef.current = null;
+      void refreshNewReleasesUnread(false);
+    }
+
+    const timer = window.setInterval(() => {
+      const activeOnNewReleases = location.pathname.startsWith('/new-releases');
+      const enteredAt = newReleasesPageEnteredAtRef.current;
+      const delayedSeenReached =
+        activeOnNewReleases &&
+        enteredAt != null &&
+        Date.now() - enteredAt >= NEW_RELEASES_RESET_DELAY_MS;
+      void refreshNewReleasesUnread(delayedSeenReached);
+    }, NEW_RELEASES_UNREAD_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+      if (newReleasesResetTimerRef.current != null) {
+        window.clearTimeout(newReleasesResetTimerRef.current);
+        newReleasesResetTimerRef.current = null;
+      }
+    };
+  }, [location.pathname, refreshNewReleasesUnread]);
+
   return (
     <>
     <aside className={`sidebar animate-slide-in ${isCollapsed ? 'collapsed' : ''}`}>
@@ -412,6 +585,10 @@ export default function Sidebar({
       <button
         className="collapse-btn"
         onClick={toggleCollapse}
+        style={{
+          opacity: isSidebarScrolling ? 0 : 1,
+          pointerEvents: isSidebarScrolling ? 'none' : 'auto',
+        }}
         data-tooltip={isCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
         data-tooltip-pos="right"
       >
@@ -432,6 +609,7 @@ export default function Sidebar({
         <OverlayScrollArea
           className="sidebar-nav-scroll"
           viewportClassName="sidebar-nav-viewport"
+          viewportRef={setSidebarViewportEl}
           railInset="panel"
           measureDeps={[
             isCollapsed,
@@ -601,6 +779,11 @@ export default function Sidebar({
               data-tooltip-pos="bottom"
             >
               <item.icon size={isCollapsed ? 22 : 18} />
+              {item.to === '/new-releases' && newReleasesUnreadCount > 0 && (
+                <span className="sidebar-nav-unread-badge" aria-hidden>
+                  {newReleasesUnreadCount > 99 ? '99+' : newReleasesUnreadCount}
+                </span>
+              )}
               {!isCollapsed && <span>{t(item.labelKey)}</span>}
             </NavLink>
           ) : (
@@ -619,6 +802,11 @@ export default function Sidebar({
               >
                 <item.icon size={isCollapsed ? 22 : 18} />
                 {!isCollapsed && <span>{t(item.labelKey)}</span>}
+                {item.to === '/new-releases' && newReleasesUnreadCount > 0 && (
+                  <span className="sidebar-nav-unread-badge" aria-hidden>
+                    {newReleasesUnreadCount > 99 ? '99+' : newReleasesUnreadCount}
+                  </span>
+                )}
               </NavLink>
             </div>
           );
