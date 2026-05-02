@@ -165,6 +165,8 @@ interface AuthState {
    */
   lyricsStaticOnly: boolean;
   showFullscreenLyrics: boolean;
+  /** Persisted UI toggle: is the Now Playing section in queue panel collapsed */
+  queueNowPlayingCollapsed: boolean;
   /** 'rail' = classic 5-line sliding rail; 'apple' = full-screen scrolling list */
   fsLyricsStyle: 'rail' | 'apple';
   /** Sidebar lyrics scroll style: 'classic' = scrollIntoView center; 'apple' = scroll to 35% */
@@ -176,8 +178,6 @@ interface AuthState {
   lastSeenChangelogVersion: string;
 
   seekbarStyle: SeekbarStyle;
-  /** Cap animated seekbar styles to 30 fps (and similar GPU-friendly tweaks) for low-end hardware. */
-  reducedAnimations: boolean;
 
   /** Alpha: native hi-res sample rate output (disabled = safe 44.1 kHz mode) */
   enableHiRes: boolean;
@@ -318,6 +318,7 @@ interface AuthState {
   setLyricsMode: (v: 'standard' | 'lyricsplus') => void;
   setLyricsStaticOnly: (v: boolean) => void;
   setShowFullscreenLyrics: (v: boolean) => void;
+  setQueueNowPlayingCollapsed: (v: boolean) => void;
   setFsLyricsStyle: (v: 'rail' | 'apple') => void;
   setSidebarLyricsStyle: (v: 'classic' | 'apple') => void;
   setShowFsArtistPortrait: (v: boolean) => void;
@@ -325,7 +326,6 @@ interface AuthState {
   setShowChangelogOnUpdate: (v: boolean) => void;
   setLastSeenChangelogVersion: (v: string) => void;
   setSeekbarStyle: (v: SeekbarStyle) => void;
-  setReducedAnimations: (v: boolean) => void;
   setEnableHiRes: (v: boolean) => void;
   setAudioOutputDevice: (v: string | null) => void;
   setHotCacheEnabled: (v: boolean) => void;
@@ -438,6 +438,7 @@ export const useAuthStore = create<AuthState>()(
       lyricsMode: 'standard',
       lyricsStaticOnly: false,
       showFullscreenLyrics: true,
+      queueNowPlayingCollapsed: false,
       fsLyricsStyle: 'rail',
       sidebarLyricsStyle: 'classic',
       showFsArtistPortrait: true,
@@ -445,7 +446,6 @@ export const useAuthStore = create<AuthState>()(
       showChangelogOnUpdate: true,
       lastSeenChangelogVersion: '',
       seekbarStyle: 'truewave',
-      reducedAnimations: false,
       enableHiRes: false,
       audioOutputDevice: null,
       hotCacheEnabled: false,
@@ -599,6 +599,7 @@ export const useAuthStore = create<AuthState>()(
       setLyricsMode: (v) => set({ lyricsMode: v }),
       setLyricsStaticOnly: (v) => set({ lyricsStaticOnly: v }),
       setShowFullscreenLyrics: (v: boolean) => set({ showFullscreenLyrics: v }),
+      setQueueNowPlayingCollapsed: (v: boolean) => set({ queueNowPlayingCollapsed: v }),
       setFsLyricsStyle: (v) => set({ fsLyricsStyle: v }),
       setSidebarLyricsStyle: (v) => set({ sidebarLyricsStyle: v }),
       setShowFsArtistPortrait: (v: boolean) => set({ showFsArtistPortrait: v }),
@@ -607,7 +608,6 @@ export const useAuthStore = create<AuthState>()(
       setLastSeenChangelogVersion: (v) => set({ lastSeenChangelogVersion: v }),
 
       setSeekbarStyle: (v) => set({ seekbarStyle: v }),
-      setReducedAnimations: (v) => set({ reducedAnimations: v }),
       setEnableHiRes: (v) => set({ enableHiRes: v }),
       setAudioOutputDevice: (v) => set({ audioOutputDevice: v }),
       setHotCacheEnabled: (v) => set({ hotCacheEnabled: v }),

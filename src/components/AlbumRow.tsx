@@ -13,11 +13,9 @@ interface Props {
   moreText?: string;
   onLoadMore?: () => Promise<void>;
   showRating?: boolean;
-  /** Optional content rendered in the row header, left of the scroll-nav. */
-  headerExtra?: React.ReactNode;
 }
 
-export default function AlbumRow({ title, titleLink, albums, moreLink, moreText, onLoadMore, showRating, headerExtra }: Props) {
+export default function AlbumRow({ title, titleLink, albums, moreLink, moreText, onLoadMore, showRating }: Props) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -73,16 +71,15 @@ export default function AlbumRow({ title, titleLink, albums, moreLink, moreText,
           <h2 className="section-title" style={{ marginBottom: 0 }}>{title}</h2>
         )}
         <div className="album-row-nav">
-          {headerExtra}
-          <button
-            className={`nav-btn ${!showLeft ? 'disabled' : ''}`}
+          <button 
+            className={`nav-btn ${!showLeft ? 'disabled' : ''}`} 
             onClick={() => scroll('left')}
             disabled={!showLeft}
           >
             <ChevronLeft size={20} />
           </button>
-          <button
-            className={`nav-btn ${!showRight ? 'disabled' : ''}`}
+          <button 
+            className={`nav-btn ${!showRight ? 'disabled' : ''}`} 
             onClick={() => scroll('right')}
             disabled={!showRight}
           >

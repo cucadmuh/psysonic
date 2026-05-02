@@ -237,7 +237,6 @@ export default function PlayerBar() {
   const playSlotRef = useRef<HTMLSpanElement>(null);
   const scheduleRemaining = usePlaybackScheduleRemaining();
   const isPreviewing = usePreviewStore(s => s.previewingId !== null);
-  const previewAudioStarted = usePreviewStore(s => s.audioStarted);
   const previewingTrack = usePreviewStore(s => s.previewingTrack);
 
   const isRadio = !!currentRadio;
@@ -313,7 +312,7 @@ export default function PlayerBar() {
     <>
     <footer
       ref={playerBarRef}
-      className={`player-bar ${floatingPlayerBar ? 'floating' : ''}${showPreviewMeta ? ' is-previewing' : ''}${showPreviewMeta && previewAudioStarted ? ' audio-started' : ''}`}
+      className={`player-bar ${floatingPlayerBar ? 'floating' : ''}${showPreviewMeta ? ' is-previewing' : ''}`}
       style={floatingPlayerBar ? floatingStyle : undefined}
       role="region"
       aria-label={t('player.regionLabel')}
