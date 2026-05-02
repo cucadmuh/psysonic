@@ -1,19 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-export type KeyAction =
-  | 'play-pause'
-  | 'next'
-  | 'prev'
-  | 'volume-up'
-  | 'volume-down'
-  | 'seek-forward'
-  | 'seek-backward'
-  | 'toggle-queue'
-  | 'open-folder-browser'
-  | 'fullscreen-player'
-  | 'native-fullscreen'
-  | 'open-mini-player';
+import { DEFAULT_IN_APP_BINDINGS, type KeyAction } from '../config/shortcutActions';
 
 /** Physical keys only — ignore for binding capture */
 export const MODIFIER_KEY_CODES = [
@@ -24,20 +11,17 @@ export const MODIFIER_KEY_CODES = [
 // key = action, value = plain e.code ("Space", "KeyN") or chord "ctrl+shift+KeyN", null = unbound
 export type Bindings = Record<KeyAction, string | null>;
 
-export const DEFAULT_BINDINGS: Bindings = {
-  'play-pause':        'Space',
-  'next':              null,
-  'prev':              null,
-  'volume-up':         null,
-  'volume-down':       null,
-  'seek-forward':      null,
-  'seek-backward':     null,
-  'toggle-queue':      null,
-  'open-folder-browser': null,
-  'fullscreen-player': null,
-  'native-fullscreen': 'F11',
-  'open-mini-player':  null,
-};
+export const DEFAULT_BINDINGS: Bindings = { ...DEFAULT_IN_APP_BINDINGS };
+export type { KeyAction } from '../config/shortcutActions';
+
+function normalizeBindings(
+  bindings: Partial<Record<KeyAction, string | null>> | undefined
+): Bindings {
+  return {
+    ...DEFAULT_BINDINGS,
+    ...(bindings ?? {}),
+  } as Bindings;
+}
 
 interface KeybindingsState {
   bindings: Bindings;
@@ -81,12 +65,18 @@ export function matchInAppBinding(e: KeyboardEvent, binding: string | null): boo
 export const useKeybindingsStore = create<KeybindingsState>()(
   persist(
     (set) => ({
-      bindings: { ...DEFAULT_BINDINGS },
+      bindings: normalizeBindings(undefined),
       setBinding: (action, binding) =>
         set(s => ({ bindings: { ...s.bindings, [action]: binding } })),
-      resetToDefaults: () => set({ bindings: { ...DEFAULT_BINDINGS } }),
+      resetToDefaults: () => set({ bindings: normalizeBindings(undefined) }),
     }),
-    { name: 'psysonic_keybindings' }
+    {
+      name: 'psysonic_keybindings',
+      onRehydrateStorage: () => state => {
+        if (!state) return;
+        state.bindings = normalizeBindings(state.bindings);
+      },
+    }
   )
 );
 

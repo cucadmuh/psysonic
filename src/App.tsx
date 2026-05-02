@@ -81,17 +81,12 @@ import { useAuthStore } from './store/authStore';
 import {
   getMusicFolders,
   getSimilarSongs,
-  getSong,
   probeEntityRatingSupport,
   search as subsonicSearch,
-  setRating,
-  star,
-  unstar,
 } from './api/subsonic';
 import { useOfflineStore } from './store/offlineStore';
 import { initHotCachePrefetch } from './hotCachePrefetch';
 import i18n from './i18n';
-import { playByOpaqueId } from './utils/playByOpaqueId';
 import { switchActiveServer } from './utils/switchActiveServer';
 import {
   usePlayerStore,
@@ -104,15 +99,15 @@ import { useThemeStore } from './store/themeStore';
 import { useThemeScheduler } from './hooks/useThemeScheduler';
 import { useFontStore } from './store/fontStore';
 import { useEqStore } from './store/eqStore';
-import { useKeybindingsStore, matchInAppBinding, buildInAppBinding } from './store/keybindingsStore';
+import { useKeybindingsStore, buildInAppBinding } from './store/keybindingsStore';
 import { useGlobalShortcutsStore } from './store/globalShortcutsStore';
 import { useZipDownloadStore } from './store/zipDownloadStore';
 import { usePreviewStore } from './store/previewStore';
+import { DEFAULT_IN_APP_BINDINGS, canRunShortcutActionInMiniWindow, executeCliPlayerCommand, executeRuntimeAction, isGlobalShortcutActionId, isShortcutAction } from './config/shortcutActions';
+import { matchInAppShortcutAction } from './shortcuts/runtime';
 import ZipDownloadOverlay from './components/ZipDownloadOverlay';
 import PasteClipboardHandler from './components/PasteClipboardHandler';
 
-/** Volume before last `psysonic --player mute` (CLI only; in-memory). */
-let cliPremuteVolume: number | null = null;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'psysonic_sidebar_collapsed';
 
 function readInitialSidebarCollapsed(): boolean {
@@ -383,6 +378,12 @@ function AppShell() {
     persistSidebarCollapsed(collapsed);
     setIsSidebarCollapsed(collapsed);
   }, []);
+
+  useEffect(() => {
+    const onToggleSidebar = () => setSidebarCollapsed(!isSidebarCollapsed);
+    window.addEventListener('psy:toggle-sidebar', onToggleSidebar);
+    return () => window.removeEventListener('psy:toggle-sidebar', onToggleSidebar);
+  }, [isSidebarCollapsed, setSidebarCollapsed]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDraggingQueue) {
@@ -758,9 +759,6 @@ function AppShell() {
 // Media key + tray event handler
 function TauriEventBridge() {
   const navigate = useNavigate();
-  const togglePlay = usePlayerStore(s => s.togglePlay);
-  const next = usePlayerStore(s => s.next);
-  const previous = usePlayerStore(s => s.previous);
 
   // ZIP download progress events from Rust
   useEffect(() => {
@@ -983,95 +981,8 @@ function TauriEventBridge() {
         }).catch(() => {});
       }
     }).then(u => unsubs.push(u));
-    listen<string>('cli:play-id', async e => {
-      const id = typeof e.payload === 'string' ? e.payload.trim() : '';
-      if (!id) return;
-      try {
-        await playByOpaqueId(id);
-      } catch (err) {
-        console.error('CLI play failed', err);
-        const notFound = err instanceof Error && err.message === 'play_by_id_not_found';
-        showToast(
-          i18n.t('contextMenu.cliPlayIdNotFound', {
-            defaultValue: notFound
-              ? 'No song, album, or artist matches this id.'
-              : 'Could not start playback.',
-          }),
-          5000,
-          'error',
-        );
-      }
-    }).then(u => unsubs.push(u));
-    listen('cli:shuffle-queue', () => {
-      usePlayerStore.getState().shuffleQueue();
-    }).then(u => unsubs.push(u));
-    listen<string>('cli:set-repeat', e => {
-      const m = typeof e.payload === 'string' ? e.payload : '';
-      const mode = m === 'all' ? 'all' : m === 'one' ? 'one' : 'off';
-      usePlayerStore.setState({ repeatMode: mode });
-    }).then(u => unsubs.push(u));
-    listen('cli:mute', () => {
-      const { volume, setVolume } = usePlayerStore.getState();
-      if (volume > 0) cliPremuteVolume = volume;
-      setVolume(0);
-    }).then(u => unsubs.push(u));
-    listen('cli:unmute', () => {
-      const restore = cliPremuteVolume ?? 0.8;
-      cliPremuteVolume = null;
-      usePlayerStore.getState().setVolume(restore);
-    }).then(u => unsubs.push(u));
-    listen<boolean>('cli:star-current', async e => {
-      const want = e.payload === true;
-      const track = usePlayerStore.getState().currentTrack;
-      if (!track) {
-        showToast(i18n.t('contextMenu.cliMixNeedsTrack'), 5000, 'error');
-        return;
-      }
-      try {
-        if (want) {
-          await star(track.id, 'song');
-          usePlayerStore.getState().setStarredOverride(track.id, true);
-        } else {
-          await unstar(track.id, 'song');
-          usePlayerStore.getState().setStarredOverride(track.id, false);
-        }
-      } catch (err) {
-        console.error('CLI star failed', err);
-        showToast(i18n.t('contextMenu.cliStarFailed', { defaultValue: 'Star/unstar failed.' }), 5000, 'error');
-      }
-    }).then(u => unsubs.push(u));
-    listen<number>('cli:set-rating-current', async e => {
-      const stars = e.payload;
-      if (typeof stars !== 'number' || Number.isNaN(stars) || stars < 0 || stars > 5) return;
-      const track = usePlayerStore.getState().currentTrack;
-      if (!track) {
-        showToast(i18n.t('contextMenu.cliMixNeedsTrack'), 5000, 'error');
-        return;
-      }
-      try {
-        await setRating(track.id, stars);
-        usePlayerStore.getState().setUserRatingOverride(track.id, stars);
-      } catch (err) {
-        console.error('CLI set rating failed', err);
-      }
-    }).then(u => unsubs.push(u));
-    listen('cli:reload-player', async () => {
-      const store = usePlayerStore.getState();
-      const { currentTrack, queue, stop, resetAudioPause, playTrack, initializeFromServerQueue } = store;
-      stop();
-      resetAudioPause();
-      await invoke('audio_stop').catch(() => {});
-      if (currentTrack) {
-        try {
-          const fresh = await getSong(currentTrack.id);
-          const t = fresh ? songToTrack(fresh) : currentTrack;
-          playTrack(t, queue, true);
-        } catch {
-          playTrack(currentTrack, queue, true);
-        }
-      } else {
-        await initializeFromServerQueue();
-      }
+    listen<any>('cli:player-command', async e => {
+      await executeCliPlayerCommand({ payload: e.payload ?? {}, navigate });
     }).then(u => unsubs.push(u));
     return () => {
       unsubs.forEach(u => u());
@@ -1100,62 +1011,11 @@ function TauriEventBridge() {
       }
 
       const { bindings } = useKeybindingsStore.getState();
-      const { togglePlay, next, previous, setVolume, seek, toggleQueue, toggleFullscreen } = usePlayerStore.getState();
-
-      const action = (Object.entries(bindings) as [string, string | null][])
-        .find(([, b]) => matchInAppBinding(e, b))?.[0];
+      const action = matchInAppShortcutAction(e, { ...DEFAULT_IN_APP_BINDINGS, ...bindings });
 
       if (!action) return;
       e.preventDefault();
-
-      // While a track preview is running, Spacebar pauses the preview rather
-      // than the main player (which is already paused under it). Skip / prev
-      // also cancel the preview so the main player resumes cleanly.
-      const previewing = usePreviewStore.getState().previewingId !== null;
-
-      switch (action) {
-        case 'play-pause':
-          if (previewing) usePreviewStore.getState().stopPreview();
-          else togglePlay();
-          break;
-        case 'next':
-          if (previewing) usePreviewStore.getState().stopPreview();
-          next();
-          break;
-        case 'prev':
-          if (previewing) usePreviewStore.getState().stopPreview();
-          previous();
-          break;
-        case 'volume-up':         setVolume(Math.min(1, usePlayerStore.getState().volume + 0.05)); break;
-        case 'volume-down':       setVolume(Math.max(0, usePlayerStore.getState().volume - 0.05)); break;
-        case 'seek-forward': {
-          const s = usePlayerStore.getState();
-          const dur = s.currentTrack?.duration ?? 0;
-          if (!dur) break;
-          seek(Math.min(1, (s.currentTime + 10) / dur));
-          break;
-        }
-        case 'seek-backward': {
-          const s = usePlayerStore.getState();
-          const dur = s.currentTrack?.duration ?? 0;
-          if (!dur) break;
-          seek(Math.max(0, (s.currentTime - 10) / dur));
-          break;
-        }
-        case 'toggle-queue':      toggleQueue(); break;
-        case 'open-folder-browser':
-          navigate('/folders', { state: { folderBrowserRevealTs: Date.now() } });
-          break;
-        case 'fullscreen-player': toggleFullscreen(); break;
-        case 'native-fullscreen': {
-          const win = getCurrentWindow();
-          win.isFullscreen().then(fs => win.setFullscreen(!fs));
-          break;
-        }
-        case 'open-mini-player':
-          invoke('open_mini_player').catch(() => {});
-          break;
-      }
+      executeRuntimeAction(action, { navigate, previewPolicy: 'stop' });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1166,44 +1026,50 @@ function TauriEventBridge() {
     const unlisten: Array<() => void> = [];
 
     const setup = async () => {
-      // Hardware mediakeys are silently dropped while a preview is playing —
-      // matches the cucadmuh-flow expectation that headphone buttons don't
-      // accidentally interrupt or switch the previewed track.
-      const ifNoPreview = (fn: () => void) => () => {
-        if (usePreviewStore.getState().previewingId === null) fn();
-      };
       const handlers: Array<[string, () => void]> = [
-        ['media:play-pause',  ifNoPreview(() => togglePlay())],
-        ['media:play',        ifNoPreview(() => { const s = usePlayerStore.getState(); if (!s.isPlaying) s.resume(); })],
-        ['media:pause',       ifNoPreview(() => { const s = usePlayerStore.getState(); if (s.isPlaying) s.pause(); })],
-        ['media:next',        ifNoPreview(() => next())],
-        ['media:prev',        ifNoPreview(() => previous())],
-        // Tray clicks are user-driven UI, so they fall through to the keyboard
-        // semantics: cancel the preview, then act.
-        ['tray:play-pause',   () => {
-          if (usePreviewStore.getState().previewingId !== null) {
-            usePreviewStore.getState().stopPreview();
-          } else {
-            togglePlay();
-          }
-        }],
-        ['tray:next',         () => {
-          if (usePreviewStore.getState().previewingId !== null) usePreviewStore.getState().stopPreview();
-          next();
-        }],
-        ['tray:previous',     () => {
-          if (usePreviewStore.getState().previewingId !== null) usePreviewStore.getState().stopPreview();
-          previous();
-        }],
-        ['media:stop',        ifNoPreview(() => usePlayerStore.getState().stop())],
-        ['media:volume-up',   () => { const s = usePlayerStore.getState(); s.setVolume(Math.min(1, s.volume + 0.05)); }],
-        ['media:volume-down', () => { const s = usePlayerStore.getState(); s.setVolume(Math.max(0, s.volume - 0.05)); }],
+        // Hardware media controls should not interrupt active preview playback.
+        ['media:play-pause', () => executeRuntimeAction('play-pause', { navigate, previewPolicy: 'ignore' })],
+        ['media:play',       () => executeRuntimeAction('play', { navigate, previewPolicy: 'ignore' })],
+        ['media:pause',      () => executeRuntimeAction('pause', { navigate, previewPolicy: 'ignore' })],
+        ['media:next',       () => executeRuntimeAction('next', { navigate, previewPolicy: 'ignore' })],
+        ['media:prev',       () => executeRuntimeAction('prev', { navigate, previewPolicy: 'ignore' })],
+        ['media:stop',       () => executeRuntimeAction('stop', { navigate, previewPolicy: 'ignore' })],
+        ['media:volume-up',  () => executeRuntimeAction('volume-up', { navigate, previewPolicy: 'ignore' })],
+        ['media:volume-down', () => executeRuntimeAction('volume-down', { navigate, previewPolicy: 'ignore' })],
+        // Tray clicks are explicit UI intent: stop preview first, then act.
+        ['tray:play-pause',  () => executeRuntimeAction('play-pause', { navigate, previewPolicy: 'stop' })],
+        ['tray:next',        () => executeRuntimeAction('next', { navigate, previewPolicy: 'stop' })],
+        ['tray:previous',    () => executeRuntimeAction('prev', { navigate, previewPolicy: 'stop' })],
       ];
       for (const [event, handler] of handlers) {
         const u = await listen(event, handler);
         if (cancelled) { u(); return; }
         unlisten.push(u);
       }
+
+      {
+        const u = await listen<string>('shortcut:global-action', e => {
+          const action = e.payload;
+          if (!isGlobalShortcutActionId(action)) return;
+          executeRuntimeAction(action, { navigate, previewPolicy: 'ignore' });
+        });
+        if (cancelled) { u(); return; }
+        unlisten.push(u);
+      }
+
+      {
+        const u = await listen<{ action: string; source?: string }>('shortcut:run-action', e => {
+          const action = e.payload?.action;
+          const source = e.payload?.source;
+          if (!action || !isShortcutAction(action)) return;
+          if (source === 'mini-window' && !canRunShortcutActionInMiniWindow(action)) return;
+          const previewPolicy = source === 'cli' ? 'ignore' : 'stop';
+          executeRuntimeAction(action, { navigate, previewPolicy });
+        });
+        if (cancelled) { u(); return; }
+        unlisten.push(u);
+      }
+
 
       // Seek events carry a numeric payload (seconds) — seek() expects 0-1 progress
       {
@@ -1281,7 +1147,7 @@ function TauriEventBridge() {
 
     setup();
     return () => { cancelled = true; unlisten.forEach(u => u()); };
-  }, [togglePlay, next, previous]);
+  }, [navigate]);
 
   // `psysonic --info`: JSON snapshot under XDG_RUNTIME_DIR (Rust writes atomically).
   useEffect(() => {

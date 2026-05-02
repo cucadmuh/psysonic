@@ -5,7 +5,6 @@ const COMPLETIONS_BASH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), 
 const COMPLETIONS_ZSH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../completions/_psysonic"));
 
 use std::path::PathBuf;
-#[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use std::{
@@ -32,22 +31,12 @@ pub enum SearchCliScope {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerCliCmd {
-    Next,
-    Prev,
-    Play,
+    NoArgCommand(String),
     PlayOpaqueId(String),
-    Pause,
-    Stop,
     Seek { delta_secs: i32 },
     Volume { percent: u8 },
-    ShuffleQueue,
     Repeat(RepeatCliMode),
-    Mute,
-    Unmute,
-    StarCurrent,
-    UnstarCurrent,
     Rating { stars: u8 },
-    ReloadPlayer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +61,105 @@ pub enum CliCommand {
         scope: SearchCliScope,
         query: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CliActionRegistryEntry {
+    command: String,
+    verb: String,
+    description: String,
+}
+
+fn shortcut_actions_registry_source() -> &'static str {
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/config/shortcutActions.ts"
+    ))
+}
+
+fn extract_quoted_field(line: &str, key: &str) -> Option<String> {
+    let needle = format!("{key}: '");
+    let start = line.find(&needle)? + needle.len();
+    let tail = &line[start..];
+    let end = tail.find('\'')?;
+    Some(tail[..end].to_string())
+}
+
+fn parse_registry_action_id(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    if !trimmed.ends_with('{') {
+        return None;
+    }
+    if trimmed.starts_with('\'') {
+        let rest = &trimmed[1..];
+        let end = rest.find('\'')?;
+        let id = &rest[..end];
+        let tail = rest[end + 1..].trim_start();
+        if !tail.starts_with(':') {
+            return None;
+        }
+        return Some(id.to_string());
+    }
+    let brace_idx = trimmed.find(':')?;
+    let candidate = trimmed[..brace_idx].trim();
+    if candidate.is_empty() || !trimmed[brace_idx + 1..].trim_start().starts_with('{') {
+        return None;
+    }
+    if !candidate
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return None;
+    }
+    Some(candidate.to_string())
+}
+
+fn parse_cli_action_registry_entries() -> Vec<CliActionRegistryEntry> {
+    let mut entries = Vec::new();
+    let mut current_action_id: Option<String> = None;
+
+    for line in shortcut_actions_registry_source().lines() {
+        if let Some(id) = parse_registry_action_id(line) {
+            current_action_id = Some(id);
+            continue;
+        }
+        let trimmed = line.trim();
+        if !trimmed.starts_with("cli: {") {
+            continue;
+        }
+        let Some(action_id) = current_action_id.clone() else {
+            continue;
+        };
+        let Some(verb) = extract_quoted_field(trimmed, "verb") else {
+            continue;
+        };
+        let Some(description) = extract_quoted_field(trimmed, "description") else {
+            continue;
+        };
+        let command = extract_quoted_field(trimmed, "command").unwrap_or_else(|| action_id.clone());
+        entries.push(CliActionRegistryEntry {
+            command,
+            verb,
+            description,
+        });
+    }
+
+    entries
+}
+
+fn cli_action_registry_entries() -> &'static Vec<CliActionRegistryEntry> {
+    static ENTRIES: OnceLock<Vec<CliActionRegistryEntry>> = OnceLock::new();
+    ENTRIES.get_or_init(parse_cli_action_registry_entries)
+}
+
+fn cli_registry_entry_by_verb(verb: &str) -> Option<&'static CliActionRegistryEntry> {
+    cli_action_registry_entries().iter().find(|entry| entry.verb == verb)
+}
+
+fn cli_registry_entry_by_command(command: &str) -> Option<&'static CliActionRegistryEntry> {
+    cli_action_registry_entries()
+        .iter()
+        .find(|entry| entry.command == command)
 }
 
 pub fn wants_version(args: &[String]) -> bool {
@@ -281,16 +369,19 @@ pub fn print_help(program: &str) {
     eprintln!("    --json           With `audio-device list`, `library list`, `server list`, or `search`: JSON on stdout.");
     eprintln!("    Use  {program} -q --player seek -5  so the seek delta is not parsed as a flag.\n");
     eprintln!("  Playback");
-    eprintln!("    {program} [--quiet|-q] --player next | prev | play | pause | stop");
+    eprintln!("    {program} [--quiet|-q] --player <action>");
+    for entry in cli_action_registry_entries() {
+        eprintln!(
+            "    {program} [--quiet|-q] --player {:<14} {}",
+            entry.verb, entry.description
+        );
+    }
     eprintln!("    {program} [--quiet|-q] --player play <id>   Track, album, or artist id (artist → shuffled library).");
     eprintln!("    {program} [--quiet|-q] --player seek <seconds>      Integer delta, e.g. 15 or -10");
     eprintln!("    {program} [--quiet|-q] --player volume <0-100>     Absolute volume percent.");
-    eprintln!("    {program} [--quiet|-q] --player shuffle         Shuffle the current queue.");
     eprintln!("    {program} [--quiet|-q] --player repeat off|all|one");
-    eprintln!("    {program} [--quiet|-q] --player mute | unmute");
-    eprintln!("    {program} [--quiet|-q] --player star | unstar     Current track (Subsonic star).");
     eprintln!("    {program} [--quiet|-q] --player rating <0-5>     Set song rating (0 clears).");
-    eprintln!("    {program} [--quiet|-q] --player reload          Restart audio for the current track or reload server queue.\n");
+    eprintln!();
     eprintln!("  Audio output");
     eprintln!("    {program} [--json] --player audio-device list");
     eprintln!("    {program} --player audio-device set <device-id|default>\n");
@@ -879,11 +970,9 @@ fn parse_repeat_mode(arg: &str) -> Option<RepeatCliMode> {
 
 fn parse_player_cli_at(args: &[String], pos: usize) -> Option<PlayerCliCmd> {
     let verb = args.get(pos + 1)?.as_str();
-    match verb {
-        "next" => Some(PlayerCliCmd::Next),
-        "prev" => Some(PlayerCliCmd::Prev),
-        "play" => match args.get(pos + 2).map(|s| s.as_str()) {
-            None => Some(PlayerCliCmd::Play),
+    if let Some(entry) = cli_registry_entry_by_verb(verb).filter(|entry| entry.command == "play") {
+        return match args.get(pos + 2).map(|s| s.as_str()) {
+            None => Some(PlayerCliCmd::NoArgCommand(entry.command.clone())),
             Some(flag) if flag.starts_with('-') => None,
             Some(extra) => {
                 if extra.is_empty() {
@@ -891,18 +980,13 @@ fn parse_player_cli_at(args: &[String], pos: usize) -> Option<PlayerCliCmd> {
                 }
                 Some(PlayerCliCmd::PlayOpaqueId(extra.to_string()))
             }
-        },
-        "pause" => Some(PlayerCliCmd::Pause),
-        "stop" => Some(PlayerCliCmd::Stop),
-        "shuffle" => Some(PlayerCliCmd::ShuffleQueue),
+        };
+    }
+    match verb {
         "repeat" => {
             let m = parse_repeat_mode(args.get(pos + 2)?.as_str())?;
             Some(PlayerCliCmd::Repeat(m))
         }
-        "mute" => Some(PlayerCliCmd::Mute),
-        "unmute" => Some(PlayerCliCmd::Unmute),
-        "star" => Some(PlayerCliCmd::StarCurrent),
-        "unstar" => Some(PlayerCliCmd::UnstarCurrent),
         "rating" => {
             let raw = args.get(pos + 2)?;
             let n: u8 = raw.parse().ok()?;
@@ -911,7 +995,6 @@ fn parse_player_cli_at(args: &[String], pos: usize) -> Option<PlayerCliCmd> {
             }
             Some(PlayerCliCmd::Rating { stars: n })
         }
-        "reload" => Some(PlayerCliCmd::ReloadPlayer),
         "seek" => {
             let raw = args.get(pos + 2)?;
             let delta_secs: i32 = raw.parse().ok()?;
@@ -927,7 +1010,8 @@ fn parse_player_cli_at(args: &[String], pos: usize) -> Option<PlayerCliCmd> {
                 percent: v as u8,
             })
         }
-        _ => None,
+        _ => cli_registry_entry_by_verb(verb)
+            .map(|entry| PlayerCliCmd::NoArgCommand(entry.command.clone())),
     }
 }
 
@@ -1214,58 +1298,68 @@ pub fn describe_cli_command(cmd: &CliCommand) -> String {
 }
 
 pub fn describe_player_cli_cmd(cmd: &PlayerCliCmd) -> String {
+    if let PlayerCliCmd::NoArgCommand(command) = cmd {
+        if let Some(entry) = cli_registry_entry_by_command(command) {
+            return entry.verb.clone();
+        }
+        return command.clone();
+    }
     match cmd {
-        PlayerCliCmd::Next => "next track".into(),
-        PlayerCliCmd::Prev => "previous track".into(),
-        PlayerCliCmd::Play => "play".into(),
         PlayerCliCmd::PlayOpaqueId(id) => format!("play {id}"),
-        PlayerCliCmd::Pause => "pause".into(),
-        PlayerCliCmd::Stop => "stop".into(),
         PlayerCliCmd::Seek { delta_secs } => format!("seek {delta_secs:+} s"),
         PlayerCliCmd::Volume { percent } => format!("volume {percent}%"),
-        PlayerCliCmd::ShuffleQueue => "shuffle".into(),
         PlayerCliCmd::Repeat(m) => match m {
             RepeatCliMode::Off => "repeat off".into(),
             RepeatCliMode::All => "repeat all".into(),
             RepeatCliMode::One => "repeat one".into(),
         },
-        PlayerCliCmd::Mute => "mute".into(),
-        PlayerCliCmd::Unmute => "unmute".into(),
-        PlayerCliCmd::StarCurrent => "star".into(),
-        PlayerCliCmd::UnstarCurrent => "unstar".into(),
         PlayerCliCmd::Rating { stars } => format!("rating {stars}"),
-        PlayerCliCmd::ReloadPlayer => "reload".into(),
+        PlayerCliCmd::NoArgCommand(command) => command.clone(),
     }
 }
 
+fn emit_cli_player_command<R: Runtime>(app: &AppHandle<R>, payload: serde_json::Value) {
+    let _ = app.emit("cli:player-command", payload);
+}
+
 pub fn emit_player_cli_cmd<R: Runtime>(app: &AppHandle<R>, cmd: PlayerCliCmd) {
+    if let PlayerCliCmd::NoArgCommand(command) = &cmd {
+        emit_cli_player_command(
+            app,
+            serde_json::json!({
+                "command": command
+            }),
+        );
+        return;
+    }
+
     match cmd {
-        PlayerCliCmd::Next => {
-            let _ = app.emit("media:next", ());
-        }
-        PlayerCliCmd::Prev => {
-            let _ = app.emit("media:prev", ());
-        }
-        PlayerCliCmd::Play => {
-            let _ = app.emit("media:play", ());
-        }
         PlayerCliCmd::PlayOpaqueId(id) => {
-            let _ = app.emit("cli:play-id", id);
-        }
-        PlayerCliCmd::Pause => {
-            let _ = app.emit("media:pause", ());
-        }
-        PlayerCliCmd::Stop => {
-            let _ = app.emit("media:stop", ());
+            emit_cli_player_command(
+                app,
+                serde_json::json!({
+                    "command": "play-id",
+                    "id": id
+                }),
+            );
         }
         PlayerCliCmd::Seek { delta_secs } => {
-            let _ = app.emit("media:seek-relative", delta_secs);
+            emit_cli_player_command(
+                app,
+                serde_json::json!({
+                    "command": "seek-relative",
+                    "deltaSecs": delta_secs
+                }),
+            );
         }
         PlayerCliCmd::Volume { percent } => {
-            let _ = app.emit("media:set-volume", percent);
-        }
-        PlayerCliCmd::ShuffleQueue => {
-            let _ = app.emit("cli:shuffle-queue", ());
+            emit_cli_player_command(
+                app,
+                serde_json::json!({
+                    "command": "set-volume",
+                    "percent": percent
+                }),
+            );
         }
         PlayerCliCmd::Repeat(mode) => {
             let s = match mode {
@@ -1273,26 +1367,24 @@ pub fn emit_player_cli_cmd<R: Runtime>(app: &AppHandle<R>, cmd: PlayerCliCmd) {
                 RepeatCliMode::All => "all",
                 RepeatCliMode::One => "one",
             };
-            let _ = app.emit("cli:set-repeat", s);
-        }
-        PlayerCliCmd::Mute => {
-            let _ = app.emit("cli:mute", ());
-        }
-        PlayerCliCmd::Unmute => {
-            let _ = app.emit("cli:unmute", ());
-        }
-        PlayerCliCmd::StarCurrent => {
-            let _ = app.emit("cli:star-current", true);
-        }
-        PlayerCliCmd::UnstarCurrent => {
-            let _ = app.emit("cli:star-current", false);
+            emit_cli_player_command(
+                app,
+                serde_json::json!({
+                    "command": "set-repeat",
+                    "mode": s
+                }),
+            );
         }
         PlayerCliCmd::Rating { stars } => {
-            let _ = app.emit("cli:set-rating-current", stars);
+            emit_cli_player_command(
+                app,
+                serde_json::json!({
+                    "command": "set-rating-current",
+                    "stars": stars
+                }),
+            );
         }
-        PlayerCliCmd::ReloadPlayer => {
-            let _ = app.emit("cli:reload-player", ());
-        }
+        PlayerCliCmd::NoArgCommand(_) => {}
     }
 }
 
