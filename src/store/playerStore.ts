@@ -22,6 +22,8 @@ import {
   getMixMinRatingsConfigFromAuth,
   passesMixMinRatings,
 } from '../utils/mixRatingFilter';
+import { getPerfProbeFlags } from '../utils/perfFlags';
+import { bumpPerfCounter } from '../utils/perfTelemetry';
 
 const QUEUE_VISIBILITY_STORAGE_KEY = 'psysonic_queue_visible';
 
@@ -619,6 +621,55 @@ let seekFallbackVisualTarget: { trackId: string; seconds: number; setAtMs: numbe
 const SEEK_FALLBACK_VISUAL_GUARD_MS = 1600;
 const SEEK_FALLBACK_RETRY_INTERVAL_MS = 180;
 const SEEK_FALLBACK_RETRY_MAX_MS = 6000;
+const LIVE_PROGRESS_EMIT_MIN_MS = 1500;
+const LIVE_PROGRESS_EMIT_MIN_DELTA_SEC = 0.9;
+let lastLiveProgressEmitAt = 0;
+const STORE_PROGRESS_COMMIT_MIN_MS = 20_000;
+const STORE_PROGRESS_COMMIT_MIN_DELTA_SEC = 5.0;
+let lastStoreProgressCommitAt = 0;
+
+export type PlaybackProgressSnapshot = {
+  currentTime: number;
+  progress: number;
+  buffered: number;
+};
+
+let playbackProgressSnapshot: PlaybackProgressSnapshot = {
+  currentTime: 0,
+  progress: 0,
+  buffered: 0,
+};
+const playbackProgressListeners = new Set<(
+  next: PlaybackProgressSnapshot,
+  prev: PlaybackProgressSnapshot
+) => void>();
+
+function emitPlaybackProgress(next: PlaybackProgressSnapshot): void {
+  const prev = playbackProgressSnapshot;
+  if (
+    Math.abs(prev.currentTime - next.currentTime) < 0.005 &&
+    Math.abs(prev.progress - next.progress) < 0.0002 &&
+    Math.abs(prev.buffered - next.buffered) < 0.0002
+  ) {
+    return;
+  }
+  playbackProgressSnapshot = next;
+  playbackProgressListeners.forEach(cb => cb(next, prev));
+}
+
+export function getPlaybackProgressSnapshot(): PlaybackProgressSnapshot {
+  return playbackProgressSnapshot;
+}
+
+export function subscribePlaybackProgress(
+  cb: (next: PlaybackProgressSnapshot, prev: PlaybackProgressSnapshot) => void,
+): () => void {
+  playbackProgressListeners.add(cb);
+  return () => {
+    playbackProgressListeners.delete(cb);
+  };
+}
+
 
 /** Deferred pause / resume — cleared on stop, new track, manual pause/resume. */
 let scheduledPauseTimer: number | null = null;
@@ -1178,17 +1229,22 @@ function flushQueueSyncToServer(queue: Track[], currentTrack: Track | null, curr
 export function flushPlayQueuePosition(): Promise<void> {
   const s = usePlayerStore.getState();
   if (s.currentRadio) return Promise.resolve();
-  return flushQueueSyncToServer(s.queue, s.currentTrack, s.currentTime);
+  return flushQueueSyncToServer(s.queue, s.currentTrack, getPlaybackProgressSnapshot().currentTime);
 }
 
 // ─── Audio event handlers (called from initAudioListeners) ───────────────────
 
 function handleAudioPlaying(_duration: number) {
   setDeferHotCachePrefetch(false);
+  lastLiveProgressEmitAt = 0;
+  lastStoreProgressCommitAt = 0;
   usePlayerStore.setState({ isPlaying: true });
 }
 
 function handleAudioProgress(current_time: number, duration: number) {
+  bumpPerfCounter('audioProgressEvents');
+  const perfFlags = getPerfProbeFlags();
+  const progressUiDisabled = perfFlags.disablePlayerProgressUi;
   // While a seek is pending, the store already holds the optimistic target
   // position.  Accepting stale progress from the Rust engine would briefly
   // snap the waveform back to the old position before the seek completes.
@@ -1209,6 +1265,10 @@ function handleAudioProgress(current_time: number, duration: number) {
   const store = usePlayerStore.getState();
   const track = store.currentTrack;
   if (!track) return;
+  // Some backends can emit stale progress ticks shortly after pause/stop.
+  // Ignoring them avoids reactivating UI redraw loops while transport is idle.
+  const transportActive = store.isPlaying || store.currentRadio != null;
+  if (!transportActive && !seekFallbackVisualTarget) return;
   if (seekFallbackVisualTarget && seekFallbackVisualTarget.trackId !== track.id) {
     seekFallbackVisualTarget = null;
   }
@@ -1230,11 +1290,26 @@ function handleAudioProgress(current_time: number, duration: number) {
   const dur = duration > 0 ? duration : track.duration;
   if (dur <= 0) return;
   const progress = displayTime / dur;
-  usePlayerStore.setState({ currentTime: displayTime, progress, buffered: 0 });
-
-  // Heartbeat: push current position to the server every 15 s while
-  // playing so cross-device resume works even on a hard close — pause()
-  // and the close handler flush on top of this for clean shutdowns.
+  if (!progressUiDisabled) {
+    const nowLive = Date.now();
+    const live = getPlaybackProgressSnapshot();
+    const liveTimeDelta = Math.abs(live.currentTime - displayTime);
+    if (
+      nowLive - lastLiveProgressEmitAt >= LIVE_PROGRESS_EMIT_MIN_MS ||
+      liveTimeDelta >= LIVE_PROGRESS_EMIT_MIN_DELTA_SEC ||
+      seekFallbackVisualTarget != null
+    ) {
+      emitPlaybackProgress({
+        currentTime: displayTime,
+        progress,
+        buffered: 0,
+      });
+      lastLiveProgressEmitAt = nowLive;
+    }
+  }
+  // Heartbeat: push current position to the server every 15 s while playing so
+  // cross-device resume works even on a hard close — pause() and the close
+  // handler flush on top of this for clean shutdowns.
   if (store.isPlaying && !store.currentRadio) {
     const now = Date.now();
     if (now - lastQueueHeartbeatAt >= 15_000) {
@@ -1250,6 +1325,19 @@ function handleAudioProgress(current_time: number, duration: number) {
     if (scrobblingEnabled && lastfmSessionKey) {
       lastfmScrobble(track, Date.now(), lastfmSessionKey);
     }
+  }
+  if (progressUiDisabled) return;
+  // Critical architectural guard: avoid high-frequency writes to the persisted
+  // Zustand store (each write serializes queue state). Keep only coarse commits.
+  const nowCommit = Date.now();
+  const commitDelta = Math.abs(store.currentTime - displayTime);
+  const shouldCommitStore =
+    seekFallbackVisualTarget != null ||
+    nowCommit - lastStoreProgressCommitAt >= STORE_PROGRESS_COMMIT_MIN_MS ||
+    commitDelta >= STORE_PROGRESS_COMMIT_MIN_DELTA_SEC;
+  if (shouldCommitStore) {
+    usePlayerStore.setState({ currentTime: displayTime, progress, buffered: 0 });
+    lastStoreProgressCommitAt = nowCommit;
   }
 
   // Pre-buffer / pre-chain next track based on preload mode and crossfade.
@@ -1741,7 +1829,7 @@ export function initAudioListeners(): () => void {
   let lastMprisPositionUpdate = 0;
 
   const unsubMpris = usePlayerStore.subscribe((state) => {
-    const { currentTrack, currentRadio, isPlaying, currentTime } = state;
+    const { currentTrack, currentRadio, isPlaying } = state;
 
     // Update metadata when track changes
     if (currentTrack && currentTrack.id !== prevTrackId) {
@@ -1773,29 +1861,30 @@ export function initAudioListeners(): () => void {
       }).catch(() => {});
     }
 
-    // Update playback state on play/pause change
+    // Update playback state on play/pause change (use live snapshot — persisted
+    // store currentTime is intentionally coarse between commits).
     const playbackChanged = isPlaying !== prevIsPlaying;
     if (playbackChanged) {
       prevIsPlaying = isPlaying;
       lastMprisPositionUpdate = Date.now();
+      const pos = getPlaybackProgressSnapshot().currentTime;
       invoke('mpris_set_playback', {
         playing: isPlaying,
-        positionSecs: currentTime > 0 ? currentTime : null,
+        positionSecs: pos > 0 ? pos : null,
       }).catch(() => {});
       invoke('update_taskbar_icon', { isPlaying }).catch(() => {});
       return;
     }
-
-    // Keep position in sync while playing — update every ~500 ms so Plasma
-    // always shows the correct time without interpolation gaps.
-    // Radio streams have no meaningful position, so skip for radio.
-    if (!currentRadio && isPlaying && Date.now() - lastMprisPositionUpdate >= 500) {
-      lastMprisPositionUpdate = Date.now();
-      invoke('mpris_set_playback', {
-        playing: true,
-        positionSecs: currentTime,
-      }).catch(() => {});
-    }
+  });
+  const unsubMprisProgress = subscribePlaybackProgress(({ currentTime }) => {
+    const { currentRadio, isPlaying } = usePlayerStore.getState();
+    if (currentRadio || !isPlaying) return;
+    if (Date.now() - lastMprisPositionUpdate < 1500) return;
+    lastMprisPositionUpdate = Date.now();
+    invoke('mpris_set_playback', {
+      playing: true,
+      positionSecs: currentTime,
+    }).catch(() => {});
   });
 
   // ── Radio ICY StreamTitle → MPRIS ─────────────────────────────────────────
@@ -1833,7 +1922,8 @@ export function initAudioListeners(): () => void {
   let discordPrevTemplateLargeText: string | null = null;
 
   function syncDiscord() {
-    const { currentTrack, isPlaying, currentTime } = usePlayerStore.getState();
+    const { currentTrack, isPlaying } = usePlayerStore.getState();
+    const currentTime = getPlaybackProgressSnapshot().currentTime;
     const {
       discordRichPresence,
       enableAppleMusicCoversDiscord,
@@ -1893,6 +1983,7 @@ export function initAudioListeners(): () => void {
     unsubAuth();
     unsubAnalysisSync();
     unsubMpris();
+    unsubMprisProgress();
     unsubDiscordPlayer();
     unsubDiscordAuth();
     pending.forEach(p => p.then(unlisten => unlisten()));
@@ -2832,7 +2923,8 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       previous: () => {
-        const { queue, queueIndex, currentTime } = get();
+        const { queue, queueIndex } = get();
+        const currentTime = getPlaybackProgressSnapshot().currentTime;
         if (currentTime > 3) {
           // Restart current track from the beginning.
           invoke('audio_seek', { seconds: 0 }).catch(console.error);
@@ -3185,6 +3277,19 @@ export const usePlayerStore = create<PlayerState>()(
     }
   )
 );
+
+usePlayerStore.subscribe((state, prev) => {
+  if (
+    state.currentTime === prev.currentTime &&
+    state.progress === prev.progress &&
+    state.buffered === prev.buffered
+  ) return;
+  emitPlaybackProgress({
+    currentTime: state.currentTime,
+    progress: state.progress,
+    buffered: state.buffered,
+  });
+});
 
 const QUEUE_UNDO_HOTKEY_FLAG = '__psyQueueUndoListenerInstalled';
 

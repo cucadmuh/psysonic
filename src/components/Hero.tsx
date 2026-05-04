@@ -11,6 +11,7 @@ import { useWindowVisibility } from '../hooks/useWindowVisibility';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { filterAlbumsByMixRatings, getMixMinRatingsConfigFromAuth } from '../utils/mixRatingFilter';
+import { usePerfProbeFlags } from '../utils/perfFlags';
 
 const INTERVAL_MS = 10000;
 const HERO_ALBUM_COUNT = 8;
@@ -55,6 +56,7 @@ interface HeroProps {
 }
 
 export default function Hero({ albums: albumsProp }: HeroProps = {}) {
+  const perfFlags = usePerfProbeFlags();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -67,6 +69,102 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
   const [activeIdx, setActiveIdx] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const windowHidden = useWindowVisibility();
+  const [windowBlurred, setWindowBlurred] = useState<boolean>(() => Boolean(window.__psyBlurred));
+  const heroRef = useRef<HTMLDivElement | null>(null);
+  const heroScrollRootRef = useRef<HTMLElement | null>(null);
+  const visibilityRafRef = useRef<number | null>(null);
+  const [heroInView, setHeroInView] = useState(true);
+  const heroInViewRef = useRef(true);
+  heroInViewRef.current = heroInView;
+
+  const computeHeroVisibleNow = useCallback((): boolean => {
+    const node = heroRef.current;
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    if (rect.height <= 0 || rect.width <= 0) {
+      return false;
+    }
+    const root = heroScrollRootRef.current;
+    const viewportTop = root ? root.getBoundingClientRect().top : 0;
+    const viewportBottom = root ? root.getBoundingClientRect().bottom : window.innerHeight;
+    const overlap = Math.max(0, Math.min(rect.bottom, viewportBottom) - Math.max(rect.top, viewportTop));
+    // Consider hero visible only when at least a meaningful slice is on screen.
+    const minVisiblePx = Math.min(56, rect.height * 0.2);
+    return overlap >= minVisiblePx;
+  }, []);
+
+  const updateHeroVisibility = useCallback(() => {
+    const visible = computeHeroVisibleNow();
+    setHeroInView(prev => (prev === visible ? prev : visible));
+  }, [computeHeroVisibleNow]);
+
+  useEffect(() => {
+    const node = heroRef.current;
+    if (!node) return;
+    // Prefer the nearest actual scrolling ancestor; class fallback for safety.
+    let scrollRoot: HTMLElement | null = null;
+    let parent = node.parentElement;
+    while (parent) {
+      const styles = window.getComputedStyle(parent);
+      const overflowY = styles.overflowY;
+      if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight + 2) {
+        scrollRoot = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    heroScrollRootRef.current =
+      scrollRoot ?? (node.closest('.app-shell-route-scroll__viewport') as HTMLElement | null);
+    updateHeroVisibility();
+    const root = heroScrollRootRef.current;
+    const onScroll = () => {
+      if (visibilityRafRef.current != null) return;
+      visibilityRafRef.current = window.requestAnimationFrame(() => {
+        visibilityRafRef.current = null;
+        updateHeroVisibility();
+      });
+    };
+    const onResize = () => updateHeroVisibility();
+    const onFocusLike = () => updateHeroVisibility();
+    root?.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    window.addEventListener('focus', onFocusLike);
+    document.addEventListener('visibilitychange', onFocusLike);
+    return () => {
+      root?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('focus', onFocusLike);
+      document.removeEventListener('visibilitychange', onFocusLike);
+      if (visibilityRafRef.current != null) {
+        window.cancelAnimationFrame(visibilityRafRef.current);
+        visibilityRafRef.current = null;
+      }
+    };
+  }, [updateHeroVisibility]);
+
+  useEffect(() => {
+    const updateBlurState = () => {
+      setWindowBlurred(Boolean(window.__psyBlurred));
+    };
+    window.addEventListener('focus', updateBlurState);
+    window.addEventListener('blur', updateBlurState);
+    updateBlurState();
+    return () => {
+      window.removeEventListener('focus', updateBlurState);
+      window.removeEventListener('blur', updateBlurState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (heroInView || windowHidden) return;
+    // Recovery guard: if a scroll/RAF event was missed while hero was outside
+    // viewport, keep checking briefly so autoplay/background resume immediately
+    // after returning into view.
+    const id = window.setInterval(() => {
+      updateHeroVisibility();
+    }, 220);
+    return () => window.clearInterval(id);
+  }, [heroInView, windowHidden, updateHeroVisibility]);
 
   useEffect(() => {
     if (albumsProp?.length) { setAlbums(albumsProp); return; }
@@ -93,12 +191,27 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
   const startTimer = useCallback((len: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    if (len <= 1 || windowHidden) return;
+    if (len <= 1 || windowHidden || windowBlurred || !heroInViewRef.current || !computeHeroVisibleNow()) return;
     timerRef.current = setInterval(() => {
-      if (document.hidden || window.__psyHidden) return;
+      const visibleNow = computeHeroVisibleNow();
+      if (!visibleNow && heroInViewRef.current) setHeroInView(false);
+      if (document.hidden || window.__psyHidden || window.__psyBlurred || !heroInViewRef.current || !visibleNow) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        return;
+      }
       setActiveIdx(prev => (prev + 1) % len);
     }, INTERVAL_MS);
-  }, [windowHidden]);
+  }, [windowHidden, windowBlurred, computeHeroVisibleNow]);
+
+  useEffect(() => {
+    // Hard-stop timer immediately when hero leaves viewport.
+    if (heroInView && !windowBlurred) return;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, [heroInView, windowBlurred]);
 
   useEffect(() => {
     startTimer(albums.length);
@@ -106,7 +219,7 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
     };
-  }, [albums.length, startTimer]);
+  }, [albums.length, heroInView, startTimer]);
 
   const goTo = useCallback((idx: number) => {
     setActiveIdx(idx);
@@ -144,14 +257,15 @@ export default function Hero({ albums: albumsProp }: HeroProps = {}) {
 
   return (
     <div
+      ref={heroRef}
       className="hero"
       role="banner"
       aria-label={t('hero.eyebrow')}
       onClick={() => navigate(`/album/${album.id}`)}
       style={{ cursor: 'pointer' }}
     >
-      {enableCoverArtBackground && <HeroBg url={stableBgUrl.current} />}
-      {enableCoverArtBackground && <div className="hero-overlay" aria-hidden="true" />}
+      {enableCoverArtBackground && !perfFlags.disableMainstageHeroBackdrop && heroInView && <HeroBg url={stableBgUrl.current} />}
+      {enableCoverArtBackground && !perfFlags.disableMainstageHeroBackdrop && heroInView && <div className="hero-overlay" aria-hidden="true" />}
 
       {/* key causes re-mount → animate-fade-in triggers on each album change */}
       <div className="hero-content animate-fade-in" key={album.id}>

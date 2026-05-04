@@ -165,13 +165,16 @@ stdenv.mkDerivation (finalAttrs: {
       gdkX11Wrap = lib.optionalString forceGdkX11 ''
         --set GDK_BACKEND x11 \
       '';
+      allowNativeGdkWrap = lib.optionalString (!forceGdkX11) ''
+        --set PSYSONIC_ALLOW_NATIVE_GDK 1 \
+      '';
     in
     ''
       wrapProgram $out/bin/psysonic \
         --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ libayatana-appindicator ]}" \
         --prefix GST_PLUGIN_PATH : "${gstPluginPath}" \
         --prefix GIO_EXTRA_MODULES : "${glib-networking}/lib/gio/modules" \
-        ${gdkX11Wrap}--set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
+        ${gdkX11Wrap}${allowNativeGdkWrap}--set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
         --set WEBKIT_DISABLE_DMABUF_RENDERER 1
     '';
 

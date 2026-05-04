@@ -41,8 +41,9 @@ fn detect_gpu_vendor() -> Option<GpuVendor> {
 }
 
 fn main() {
-    // WebKitGTK on Wayland is unstable — force X11/XWayland on all Linux packages.
-    // Users can still override by setting these vars before launch.
+    // WebKitGTK on Wayland can be unstable — default to X11 when GDK_BACKEND is unset,
+    // except when PSYSONIC_ALLOW_NATIVE_GDK is set (e.g. Nix psysonic-gdk-session wrapper).
+    // Users can still override by setting GDK_BACKEND before launch.
     //
     // Safety: set_var modifies global process state. These calls are safe here
     // because we're in main() before the Tauri runtime starts — no other threads
@@ -50,7 +51,10 @@ fn main() {
     // need synchronization or marking as unsafe (Rust 2024+).
     #[cfg(target_os = "linux")]
     {
-        if std::env::var("GDK_BACKEND").is_err() {
+        // Nix `psysonic-gdk-session` sets this so we do not pin X11 when the packager asked for
+        // session-native GDK (e.g. Wayland). Local dev can export the same var before `tauri dev`.
+        let allow_native_gdk = std::env::var("PSYSONIC_ALLOW_NATIVE_GDK").is_ok();
+        if std::env::var("GDK_BACKEND").is_err() && !allow_native_gdk {
             std::env::set_var("GDK_BACKEND", "x11");
         }
         if std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").is_err() {

@@ -6,7 +6,7 @@ import {
   PictureInPicture2, ArrowLeftRight, Moon, Sunrise, Ellipsis,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { usePlayerStore } from '../store/playerStore';
+import { usePlayerStore, getPlaybackProgressSnapshot, subscribePlaybackProgress } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -26,6 +26,7 @@ import PlaybackDelayModal from './PlaybackDelayModal';
 import PlaybackScheduleBadge from './PlaybackScheduleBadge';
 import { usePlaybackScheduleRemaining } from '../utils/playbackScheduleFormat';
 import { usePreviewStore } from '../store/previewStore';
+import { usePerfProbeFlags } from '../utils/perfFlags';
 
 function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -40,9 +41,9 @@ const PlaybackTime = memo(function PlaybackTime({ className }: { className?: str
   const spanRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (spanRef.current) {
-      spanRef.current.textContent = formatTime(usePlayerStore.getState().currentTime);
+      spanRef.current.textContent = formatTime(getPlaybackProgressSnapshot().currentTime);
     }
-    return usePlayerStore.subscribe(state => {
+    return subscribePlaybackProgress(state => {
       if (spanRef.current) spanRef.current.textContent = formatTime(state.currentTime);
     });
   }, []);
@@ -55,12 +56,12 @@ const RemainingTime = memo(function RemainingTime({ duration, className }: { dur
   useEffect(() => {
     const updateRemaining = () => {
       if (spanRef.current) {
-        const remaining = Math.max(0, duration - usePlayerStore.getState().currentTime);
+        const remaining = Math.max(0, duration - getPlaybackProgressSnapshot().currentTime);
         spanRef.current.textContent = `-${formatTime(remaining)}`;
       }
     };
     updateRemaining();
-    return usePlayerStore.subscribe(updateRemaining);
+    return subscribePlaybackProgress(updateRemaining);
   }, [duration]);
   return <span className={className} ref={spanRef} />;
 });
@@ -117,6 +118,7 @@ export default function PlayerBar() {
   const [utilityMenuStyle, setUtilityMenuStyle] = useState<React.CSSProperties>({});
   const volumeWheelMenuTimerRef = useRef<number | null>(null);
   const [suppressOverflowTooltip, setSuppressOverflowTooltip] = useState(false);
+  const perfFlags = usePerfProbeFlags();
 
   useEffect(() => {
     if (!floatingPlayerBar) return;
@@ -530,7 +532,9 @@ export default function PlayerBar() {
           <>
             <PlaybackTime className="player-time" />
             <div className="player-waveform-wrap">
-              <WaveformSeek trackId={currentTrack?.id} />
+              {perfFlags.disableWaveformCanvas
+                ? <div className="radio-progress-bar" aria-hidden />
+                : <WaveformSeek trackId={currentTrack?.id} />}
             </div>
             <span
               className="player-time player-time-toggle"

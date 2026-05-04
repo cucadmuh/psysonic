@@ -9,14 +9,27 @@ import { ChevronRight } from 'lucide-react';
 import { useHomeStore } from '../store/homeStore';
 import { useAuthStore } from '../store/authStore';
 import { filterAlbumsByMixRatings, getMixMinRatingsConfigFromAuth } from '../utils/mixRatingFilter';
+import { usePerfProbeFlags } from '../utils/perfFlags';
+import { bumpPerfCounter } from '../utils/perfTelemetry';
 
 /** Match Random Albums overshoot when mix filter uses album/artist axes so hero + discover row can still fill. */
 const HOME_RANDOM_FETCH = 100;
 const HOME_HERO_COUNT = 8;
 const HOME_DISCOVER_SLICE = 20;
 const HOME_DISCOVER_SONGS_SIZE = 18;
+const HOME_ALBUM_ROW_ARTWORK_SIZE = 300;
+const HOME_SONG_RAIL_ARTWORK_SIZE = 200;
+const HOME_ARTWORK_WINDOWING = true;
+const HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET = 3;
+const HOME_SONG_RAIL_INITIAL_ARTWORK_BUDGET = 4;
+// Keep artwork enabled across Home rows in normal mode.
+const HOME_ARTWORK_VISIBLE_ROW_BUDGET_WHEN_ENABLED = 8;
 
 export default function Home() {
+  const perfFlags = usePerfProbeFlags();
+  const homeAlbumRowsDisabled = perfFlags.disableMainstageRails || perfFlags.disableHomeAlbumRows;
+  const homeSongRailsDisabled = perfFlags.disableMainstageRails || perfFlags.disableHomeSongRails;
+  const homeRailArtworkDisabled = perfFlags.disableMainstageRailArtwork || perfFlags.disableHomeRailArtwork;
   const homeSections = useHomeStore(s => s.sections);
   const activeServerId = useAuthStore(s => s.activeServerId);
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
@@ -34,6 +47,10 @@ export default function Home() {
   const [randomArtists, setRandomArtists] = useState<SubsonicArtist[]>([]);
   const [discoverSongs, setDiscoverSongs] = useState<SubsonicSong[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    bumpPerfCounter('homeCommits');
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -105,10 +122,54 @@ export default function Home() {
 
   const { t } = useTranslation();
   const navigate = useNavigate();
+  let artworkRowsLeft = homeRailArtworkDisabled ? 0 : HOME_ARTWORK_VISIBLE_ROW_BUDGET_WHEN_ENABLED;
+  const reserveArtworkRow = () => {
+    if (artworkRowsLeft <= 0) return false;
+    artworkRowsLeft -= 1;
+    return true;
+  };
+  const recentArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeAlbumRowsDisabled &&
+    isVisible('recent') &&
+    recent.length > 0 &&
+    reserveArtworkRow();
+  const discoverArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeAlbumRowsDisabled &&
+    isVisible('discover') &&
+    random.length > 0 &&
+    reserveArtworkRow();
+  const discoverSongsArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeSongRailsDisabled &&
+    isVisible('discoverSongs') &&
+    discoverSongs.length > 0 &&
+    reserveArtworkRow();
+  const recentlyPlayedArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeAlbumRowsDisabled &&
+    isVisible('recentlyPlayed') &&
+    recentlyPlayed.length > 0 &&
+    reserveArtworkRow();
+  const starredArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeAlbumRowsDisabled &&
+    isVisible('starred') &&
+    starred.length > 0 &&
+    reserveArtworkRow();
+  const mostPlayedArtworkEnabled =
+    !homeRailArtworkDisabled &&
+    !homeAlbumRowsDisabled &&
+    isVisible('mostPlayed') &&
+    mostPlayed.length > 0 &&
+    reserveArtworkRow();
 
+  const homeLiteArtworkFx = perfFlags.disableHomeArtworkFx;
+  const homeFlatArtworkClip = perfFlags.disableHomeArtworkClip;
   return (
-    <div className="animate-fade-in">
-      {isVisible('hero') && <Hero albums={heroAlbums} />}
+    <div className={`animate-fade-in${homeLiteArtworkFx ? ' home-lite-artwork' : ''}${homeFlatArtworkClip ? ' home-flat-artwork-clip' : ''}`}>
+      {!perfFlags.disableMainstageHero && isVisible('hero') && <Hero albums={heroAlbums} />}
 
       <div className="content-body" style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
         {loading ? (
@@ -117,31 +178,43 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {isVisible('recent') && (
+            {!homeAlbumRowsDisabled && isVisible('recent') && (
               <AlbumRow
                 title={t('home.recent')}
                 titleLink="/new-releases"
                 albums={recent}
                 onLoadMore={() => loadMore('newest', recent, setRecent)}
                 moreText={t('home.loadMore')}
+                disableArtwork={!recentArtworkEnabled}
+                artworkSize={HOME_ALBUM_ROW_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET}
               />
             )}
-            {isVisible('discover') && (
+            {!homeAlbumRowsDisabled && isVisible('discover') && (
               <AlbumRow
                 title={t('home.discover')}
                 titleLink="/random/albums"
                 albums={random}
                 onLoadMore={() => loadMore('random', random, setRandom)}
                 moreText={t('home.discoverMore')}
+                disableArtwork={!discoverArtworkEnabled}
+                artworkSize={HOME_ALBUM_ROW_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET}
               />
             )}
-            {isVisible('discoverSongs') && discoverSongs.length > 0 && (
+            {!homeSongRailsDisabled && isVisible('discoverSongs') && discoverSongs.length > 0 && (
               <SongRail
                 title={t('home.discoverSongs')}
                 songs={discoverSongs}
+                disableArtwork={!discoverSongsArtworkEnabled}
+                artworkSize={HOME_SONG_RAIL_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_SONG_RAIL_INITIAL_ARTWORK_BUDGET}
               />
             )}
-            {isVisible('discoverArtists') && randomArtists.length > 0 && (
+            {!perfFlags.disableMainstageGridCards && isVisible('discoverArtists') && randomArtists.length > 0 && (
               <section className="album-row-section">
                 <div className="album-row-header">
                   <NavLink to="/artists" className="section-title-link" style={{ marginBottom: 0 }}>
@@ -161,30 +234,42 @@ export default function Home() {
                 </div>
               </section>
             )}
-            {isVisible('recentlyPlayed') && recentlyPlayed.length > 0 && (
+            {!homeAlbumRowsDisabled && isVisible('recentlyPlayed') && recentlyPlayed.length > 0 && (
               <AlbumRow
                 title={t('home.recentlyPlayed')}
                 albums={recentlyPlayed}
                 onLoadMore={() => loadMore('recent', recentlyPlayed, setRecentlyPlayed)}
                 moreText={t('home.loadMore')}
+                disableArtwork={!recentlyPlayedArtworkEnabled}
+                artworkSize={HOME_ALBUM_ROW_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET}
               />
             )}
-            {isVisible('starred') && starred.length > 0 && (
+            {!homeAlbumRowsDisabled && isVisible('starred') && starred.length > 0 && (
               <AlbumRow
                 title={t('home.starred')}
                 titleLink="/favorites"
                 albums={starred}
                 onLoadMore={() => loadMore('starred', starred, setStarred)}
                 moreText={t('home.loadMore')}
+                disableArtwork={!starredArtworkEnabled}
+                artworkSize={HOME_ALBUM_ROW_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET}
               />
             )}
-            {isVisible('mostPlayed') && (
+            {!homeAlbumRowsDisabled && isVisible('mostPlayed') && (
               <AlbumRow
                 title={t('home.mostPlayed')}
                 titleLink="/most-played"
                 albums={mostPlayed}
                 onLoadMore={() => loadMore('frequent', mostPlayed, setMostPlayed)}
                 moreText={t('home.loadMore')}
+                disableArtwork={!mostPlayedArtworkEnabled}
+                artworkSize={HOME_ALBUM_ROW_ARTWORK_SIZE}
+                windowArtworkByViewport={HOME_ARTWORK_WINDOWING}
+                initialArtworkBudget={HOME_ALBUM_ROW_INITIAL_ARTWORK_BUDGET}
               />
             )}
           </>
