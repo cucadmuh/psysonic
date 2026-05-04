@@ -48,3 +48,11 @@ research/
 # Nix build output symlink
 result
 result-*
+
+# Local incremental cargo (nix develop; not used by flake — see nix/psysonic.nix cleanSource)
+.build-local/
+
+# Local Nix helpers (not in repo — optional; use `nix develop` / flake without them)
+dev.sh
+shell.nix
+prod.sh

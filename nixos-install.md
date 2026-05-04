@@ -85,6 +85,27 @@ environment.systemPackages = with pkgs; [
 ];
 ```
 
+### Linux wrapper: default vs gdk-session
+
+The flake exposes **two** installable packages on Linux. They are the same build; only the **wrapped runtime environment** differs:
+
+| Flake attribute | Wrapper behaviour |
+|----------------|-------------------|
+| **`psysonic`** (and **`default`**) | Sets **`GDK_BACKEND=x11`** together with the usual WebKit / GStreamer / AppIndicator paths. This is the **recommended default**: it matches the dev shell assumptions and avoids many WebKitGTK + Wayland edge cases. |
+| **`psysonic-gdk-session`** | **Does not** set `GDK_BACKEND`; GTK follows the session (e.g. native Wayland when available). Can improve **HiDPI sizing** on some desktops, but may cause **black window, broken scrolling, or tray quirks** on other GPU/compositor stacks—the same class of issues described under Linux / WebKit in the in-app Help. **Not default** on purpose. |
+
+Use the alternate package when you understand that trade-off:
+
+```nix
+inputs.psysonic.packages.${system}.psysonic-gdk-session
+```
+
+Or one-shot (quote the URL in **zsh** — `?` / `#` are special):
+
+```bash
+nix run 'github:Psychotoxical/psysonic#psysonic-gdk-session' -- --help
+```
+
 ### Pinning a revision, branch, or tag
 
 - **`main`** (default in the examples above) follows upstream development.
@@ -118,10 +139,10 @@ End users who pin **`main`** should run `nix flake update psysonic` (or equivale
 From any machine with flakes:
 
 ```bash
-nix run github:Psychotoxical/psysonic
+nix run 'github:Psychotoxical/psysonic'
 ```
 
-Same package as `nix build` / `packages.<system>.default`; uses the flake `apps` output.
+Same as `nix build` / `packages.<system>.default` (the **x11-wrapped** binary); uses the flake `apps` output. For the session-GDK variant, use `'github:Psychotoxical/psysonic#psysonic-gdk-session'` (see [Linux wrapper](#linux-wrapper-default-vs-gdk-session) above). With a branch pin, keep the **whole** `github:…?ref=…#…` string in **single quotes** under **zsh**.
 
 ### Apply configuration
 
@@ -158,7 +179,7 @@ From a **flake-enabled** clone of the repo:
 
 The flake **`devShell`** uses the same **`nixpkgs`** input as **`packages.psysonic`** (see **`flake.nix`**).
 
-If you prefer **classic `nix-shell`** without evaluating the flake, the repo also provides **`shell.nix`**: it pulls **`nixos-unstable`** via `fetchTarball`, so the nixpkgs pin may **differ** from **`flake.lock`**; use it only when you understand that tradeoff (comments at the top of `shell.nix` describe local Tauri build commands).
+Optional **local-only** helpers (`dev.sh`, `shell.nix`, `prod.sh`) are **gitignored** — not part of the upstream tree; keep your own copies if you use them (e.g. a small `dev.sh` that runs `nix develop` and `npm run tauri:dev`).
 
 ## Desktop entry
 
