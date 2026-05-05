@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, Fragment } from 'react';
+import { useEffect, useState, useRef, Fragment, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getArtist, getArtistInfo, getTopSongs, getSimilarSongs2, getAlbum, search, setRating, SubsonicArtist, SubsonicAlbum, SubsonicSong, SubsonicArtistInfo, buildCoverArtUrl, coverArtCacheKey, star, unstar, uploadArtistImage } from '../api/subsonic';
 import AlbumCard from '../components/AlbumCard';
@@ -27,6 +27,20 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function ArtistSuggestionTrackCover({ coverArt, album }: { coverArt: string; album: string }) {
+  const src = useMemo(() => buildCoverArtUrl(coverArt, 64), [coverArt]);
+  const cacheKey = useMemo(() => coverArtCacheKey(coverArt, 64), [coverArt]);
+  return (
+    <CachedImage
+      src={src}
+      cacheKey={cacheKey}
+      alt={album}
+      style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }}
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+    />
+  );
 }
 
 /** Strip dangerous tags/attributes from server-provided HTML */
@@ -72,6 +86,8 @@ export default function ArtistDetail() {
   const isMobile = useIsMobile();
   const [coverRevision, setCoverRevision] = useState(0);
   const [avatarGlow, setAvatarGlow] = useState('');
+  /** True after header CachedImage onError — avoid `display:none` on the img (breaks recovery). */
+  const [headerCoverFailed, setHeaderCoverFailed] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const playTrack = usePlayerStore(state => state.playTrack);
@@ -424,6 +440,29 @@ export default function ArtistDetail() {
     }
   };
 
+  // Cover URLs — must run every render (before early returns) or hook order breaks.
+  const coverId = artist ? (artist.coverArt || artist.id) : '';
+  const artistCover300Src = useMemo(
+    () => (coverId ? buildCoverArtUrl(coverId, 300) : ''),
+    [coverId],
+  );
+  const artistCover300Key = useMemo(
+    () => (coverId ? coverArtCacheKey(coverId, 300) : ''),
+    [coverId],
+  );
+  const artistCover2000Src = useMemo(
+    () => (coverId ? buildCoverArtUrl(coverId, 2000) : ''),
+    [coverId],
+  );
+  const artistCover80FallbackSrc = useMemo(
+    () => (coverId ? buildCoverArtUrl(coverId, 80) : ''),
+    [coverId],
+  );
+
+  useEffect(() => {
+    setHeaderCoverFailed(false);
+  }, [coverId, coverRevision, id]);
+
   if (loading) {
     return (
       <div className="content-body" style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
@@ -442,7 +481,6 @@ export default function ArtistDetail() {
     );
   }
 
-  const coverId = artist.coverArt || artist.id;
   const wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(artist.name)}`;
 
   const serverSimilarArtists: SubsonicArtist[] = (info?.similarArtist ?? []).map(sa => ({
@@ -489,7 +527,7 @@ export default function ArtistDetail() {
 
       {lightboxOpen && (
         <CoverLightbox
-          src={buildCoverArtUrl(coverId, 2000)}
+          src={artistCover2000Src}
           alt={artist.name}
           onClose={() => setLightboxOpen(false)}
         />
@@ -510,15 +548,19 @@ export default function ArtistDetail() {
               onClick={() => setLightboxOpen(true)}
               aria-label={`${artist.name} Bild vergrößern`}
             >
-              <CachedImage
-                key={coverRevision}
-                src={buildCoverArtUrl(coverId, 300)}
-                cacheKey={coverArtCacheKey(coverId, 300)}
-                alt={artist.name}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                onLoad={e => extractCoverColors(e.currentTarget.src).then(({ accent }) => { if (accent) setAvatarGlow(accent); })}
-                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-              />
+              {!headerCoverFailed ? (
+                <CachedImage
+                  key={coverRevision}
+                  src={artistCover300Src}
+                  cacheKey={artistCover300Key}
+                  alt={artist.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onLoad={e => extractCoverColors(e.currentTarget.src).then(({ accent }) => { if (accent) setAvatarGlow(accent); })}
+                  onError={() => setHeaderCoverFailed(true)}
+                />
+              ) : (
+                <Users size={64} color="var(--text-muted)" style={{ margin: 'auto', display: 'block' }} />
+              )}
             </button>
           ) : (
             <Users size={64} color="var(--text-muted)" />
@@ -667,7 +709,7 @@ export default function ArtistDetail() {
               <div className="np-artist-bio-row">
                 {(info?.largeImageUrl || coverId) && (
                   <img
-                    src={info?.largeImageUrl || buildCoverArtUrl(coverId, 80)}
+                    src={info?.largeImageUrl || artistCover80FallbackSrc}
                     alt={artist.name}
                     className="np-artist-thumb"
                     onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -702,7 +744,7 @@ export default function ArtistDetail() {
                    const track = songToTrack(song);
                    return (
                      <div
-                       key={song.id}
+                       key={`${song.id}-${idx}`}
                        className="track-row track-row-with-actions"
                        style={{ gridTemplateColumns: '60px minmax(150px, 1fr) minmax(100px, 1fr) 65px' }}
                        onClick={e => {
@@ -752,13 +794,7 @@ export default function ArtistDetail() {
                       : <ChevronRight size={14} className="playlist-suggestion-preview-icon playlist-suggestion-preview-icon-play" />}
                   </button>
                   {song.coverArt && (
-                    <CachedImage
-                      src={buildCoverArtUrl(song.coverArt, 64)}
-                      cacheKey={coverArtCacheKey(song.coverArt, 64)}
-                      alt={song.album}
-                      style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }}
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
+                    <ArtistSuggestionTrackCover coverArt={song.coverArt} album={song.album} />
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                     <div className="track-title">{song.title}</div>
@@ -802,9 +838,9 @@ export default function ArtistDetail() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                   {(showAudiomuseSimilar ? serverSimilarArtists : similarArtists)
                     .slice(0, isMobile && similarCollapsed ? 5 : undefined)
-                    .map(a => (
+                    .map((a, i) => (
                       <button
-                        key={a.id}
+                        key={`${a.id}-${i}`}
                         className="artist-ext-link"
                         onClick={() => navigate(`/artist/${a.id}`)}
                       >
@@ -823,7 +859,7 @@ export default function ArtistDetail() {
               </h2>
               {albums.length > 0 ? (
                 <div className="album-grid-wrap album-grid-wrap--artist">
-                  {albums.map(a => <AlbumCard key={a.id} album={a} />)}
+                  {albums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
                 </div>
               ) : (
                 <p style={{ color: 'var(--text-muted)' }}>{t('artistDetail.noAlbums')}</p>
@@ -844,7 +880,7 @@ export default function ArtistDetail() {
                 </div>
               ) : (
                 <div className="album-grid-wrap album-grid-wrap--artist" style={{ animation: 'fadeIn 0.3s ease' }}>
-                  {featuredAlbums.map(a => <AlbumCard key={a.id} album={a} />)}
+                  {featuredAlbums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
                 </div>
               )}
             </Fragment>
