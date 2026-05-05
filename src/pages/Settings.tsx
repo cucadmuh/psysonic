@@ -360,6 +360,7 @@ const CONTRIBUTORS = [
       'Settings: 3-state animation mode (Full / Reduced / Static) — replaces boolean reduce-animations toggle (PR #441)',
       'Tracks: Highly Rated rail and per-card star display, with cache layer for ndListSongs (PR #443)',
       'Random Mix: playlist-size picker (50/75/100/125/150) and filter-panel layout cleanup (PR #445)',
+      'Queue: optional "Preserve Play Next order" toggle — multiple Play Next inserts queue up behind each other instead of latest-on-top (PR #464)',
     ],
   },
 ] as const;
@@ -2549,6 +2550,22 @@ export default function Settings() {
                 <label className="toggle-switch" aria-label={t('settings.gapless')}>
                   <input type="checkbox" checked={auth.gaplessEnabled} disabled={auth.crossfadeEnabled}
                     onChange={e => { auth.setCrossfadeEnabled(false); auth.setGaplessEnabled(e.target.checked); }} id="gapless-toggle" />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+
+              <div className="settings-toggle-row" style={{ marginTop: '0.75rem' }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>
+                    {t('settings.preservePlayNextOrder')}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {t('settings.preservePlayNextOrderDesc')}
+                  </div>
+                </div>
+                <label className="toggle-switch" aria-label={t('settings.preservePlayNextOrder')}>
+                  <input type="checkbox" checked={auth.preservePlayNextOrder}
+                    onChange={e => auth.setPreservePlayNextOrder(e.target.checked)} />
                   <span className="toggle-track" />
                 </label>
               </div>
