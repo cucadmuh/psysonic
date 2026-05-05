@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use ringbuf::{HeapConsumer, HeapProducer};
+use ringbuf::{HeapCons, HeapProd};
+use ringbuf::traits::{Consumer, Observer, Producer};
 use symphonia::core::io::MediaSource;
 use tauri::{AppHandle, Emitter};
 
@@ -161,21 +162,21 @@ fn parse_icy_meta(raw: &[u8]) -> Option<IcyMeta> {
 
 // ── AudioStreamReader — SPSC consumer → std::io::Read ────────────────────────
 //
-// Bridges HeapConsumer<u8> (non-blocking) into the synchronous Read interface
+// Bridges HeapCons<u8> (non-blocking) into the synchronous Read interface
 // that Symphonia requires.  Designed to run inside tokio::task::spawn_blocking.
 //
 // Empty buffer:  sleeps RADIO_YIELD_MS ms, retries. Never busy-spins.
 // Timeout:       after RADIO_READ_TIMEOUT_SECS with no data → TimedOut.
 // Generation:    if gen_arc != self.gen → Ok(0) (EOF; new track started).
-// Reconnect:     audio_resume sends a fresh HeapConsumer via new_cons_rx.
+// Reconnect:     audio_resume sends a fresh HeapCons via new_cons_rx.
 //                On the next read() we drain the channel (keep latest) and swap.
 
 pub(crate) struct AudioStreamReader {
-    pub(crate) cons: HeapConsumer<u8>,
+    pub(crate) cons: Mutex<HeapCons<u8>>,
     /// Delivers fresh consumers on hard-pause reconnect (unbounded; drain to latest).
     /// Wrapped in Mutex so AudioStreamReader is Sync (required by symphonia::MediaSource).
     /// No real contention: only the audio thread ever calls read().
-    pub(crate) new_cons_rx: Mutex<std::sync::mpsc::Receiver<HeapConsumer<u8>>>,
+    pub(crate) new_cons_rx: Mutex<std::sync::mpsc::Receiver<HeapCons<u8>>>,
     pub(crate) deadline: std::time::Instant,
     pub(crate) gen_arc: Arc<AtomicU64>,
     pub(crate) gen: u64,
@@ -196,12 +197,12 @@ impl Read for AudioStreamReader {
         }
         // Drain reconnect channel; keep only the most recently delivered consumer
         // so a double-tap of resume doesn't leave stale data in place.
-        let mut newest: Option<HeapConsumer<u8>> = None;
+        let mut newest: Option<HeapCons<u8>> = None;
         while let Ok(c) = self.new_cons_rx.lock().unwrap().try_recv() {
             newest = Some(c);
         }
         if let Some(c) = newest {
-            self.cons = c;
+            *self.cons.lock().unwrap() = c;
             self.deadline =
                 std::time::Instant::now() + Duration::from_secs(RADIO_READ_TIMEOUT_SECS);
         }
@@ -209,10 +210,10 @@ impl Read for AudioStreamReader {
             if self.gen_arc.load(Ordering::SeqCst) != self.gen {
                 return Ok(0);
             }
-            let available = self.cons.len();
+            let available = self.cons.lock().unwrap().occupied_len();
             if available > 0 {
                 let n = buf.len().min(available);
-                let read = self.cons.pop_slice(&mut buf[..n]);
+                let read = self.cons.lock().unwrap().pop_slice(&mut buf[..n]);
                 self.pos += read as u64;
                 // Reset deadline: data arrived, so connection is alive.
                 self.deadline =
@@ -402,8 +403,8 @@ pub(crate) struct RadioSharedFlags {
     pub(crate) is_paused: AtomicBool,
     /// Set by download task on hard disconnect; cleared on resume-reconnect.
     pub(crate) is_hard_paused: AtomicBool,
-    /// Delivers a fresh HeapConsumer<u8> to AudioStreamReader on reconnect.
-    pub(crate) new_cons_tx: Mutex<std::sync::mpsc::Sender<HeapConsumer<u8>>>,
+    /// Delivers a fresh HeapCons<u8> to AudioStreamReader on reconnect.
+    pub(crate) new_cons_tx: Mutex<std::sync::mpsc::Sender<HeapCons<u8>>>,
 }
 
 /// Live state for the current radio session, stored in AudioEngine.
@@ -446,7 +447,7 @@ pub(crate) async fn radio_download_task(
     mut initial_response: Option<reqwest::Response>,
     http_client: reqwest::Client,
     url: String,
-    mut prod: HeapProducer<u8>,
+    mut prod: HeapProd<u8>,
     flags: Arc<RadioSharedFlags>,
     app: AppHandle,
 ) {
@@ -513,14 +514,14 @@ pub(crate) async fn radio_download_task(
                     let since = stall_since.get_or_insert(std::time::Instant::now());
                     if since.elapsed() >= Duration::from_secs(RADIO_HARD_PAUSE_SECS) {
                         let fill_pct = ((1.0
-                            - prod.free_len() as f32 / RADIO_BUF_CAPACITY as f32)
+                            - prod.vacant_len() as f32 / RADIO_BUF_CAPACITY as f32)
                             * 100.0) as u32;
                         crate::app_eprintln!(
                             "[radio] hard pause: {fill_pct}% full, \
                              paused >{RADIO_HARD_PAUSE_SECS}s → disconnecting"
                         );
                         flags.is_hard_paused.store(true, Ordering::Release);
-                        return; // Drop HeapProducer → TCP connection released.
+                        return; // Drop HeapProd → TCP connection released.
                     }
                 } else {
                     stall_since = None;
@@ -597,7 +598,7 @@ pub(crate) async fn track_download_task(
     app: AppHandle,
     url: String,
     initial_response: reqwest::Response,
-    mut prod: HeapProducer<u8>,
+    mut prod: HeapProd<u8>,
     done: Arc<AtomicBool>,
     promote_cache_slot: Arc<Mutex<Option<PreloadedTrack>>>,
     normalization_engine: Arc<AtomicU32>,
@@ -718,6 +719,10 @@ pub(crate) async fn track_download_task(
             }
         }
         if !capture_over_limit && !capture.is_empty() {
+            if gen_arc.load(Ordering::SeqCst) != gen {
+                done.store(true, Ordering::SeqCst);
+                return;
+            }
             if let Some(track_id) = cache_track_id {
                 crate::app_deprintln!(
                     "[stream] legacy stream: capture complete track_id={} capture_mib={:.2} — full-track analysis (cpu-seed queue)",
@@ -730,6 +735,10 @@ pub(crate) async fn track_download_task(
                 {
                     crate::app_eprintln!("[analysis] track seed failed for {}: {}", track_id, e);
                 }
+            }
+            if gen_arc.load(Ordering::SeqCst) != gen {
+                done.store(true, Ordering::SeqCst);
+                return;
             }
             *promote_cache_slot.lock().unwrap() = Some(PreloadedTrack {
                 url: url.clone(),
@@ -785,8 +794,14 @@ pub(crate) async fn ranged_download_task(
     let mut reconnects: u32 = 0;
     let mut next_response: Option<reqwest::Response> = Some(initial_response);
     let dl_started = Instant::now();
-    let mut next_progress_mb: usize = 1;
+    let mut next_progress_mb: usize = 0;
     let mut last_partial_loudness_emit = Instant::now() - Duration::from_secs(5);
+
+    crate::app_deprintln!(
+        "[stream] ranged dl start: total={} KiB (~{:.2} MiB)",
+        total_size.saturating_div(1024),
+        total_size as f64 / (1024.0 * 1024.0)
+    );
 
     'outer: loop {
         let response = if let Some(r) = next_response.take() {
@@ -889,8 +904,12 @@ pub(crate) async fn ranged_download_task(
                 }
             }
             let mb = downloaded / (1024 * 1024);
-            if mb >= next_progress_mb {
-                let pct = (downloaded as f64 / total_size as f64 * 100.0) as u32;
+            while mb >= next_progress_mb {
+                let pct = if total_size > 0 {
+                    (downloaded as f64 / total_size as f64 * 100.0) as u32
+                } else {
+                    0u32
+                };
                 crate::app_deprintln!(
                     "[stream] dl progress: {} MB / {} MB ({}%)",
                     mb,
@@ -939,6 +958,9 @@ pub(crate) async fn ranged_download_task(
             if let Err(e) = crate::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
                 crate::app_eprintln!("[analysis] ranged seed failed for {}: {}", track_id, e);
             }
+        }
+        if gen_arc.load(Ordering::SeqCst) != gen {
+            return;
         }
         *promote_cache_slot.lock().unwrap() = Some(PreloadedTrack { url, data });
         crate::app_deprintln!("[stream] promoted to stream_completed_cache for replay");
