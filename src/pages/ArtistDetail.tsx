@@ -459,6 +459,37 @@ export default function ArtistDetail() {
     [coverId],
   );
 
+  const groupedAlbums = useMemo(() => {
+    if (albums.length === 0) return [];
+    const RELEASE_TYPE_ORDER = ['album', 'ep', 'single', 'compilation', 'live', 'soundtrack', 'remix', 'other'];
+    const defaultKey = 'album';
+    const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    const translateType = (tag: string) =>
+      t(`artistDetail.releaseTypes.${tag}`, { defaultValue: titleCase(tag) });
+
+    const groups = new Map<string, SubsonicAlbum[]>();
+    for (const album of albums) {
+      const key = album.releaseTypes?.length
+        ? album.releaseTypes.map(r => r.toLowerCase()).join(' · ')
+        : defaultKey;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(album);
+    }
+
+    if (groups.size === 1 && groups.has(defaultKey)) {
+      return [[translateType(defaultKey), albums] as const];
+    }
+
+    const sortKey = (key: string) => {
+      const idx = RELEASE_TYPE_ORDER.indexOf(key.split(' · ')[0]);
+      return idx >= 0 ? idx : RELEASE_TYPE_ORDER.length;
+    };
+
+    return [...groups.entries()]
+      .sort((a, b) => sortKey(a[0]) - sortKey(b[0]) || a[0].localeCompare(b[0]))
+      .map(([key, group]) => [key.split(' · ').map(translateType).join(' · '), group] as const);
+  }, [albums, t]);
+
   useEffect(() => {
     setHeaderCoverFailed(false);
   }, [coverId, coverRevision, id]);
@@ -858,9 +889,21 @@ export default function ArtistDetail() {
                 {t('artistDetail.albumsBy', { name: artist.name })}
               </h2>
               {albums.length > 0 ? (
-                <div className="album-grid-wrap album-grid-wrap--artist">
-                  {albums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
-                </div>
+                groupedAlbums.length === 1 ? (
+                  <div className="album-grid-wrap album-grid-wrap--artist">
+                    {albums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
+                  </div>
+                ) : groupedAlbums.map(([label, group]) => (
+                  <div key={label} className="artist-release-group">
+                    <div className="artist-release-group__header">
+                      <h3>{label}</h3>
+                      <span className="artist-release-group__count">{group.length}</span>
+                    </div>
+                    <div className="album-grid-wrap album-grid-wrap--artist">
+                      {group.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
+                    </div>
+                  </div>
+                ))
               ) : (
                 <p style={{ color: 'var(--text-muted)' }}>{t('artistDetail.noAlbums')}</p>
               )}
