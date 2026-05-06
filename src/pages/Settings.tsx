@@ -362,6 +362,7 @@ const CONTRIBUTORS = [
       'Random Mix: playlist-size picker (50/75/100/125/150) and filter-panel layout cleanup (PR #445)',
       'Queue: optional "Preserve Play Next order" toggle — multiple Play Next inserts queue up behind each other instead of latest-on-top (PR #464)',
       'Library: "favorites only" filter on Albums, Artists and Advanced Search — toolbar toggle reading star overrides live (PR #466)',
+      'Settings: keep current active server when adding a new one — no more auto-switch interrupting playback or library context (PR #475)',
     ],
   },
 ] as const;
@@ -2067,8 +2068,6 @@ export default function Settings() {
         };
         auth.setSubsonicServerIdentity(id, identity);
         scheduleInstantMixProbeForServer(id, data.url, data.username, data.password, identity);
-        auth.setActiveServer(id);
-        auth.setLoggedIn(true);
         setConnStatus(s => ({ ...s, [id]: 'ok' }));
       } else {
         setConnStatus(s => ({ ...s, [tempId]: 'error' }));
