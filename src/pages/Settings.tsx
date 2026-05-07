@@ -373,6 +373,7 @@ const CONTRIBUTORS = [
       'Home: "Because you listened" recommendation rail — Last.fm-anchored similar-artist surfacing with round-robin anchor rotation per server (PR #489)',
       'Song Info: absolute file path on Navidrome via native /api/song/{id} — Subsonic only ever returned a relative path (or none on Navidrome), the native endpoint surfaces the full server-side location (PR #504)',
       'Home: Lossless Albums rail + dedicated /lossless-albums page with infinite scroll and header parity (selection mode, enqueue, offline, download ZIPs), streaming load via per-fetch onProgress, sidebar entry default visible, detection via Navidrome native bit_depth-sorted song cursor with always-lossless suffix allowlist (PR #506)',
+      'Accessibility: OpenDyslexic font option in the Settings picker — bundled locally via @fontsource/opendyslexic, asymmetric glyph shapes for easier b/d, p/q tracking, Latin-only with translated subtitle in all 8 locales calling out the dyslexia-friendly intent and the Cyrillic/CJK fallback (PR #507)',
     ],
   },
 ] as const;
@@ -3832,6 +3833,7 @@ export default function Settings() {
                     { id: 'jetbrains-mono',    label: 'JetBrains Mono' },
                     { id: 'golos-text',        label: 'Golos Text' },
                     { id: 'unbounded',         label: 'Unbounded' },
+                    { id: 'opendyslexic',      label: 'OpenDyslexic' },
                   ] as { id: FontId; label: string }[]).find(f => f.id === fontStore.font)?.label ?? fontStore.font
                 }</span>
                 <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: fontPickerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
@@ -3854,15 +3856,25 @@ export default function Settings() {
                       { id: 'jetbrains-mono',    label: 'JetBrains Mono',    stack: "'JetBrains Mono Variable', monospace" },
                       { id: 'golos-text',        label: 'Golos Text',        stack: "'Golos Text Variable', sans-serif" },
                       { id: 'unbounded',         label: 'Unbounded',         stack: "'Unbounded Variable', sans-serif" },
-                    ] as { id: FontId; label: string; stack: string }[]
+                      { id: 'opendyslexic',      label: 'OpenDyslexic',      stack: "'OpenDyslexic', sans-serif", hint: t('settings.fontHintOpenDyslexic') },
+                    ] as { id: FontId; label: string; stack: string; hint?: string }[]
                   ).map(f => (
                     <button
                       key={f.id}
                       className={`btn ${fontStore.font === f.id ? 'btn-primary' : 'btn-ghost'}`}
-                      style={{ justifyContent: 'flex-start', fontFamily: f.stack }}
+                      style={{
+                        justifyContent: 'flex-start',
+                        fontFamily: f.stack,
+                        ...(f.hint ? { flexDirection: 'column', alignItems: 'flex-start', gap: '2px', paddingTop: '8px', paddingBottom: '8px' } : null),
+                      }}
                       onClick={() => { fontStore.setFont(f.id); setFontPickerOpen(false); }}
                     >
-                      {f.label}
+                      <span>{f.label}</span>
+                      {f.hint && (
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-sans)' }}>
+                          {f.hint}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
