@@ -149,6 +149,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Added eight new dark themes covering the colour families people most commonly ask for: **Obsidian Black**, **Carbon Grey**, **Volcanic Dark**, **Forest Green**, **Violet Haze**, **Copper Oxide**, **Sakura Night**, **Obsidian Gold**.
 * Light polish on the existing **AMOLED Black Pure** surface variables so card surfaces no longer collapse onto a pure-black background that read as a single flat slab.
 
+## Removed
+
+### Settings — Animations 3-state setting under Seekbar Style
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), PR [#495](https://github.com/Psychotoxical/psysonic/pull/495)**
+
+* The **Animations** 3-state setting (Full / Reduced / Static) under **Settings > Appearance > Seekbar Style** is gone. The newer perf-flag system and per-feature performance work cover the expensive animation paths more directly: marquee scrolling can be disabled via `perfFlags.disableMarqueeScroll` (Sidebar toggle), global CSS animations via the html-level `data-perf-disable-animations` switch, and seekbar performance is handled by the newer per-feature toggles.
+* Anyone who had `'reduced'` or `'static'` selected silently lands on the normal animation path on first launch after upgrade — the persist layer strips the obsolete field, no user-facing prompt.
+
 ## Fixed
 
 ### Hot cache, HTTP streaming replay, and queue source indicator
