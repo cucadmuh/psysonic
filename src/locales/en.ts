@@ -27,6 +27,7 @@ export const enTranslation = {
     playlists: 'Playlists',
     smartPlaylists: 'Smart Playlists',
     mostPlayed: 'Most Played',
+    losslessAlbums: 'Lossless',
     radio: 'Internet Radio',
     folderBrowser: 'Folder Browser',
     deviceSync: 'Device Sync',
@@ -43,6 +44,7 @@ export const enTranslation = {
     recent: 'Recently Added',
     mostPlayed: 'Most Played',
     recentlyPlayed: 'Recently Played',
+    losslessAlbums: 'Lossless Albums',
     discover: 'Discover',
     discoverSongs: 'Discover Songs',
     loadMore: 'Load More',
@@ -1518,6 +1520,11 @@ export const enTranslation = {
     noArtists: 'All artists filtered out.',
     filterCompilations: 'Hide compilation artists (Various Artists, Soundtracks, etc.)',
     filterCompilationsShort: 'Hide compilations',
+  },
+  losslessAlbums: {
+    empty: 'No lossless albums in this library yet.',
+    unsupported: 'This server does not expose the metadata needed to find lossless albums.',
+    slowFetchHint: 'Loads slower than other album pages — Psysonic walks the full song catalog by quality.',
   },
   radio: {
     title: 'Internet Radio',
