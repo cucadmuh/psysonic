@@ -1,4 +1,8 @@
-use super::*;
+use std::sync::{Mutex, OnceLock};
+
+use tauri::Manager;
+
+use crate::lib_commands::sync::is_tiling_wm;
 
 // ── Mini Player window ──────────────────────────────────────────────────────
 // Secondary always-on-top window with minimal playback controls. Uses the

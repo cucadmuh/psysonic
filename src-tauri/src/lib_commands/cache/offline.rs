@@ -1,4 +1,10 @@
-use super::*;
+use tauri::Manager;
+
+use crate::analysis_cache;
+use crate::analysis_runtime::{analysis_backfill_is_current_track, submit_analysis_cpu_seed};
+use crate::DownloadSemaphore;
+
+use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
 
 // ─── Offline Track Cache ──────────────────────────────────────────────────────
 

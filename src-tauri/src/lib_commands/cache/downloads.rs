@@ -1,4 +1,6 @@
-use super::*;
+use tauri::{Emitter, Manager};
+
+use crate::subsonic_wire_user_agent;
 
 pub(crate) fn resolve_hot_cache_root(
     custom_dir: Option<String>,
