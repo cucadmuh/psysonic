@@ -11,6 +11,7 @@ mod dev_io;
 pub mod device_commands;
 pub mod mix_commands;
 pub mod preload_commands;
+pub(crate) mod progress_task;
 pub mod radio_commands;
 pub mod transport_commands;
 mod device_watcher;

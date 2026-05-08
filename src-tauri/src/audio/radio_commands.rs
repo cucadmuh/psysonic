@@ -10,10 +10,10 @@ use ringbuf::{HeapCons, HeapRb};
 use rodio::{Player, Source};
 use tauri::{AppHandle, Emitter, State};
 
-use super::commands::spawn_progress_task;
 use super::decode::SizedDecoder;
 use super::engine::{audio_http_client, AudioEngine};
 use super::helpers::{content_type_to_hint, MASTER_HEADROOM};
+use super::progress_task::spawn_progress_task;
 use super::preview::preview_clear_for_new_main_playback;
 use super::sources::{
     CountingSource, DynSource, EqSource, EqualPowerFadeIn, NotifyingSource,
