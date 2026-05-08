@@ -1,6 +1,6 @@
 //! Native-window + WebKitGTK platform tweaks exposed as Tauri commands.
 
-use super::*;
+use tauri::Manager;
 
 /// Toggle native window decorations at runtime (Linux custom title bar opt-out).
 #[tauri::command]

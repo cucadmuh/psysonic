@@ -1,4 +1,7 @@
-use super::*;
+use tauri::Manager;
+
+use crate::lib_commands::sync::stop_audio_engine;
+use crate::runtime_subsonic_wire_user_agent;
 
 #[tauri::command]
 pub(crate) fn greet(name: &str) -> String {

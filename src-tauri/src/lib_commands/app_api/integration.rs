@@ -1,4 +1,6 @@
-use super::*;
+use tauri::Emitter;
+
+use crate::{MprisControls, ShortcutMap};
 
 #[tauri::command]
 pub(crate) fn register_global_shortcut(

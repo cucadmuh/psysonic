@@ -1,4 +1,4 @@
-use super::*;
+use crate::subsonic_wire_user_agent;
 
 pub(crate) const RADIO_PAGE_SIZE: u32 = 25;
 

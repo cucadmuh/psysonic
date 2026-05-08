@@ -6,7 +6,7 @@ use std::time::Duration;
 /// downloads with progress events), build the client inline.
 pub(crate) fn subsonic_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent(super::subsonic_wire_user_agent())
+        .user_agent(crate::subsonic_wire_user_agent())
         .timeout(timeout)
         .build()
         .map_err(|e| e.to_string())
