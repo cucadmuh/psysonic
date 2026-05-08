@@ -9,6 +9,7 @@ pub mod commands;
 mod decode;
 mod dev_io;
 pub mod device_commands;
+pub mod mix_commands;
 mod device_watcher;
 mod engine;
 mod power_resume;
