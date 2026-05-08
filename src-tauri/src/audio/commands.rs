@@ -3,7 +3,7 @@
 //! radio, mix-mode and AutoEQ commands live in sibling modules.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use rodio::Player;
@@ -15,7 +15,8 @@ use super::engine::{audio_http_client, AudioEngine};
 use super::helpers::*;
 use super::ipc::{maybe_emit_normalization_state, NormalizationStatePayload};
 use super::play_input::{
-    build_source_from_play_input, select_play_input, url_format_hint, PlayInputContext,
+    build_source_from_play_input, select_play_input, swap_in_new_sink, url_format_hint,
+    PlayInputContext, SinkSwapInputs,
 };
 use super::preview::preview_clear_for_new_main_playback;
 use super::progress_task::spawn_progress_task;
@@ -351,54 +352,16 @@ pub async fn audio_play(
         sink.play();
     }
 
-    // Atomically swap sinks — extract old sink + its fade-out trigger.
-    let (old_sink, old_fadeout_trigger, old_fadeout_samples) = {
-        let mut cur = state.current.lock().unwrap();
-        let old = cur.sink.take();
-        let old_fo_trigger = cur.fadeout_trigger.take();
-        let old_fo_samples = cur.fadeout_samples.take();
-        cur.sink = Some(sink);
-        cur.duration_secs = duration_secs;
-        cur.seek_offset = 0.0;
-        cur.play_started = Some(Instant::now());
-        cur.paused_at = None;
-        cur.replay_gain_linear = gain_linear;
-        cur.base_volume = volume.clamp(0.0, 1.0);
-        cur.fadeout_trigger = Some(built.fadeout_trigger);
-        cur.fadeout_samples = Some(built.fadeout_samples);
-        (old, old_fo_trigger, old_fo_samples)
-    };
-
-    // Handle old sink: symmetric crossfade or immediate stop.
-    if crossfade_enabled {
-        if let Some(old) = old_sink {
-            // Trigger sample-level fade-out on Track A via TriggeredFadeOut.
-            // Calculate total fade samples from the measured actual_fade_secs.
-            let rate = state.current_sample_rate.load(Ordering::Relaxed);
-            let ch = state.current_channels.load(Ordering::Relaxed);
-            let fade_total = (actual_fade_secs as f64 * rate as f64 * ch as f64) as u64;
-
-            if let (Some(trigger), Some(samples)) = (old_fadeout_trigger, old_fadeout_samples) {
-                samples.store(fade_total.max(1), Ordering::SeqCst);
-                trigger.store(true, Ordering::SeqCst);
-            }
-
-            // Keep old sink alive until the fade completes + small margin,
-            // then drop it. No volume stepping needed — the fade-out runs
-            // at sample level inside the audio thread.
-            *state.fading_out_sink.lock().unwrap() = Some(old);
-            let fo_arc = state.fading_out_sink.clone();
-            let cleanup_dur = Duration::from_secs_f32(actual_fade_secs + 0.5);
-            tokio::spawn(async move {
-                tokio::time::sleep(cleanup_dur).await;
-                if let Some(s) = fo_arc.lock().unwrap().take() {
-                    s.stop();
-                }
-            });
-        }
-    } else if let Some(old) = old_sink {
-        old.stop();
-    }
+    swap_in_new_sink(&state, SinkSwapInputs {
+        sink,
+        duration_secs,
+        volume,
+        gain_linear,
+        fadeout_trigger: built.fadeout_trigger,
+        fadeout_samples: built.fadeout_samples,
+        crossfade_enabled,
+        actual_fade_secs,
+    });
 
     app.emit("audio:playing", duration_secs).ok();
 

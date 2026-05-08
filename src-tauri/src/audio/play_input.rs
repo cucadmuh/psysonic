@@ -393,6 +393,84 @@ pub(super) struct PlaybackSource {
     pub(super) is_seekable: bool,
 }
 
+/// State + decisions audio_play computed before the sink swap.
+pub(super) struct SinkSwapInputs {
+    pub(super) sink: Arc<rodio::Player>,
+    pub(super) duration_secs: f64,
+    pub(super) volume: f32,
+    pub(super) gain_linear: f32,
+    pub(super) fadeout_trigger: Arc<AtomicBool>,
+    pub(super) fadeout_samples: Arc<std::sync::atomic::AtomicU64>,
+    pub(super) crossfade_enabled: bool,
+    pub(super) actual_fade_secs: f32,
+}
+
+/// Atomically swap the new sink into `state.current`, then handle the old
+/// sink: trigger sample-level fade-out (crossfade enabled) or stop it
+/// immediately (hard cut). The fade-out is handed off to a small spawned
+/// task that drops the old sink ~`actual_fade_secs + 0.5 s` later.
+pub(super) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapInputs) {
+    use std::time::Instant;
+
+    let SinkSwapInputs {
+        sink,
+        duration_secs,
+        volume,
+        gain_linear,
+        fadeout_trigger: new_fadeout_trigger,
+        fadeout_samples: new_fadeout_samples,
+        crossfade_enabled,
+        actual_fade_secs,
+    } = inputs;
+
+    let (old_sink, old_fadeout_trigger, old_fadeout_samples) = {
+        let mut cur = state.current.lock().unwrap();
+        let old = cur.sink.take();
+        let old_fo_trigger = cur.fadeout_trigger.take();
+        let old_fo_samples = cur.fadeout_samples.take();
+        cur.sink = Some(sink);
+        cur.duration_secs = duration_secs;
+        cur.seek_offset = 0.0;
+        cur.play_started = Some(Instant::now());
+        cur.paused_at = None;
+        cur.replay_gain_linear = gain_linear;
+        cur.base_volume = volume.clamp(0.0, 1.0);
+        cur.fadeout_trigger = Some(new_fadeout_trigger);
+        cur.fadeout_samples = Some(new_fadeout_samples);
+        (old, old_fo_trigger, old_fo_samples)
+    };
+
+    if crossfade_enabled {
+        if let Some(old) = old_sink {
+            // Trigger sample-level fade-out on Track A via TriggeredFadeOut.
+            // Calculate total fade samples from the measured actual_fade_secs.
+            let rate = state.current_sample_rate.load(Ordering::Relaxed);
+            let ch = state.current_channels.load(Ordering::Relaxed);
+            let fade_total = (actual_fade_secs as f64 * rate as f64 * ch as f64) as u64;
+
+            if let (Some(trigger), Some(samples)) = (old_fadeout_trigger, old_fadeout_samples) {
+                samples.store(fade_total.max(1), Ordering::SeqCst);
+                trigger.store(true, Ordering::SeqCst);
+            }
+
+            // Keep old sink alive until the fade completes + small margin,
+            // then drop it. No volume stepping needed — the fade-out runs
+            // at sample level inside the audio thread.
+            *state.fading_out_sink.lock().unwrap() = Some(old);
+            let fo_arc = state.fading_out_sink.clone();
+            let cleanup_dur = Duration::from_secs_f32(actual_fade_secs + 0.5);
+            tokio::spawn(async move {
+                tokio::time::sleep(cleanup_dur).await;
+                if let Some(s) = fo_arc.lock().unwrap().take() {
+                    s.stop();
+                }
+            });
+        }
+    } else if let Some(old) = old_sink {
+        old.stop();
+    }
+}
+
 /// Dispatch [`PlayInput`] → fully wrapped rodio source. For Bytes the full
 /// in-memory pipeline (incl. iTunSMPB scan); for SeekableMedia / Streaming
 /// the streaming variant runs the decoder build on a blocking thread.
