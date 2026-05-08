@@ -240,7 +240,19 @@ pub async fn audio_play(
     )
     .await
     .map_err(|e| {
-        app.emit("audio:error", &e).ok();
+        // Suppress the audio:error toast when this play was already superseded
+        // by a newer audio_play (rapid skip): the failure is the inevitable
+        // Ok(0)/EOF from RangedHttpSource after gen-bump, not a real codec
+        // problem. The frontend would otherwise show "Couldn't play track" for
+        // the abandoned URL while a new track is already loading.
+        if state.generation.load(Ordering::SeqCst) == gen {
+            app.emit("audio:error", &e).ok();
+        } else {
+            crate::app_deprintln!(
+                "[audio] suppressed audio:error for superseded play (gen={} cur={}): {}",
+                gen, state.generation.load(Ordering::SeqCst), e
+            );
+        }
         e
     })?;
     state.current_is_seekable.store(playback_source.is_seekable, Ordering::SeqCst);
