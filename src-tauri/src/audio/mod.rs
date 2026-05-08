@@ -7,6 +7,7 @@ mod codec;
 pub mod commands;
 mod decode;
 mod dev_io;
+pub mod device_commands;
 mod device_watcher;
 mod engine;
 mod power_resume;
@@ -21,7 +22,7 @@ mod sources;
 mod state;
 mod stream;
 
-pub use commands::{audio_default_output_device_name, audio_list_devices_for_engine};
+pub use device_commands::{audio_default_output_device_name, audio_list_devices_for_engine};
 pub use device_watcher::start_device_watcher;
 pub use engine::{create_engine, refresh_http_user_agent, AudioEngine};
 pub use helpers::take_stream_completed_for_url;

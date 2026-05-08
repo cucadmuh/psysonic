@@ -12,7 +12,6 @@ use symphonia::core::io::MediaSource;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::decode::{build_source, build_streaming_source, SizedDecoder};
-use super::dev_io::*;
 use super::engine::{audio_http_client, AudioCurrent, AudioEngine};
 use super::helpers::*;
 use super::ipc::{maybe_emit_normalization_state, NormalizationStatePayload};
@@ -1776,88 +1775,6 @@ pub async fn audio_play_radio(
     Ok(())
 }
 
-/// If the pinned id is missing from cpal's list but another listed id is the same
-/// physical sink (e.g. suffix drift), rewrite `selected_device` to the listed form.
-#[tauri::command]
-pub fn audio_canonicalize_selected_device(state: State<'_, AudioEngine>) -> Option<String> {
-    let pinned = state.selected_device.lock().unwrap().clone()?;
-    if pinned.is_empty() {
-        return None;
-    }
-    let list = enumerate_output_device_names();
-    if list.iter().any(|d| d == &pinned) {
-        return None;
-    }
-    let canon = list
-        .iter()
-        .find(|d| output_devices_logically_same(d, &pinned))?
-        .clone();
-    *state.selected_device.lock().unwrap() = Some(canon.clone());
-    Some(canon)
-}
-
-/// Same device list as [`audio_list_devices`] without the Tauri `State` wrapper (CLI / single-instance).
-pub fn audio_list_devices_for_engine(engine: &AudioEngine) -> Vec<String> {
-    let mut list = enumerate_output_device_names();
-    if let Some(ref name) = *engine.selected_device.lock().unwrap() {
-        if !name.is_empty() && !output_enumeration_includes_pinned(&list, name) {
-            list.push(name.clone());
-        }
-    }
-    list
-}
-
-/// Returns the names of all available audio output devices on the current host.
-/// On Linux, ALSA probes unavailable backends (JACK, OSS, dmix) and prints errors to
-/// stderr. We suppress fd 2 for the duration of enumeration to keep the terminal clean.
-///
-/// The user-pinned device name is appended when cpal omits it (e.g. HDMI busy while
-/// streaming) so the Settings dropdown still matches `audioOutputDevice`.
-#[tauri::command]
-pub fn audio_list_devices(state: State<'_, AudioEngine>) -> Vec<String> {
-    audio_list_devices_for_engine(&state)
-}
-
-/// Device id string for the host default output (matches an entry from `audio_list_devices` when present).
-#[tauri::command]
-pub fn audio_default_output_device_name() -> Option<String> {
-    use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    with_suppressed_alsa_stderr(|| {
-        let host = rodio::cpal::default_host();
-        host.default_output_device()
-            .and_then(|d| d.description().ok().map(|desc| desc.name().to_string()))
-    })
-}
-
-/// Switch the audio output device. `device_name = null` → follow system default.
-/// Reopens the stream immediately; frontend must restart playback via audio:device-changed.
-#[tauri::command]
-pub async fn audio_set_device(
-    device_name: Option<String>,
-    state: State<'_, AudioEngine>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    *state.selected_device.lock().unwrap() = device_name.clone();
-
-    let rate = state.stream_sample_rate.load(Ordering::Relaxed);
-    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Arc<rodio::MixerDeviceSink>>(0);
-    state.stream_reopen_tx
-        .send((rate, false, device_name, reply_tx))
-        .map_err(|e| e.to_string())?;
-
-    let new_handle = tauri::async_runtime::spawn_blocking(move || {
-        reply_rx.recv_timeout(Duration::from_secs(5)).ok()
-    }).await.unwrap_or(None).ok_or("device open timed out")?;
-
-    *state.stream_handle.lock().unwrap() = new_handle;
-
-    // Drop active sinks — they were bound to the old stream.
-    if let Some(s) = state.current.lock().unwrap().sink.take() { s.stop(); }
-    if let Some(s) = state.fading_out_sink.lock().unwrap().take() { s.stop(); }
-
-    app.emit("audio:device-changed", ()).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
 #[tauri::command]
 pub fn audio_set_crossfade(enabled: bool, secs: f32, state: State<'_, AudioEngine>) {
