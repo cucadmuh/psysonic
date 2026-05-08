@@ -1,10 +1,14 @@
 //! CLI surface for scripting / compositor bindings (e.g. Hyprland `exec`).
 
 mod exchange;
+#[cfg(target_os = "linux")]
+mod linux_forward;
 mod parse;
 mod presenters;
 
 pub use exchange::*;
+#[cfg(target_os = "linux")]
+pub use linux_forward::*;
 pub use parse::*;
 pub use presenters::print_audio_devices_human;
 use exchange::{
@@ -19,7 +23,6 @@ use presenters::print_info_human;
 const COMPLETIONS_BASH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../completions/psysonic.bash"));
 const COMPLETIONS_ZSH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../completions/_psysonic"));
 
-use std::sync::OnceLock;
 use std::time::Duration;
 use std::{
     collections::VecDeque,
@@ -245,63 +248,6 @@ pub fn run_tail_and_exit(args: &[String]) -> ! {
 
 
 
-#[cfg(target_os = "linux")]
-fn tauri_identifier() -> &'static str {
-    static ID: OnceLock<String> = OnceLock::new();
-    ID.get_or_init(|| {
-        let raw = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"));
-        let v: serde_json::Value =
-            serde_json::from_str(raw).expect("parse embedded tauri.conf.json");
-        v["identifier"]
-            .as_str()
-            .expect("tauri.conf.json identifier")
-            .to_string()
-    })
-    .as_str()
-}
-
-#[cfg(target_os = "linux")]
-fn single_instance_bus_name() -> String {
-    format!("{}.SingleInstance", tauri_identifier())
-}
-
-#[cfg(target_os = "linux")]
-fn single_instance_object_path(dbus_name: &str) -> String {
-    let mut dbus_path = dbus_name.replace('.', "/").replace('-', "_");
-    if !dbus_path.starts_with('/') {
-        dbus_path = format!("/{dbus_path}");
-    }
-    dbus_path
-}
-
-#[cfg(target_os = "linux")]
-fn linux_bus_name_has_owner(
-    conn: &zbus::blocking::Connection,
-    bus_name: &str,
-) -> Result<bool, String> {
-    let reply = conn
-        .call_method(
-            Some("org.freedesktop.DBus"),
-            "/org/freedesktop/DBus",
-            Some("org.freedesktop.DBus"),
-            "NameHasOwner",
-            &(bus_name,),
-        )
-        .map_err(|e| format!("NameHasOwner: {e}"))?;
-    reply
-        .body()
-        .deserialize::<bool>()
-        .map_err(|e| format!("NameHasOwner reply: {e}"))
-}
-
-/// Whether the main Psysonic instance holds the single-instance D-Bus name (Linux only).
-#[cfg(target_os = "linux")]
-pub fn linux_is_primary_instance_running() -> Result<bool, String> {
-    use zbus::blocking::Connection;
-    let conn = Connection::session().map_err(|e| format!("D-Bus session: {e}"))?;
-    let well_known = single_instance_bus_name();
-    linux_bus_name_has_owner(&conn, &well_known)
-}
 
 /// Print snapshot and `exit`. Used from `main` before `run()`.
 pub fn run_info_and_exit(args: &[String]) -> ! {
@@ -607,98 +553,3 @@ pub fn emit_player_cli_cmd<R: Runtime>(app: &AppHandle<R>, cmd: PlayerCliCmd) {
     }
 }
 
-/// Linux: if a primary instance owns the single-instance bus name, forward argv and
-/// signal the caller process should exit successfully. Otherwise continue normal startup.
-#[cfg(target_os = "linux")]
-pub enum LinuxPlayerForwardResult {
-    Forwarded,
-    ContinueStartup,
-}
-
-#[cfg(target_os = "linux")]
-pub fn linux_try_forward_player_cli_secondary(args: &[String]) -> Result<LinuxPlayerForwardResult, String> {
-    use zbus::blocking::Connection;
-
-    let well_known = single_instance_bus_name();
-    let conn = Connection::session().map_err(|e| format!("D-Bus session: {e}"))?;
-
-    if !linux_bus_name_has_owner(&conn, well_known.as_str())? {
-        return Ok(LinuxPlayerForwardResult::ContinueStartup);
-    }
-
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let cwd_s = cwd.to_str().unwrap_or("").to_string();
-    let argv = args.to_vec();
-    let path = single_instance_object_path(&well_known);
-
-    match parse_cli_command(args) {
-        Some(CliCommand::AudioDeviceList) => {
-            let _ = std::fs::remove_file(cli_audio_device_response_path());
-        }
-        Some(CliCommand::LibraryList) => {
-            let _ = std::fs::remove_file(cli_library_response_path());
-        }
-        Some(CliCommand::ServerList) => {
-            let _ = std::fs::remove_file(cli_server_list_path());
-        }
-        Some(CliCommand::Search { .. }) => {
-            let _ = std::fs::remove_file(cli_search_response_path());
-        }
-        _ => {}
-    }
-
-    conn.call_method(
-        Some(well_known.as_str()),
-        path.as_str(),
-        Some("org.SingleInstance.DBus"),
-        "ExecuteCallback",
-        &(argv, cwd_s),
-    )
-    .map_err(|e| format!("forward to running instance: {e}"))?;
-
-    if let Some(CliCommand::AudioDeviceList) = parse_cli_command(args) {
-        let resp_path = cli_audio_device_response_path();
-        let text = std::fs::read_to_string(&resp_path).unwrap_or_else(|_| "{}".into());
-        if wants_cli_json_output(args) {
-            println!("{}", text.trim());
-        } else if let Ok(v) = serde_json::from_str::<Value>(&text) {
-            print_audio_devices_human(&v);
-        } else {
-            println!("{}", text.trim());
-        }
-        if !wants_quiet(args) {
-            println!("OK: audio-device list");
-        }
-    } else if let Some(CliCommand::LibraryList) = parse_cli_command(args) {
-        let json_out = wants_cli_json_output(args);
-        let text = read_library_cli_response_blocking(Duration::from_secs(3));
-        print_library_cli_stdout(&text, json_out);
-        if !wants_quiet(args) {
-            println!("OK: library list");
-        }
-    } else if let Some(CliCommand::ServerList) = parse_cli_command(args) {
-        let json_out = wants_cli_json_output(args);
-        let text = read_server_list_cli_response_blocking(Duration::from_secs(3));
-        print_server_list_cli_stdout(&text, json_out);
-        if !wants_quiet(args) {
-            println!("OK: server list");
-        }
-    } else if let Some(CliCommand::Search { .. }) = parse_cli_command(args) {
-        let json_out = wants_cli_json_output(args);
-        let text = read_search_cli_response_blocking(Duration::from_secs(12));
-        print_search_cli_stdout(&text, json_out);
-        if !wants_quiet(args) {
-            if let Some(cmd) = parse_cli_command(args) {
-                println!("OK: {}", describe_cli_command(&cmd));
-            }
-        }
-    } else if !wants_quiet(args) {
-        if let Some(cmd) = parse_cli_command(args) {
-            println!("OK: {}", describe_cli_command(&cmd));
-        } else {
-            println!("OK");
-        }
-    }
-
-    Ok(LinuxPlayerForwardResult::Forwarded)
-}
