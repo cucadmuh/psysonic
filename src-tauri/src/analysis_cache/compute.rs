@@ -3,9 +3,9 @@ use std::time::Instant;
 
 use ebur128::{EbuR128, Mode as Ebur128Mode};
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -207,18 +207,24 @@ fn analyze_loudness_and_waveform(
     Some((i, t, r, tgt, scanned.bins))
 }
 
-/// Returns `(decoded_mono_frames, container_timeline_frames)` where the second is
-/// `codec_params.n_frames` when the container reports total track length — used
-/// as a **fixed** waveform time axis so partial decodes do not remap every bin
-/// when the buffer grows.
-fn count_mono_frames_from_audio_bytes(bytes: &[u8]) -> Option<(u64, Option<u64>)> {
+/// One-shot Symphonia setup: probe the byte buffer, pick a usable track, and
+/// build a decoder for it. `timeline_hint` carries `codec_params.n_frames`
+/// when the container reports total track length.
+struct DecodeSession {
+    format: Box<dyn FormatReader>,
+    decoder: Box<dyn Decoder>,
+    track_id: u32,
+    timeline_hint: Option<u64>,
+}
+
+fn open_decode_session(bytes: &[u8]) -> Option<DecodeSession> {
     let source = Box::new(Cursor::new(bytes.to_vec()));
     let mss = MediaSourceStream::new(source, Default::default());
     let hint = Hint::new();
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
         .ok()?;
-    let mut format = probed.format;
+    let format = probed.format;
     let track = format
         .default_track()
         .filter(|t| t.codec_params.codec != CODEC_TYPE_NULL)
@@ -233,9 +239,23 @@ fn count_mono_frames_from_audio_bytes(bytes: &[u8]) -> Option<(u64, Option<u64>)
     let track_id = track.id;
     let timeline_hint = track.codec_params.n_frames.filter(|&n| n > 0);
     let codec_params = track.codec_params.clone();
-    let mut decoder = symphonia::default::get_codecs()
-        .make(&codec_params, &DecoderOptions::default())
-        .ok()?;
+    let decoder = match symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default()) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::app_deprintln!("[analysis] decoder make failed: {}", e);
+            return None;
+        }
+    };
+    Some(DecodeSession { format, decoder, track_id, timeline_hint })
+}
+
+/// Returns `(decoded_mono_frames, container_timeline_frames)` where the second is
+/// `codec_params.n_frames` when the container reports total track length — used
+/// as a **fixed** waveform time axis so partial decodes do not remap every bin
+/// when the buffer grows.
+fn count_mono_frames_from_audio_bytes(bytes: &[u8]) -> Option<(u64, Option<u64>)> {
+    let DecodeSession { mut format, mut decoder, track_id, timeline_hint } =
+        open_decode_session(bytes)?;
 
     let mut total: u64 = 0;
     let mut loop_i: u32 = 0;
@@ -303,33 +323,7 @@ fn decode_scan_pcm(
     timeline_hint: Option<u64>,
     loudness_target_lufs: Option<f64>,
 ) -> Option<PcmScanResult> {
-    let source = Box::new(Cursor::new(bytes.to_vec()));
-    let mss = MediaSourceStream::new(source, Default::default());
-    let hint = Hint::new();
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
-        .ok()?;
-    let mut format = probed.format;
-    let track = format
-        .default_track()
-        .filter(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .or_else(|| {
-            format.tracks().iter().find(|t| {
-                t.codec_params.codec != CODEC_TYPE_NULL
-                    && t.codec_params.sample_rate.is_some()
-                    && t.codec_params.channels.is_some()
-            })
-        })
-        .or_else(|| format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL))?;
-    let track_id = track.id;
-    let codec_params = track.codec_params.clone();
-    let mut decoder = match symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default()) {
-        Ok(v) => v,
-        Err(e) => {
-            crate::app_deprintln!("[analysis] decoder make failed: {}", e);
-            return None;
-        }
-    };
+    let DecodeSession { mut format, mut decoder, track_id, .. } = open_decode_session(bytes)?;
 
     let mut bin_max = vec![0.0f32; bin_count];
     let mut bin_sum = vec![0.0f32; bin_count];
