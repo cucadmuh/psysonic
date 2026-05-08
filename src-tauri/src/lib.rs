@@ -398,7 +398,7 @@ pub fn run() {
             audio::autoeq_commands::autoeq_entries,
             audio::autoeq_commands::autoeq_fetch_profile,
             audio::commands::audio_preload,
-            audio::commands::audio_play_radio,
+            audio::radio_commands::audio_play_radio,
             audio::preview::audio_preview_play,
             audio::preview::audio_preview_stop,
             audio::preview::audio_preview_stop_silent,
