@@ -3,6 +3,7 @@
 //! Implementation is split into submodules (`sources`, `decode`, `stream`, `commands`, …)
 //! for navigation; behavior matches the historical single `audio.rs` file.
 
+pub mod autoeq_commands;
 mod codec;
 pub mod commands;
 mod decode;
