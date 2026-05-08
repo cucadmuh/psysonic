@@ -1,5 +1,6 @@
 use super::*;
 
+mod fs_utils;
 mod offline;
 mod downloads;
 mod hot;

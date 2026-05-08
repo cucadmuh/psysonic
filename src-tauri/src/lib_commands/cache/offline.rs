@@ -145,37 +145,16 @@ pub(crate) async fn download_track_offline(
 /// Returns the total size in bytes of all files in the offline cache directory (and optional custom dir).
 #[tauri::command]
 pub(crate) async fn get_offline_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
-    fn dir_size(root: std::path::PathBuf) -> u64 {
-        if !root.exists() { return 0; }
-        let mut total: u64 = 0;
-        let mut stack = vec![root];
-        while let Some(dir) = stack.pop() {
-            let rd = match std::fs::read_dir(&dir) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            for entry in rd.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Ok(meta) = std::fs::metadata(&path) {
-                    total += meta.len();
-                }
-            }
-        }
-        total
-    }
-
     let default_dir = match app.path().app_data_dir() {
         Ok(d) => d.join("psysonic-offline"),
         Err(_) => return 0,
     };
-    let mut total = dir_size(default_dir);
+    let mut total = super::fs_utils::dir_size_recursive(&default_dir);
 
     if let Some(cd) = custom_dir {
         let custom = std::path::PathBuf::from(cd);
         if custom != std::path::PathBuf::from("") {
-            total += dir_size(custom);
+            total += super::fs_utils::dir_size_recursive(&custom);
         }
     }
     total
@@ -208,25 +187,8 @@ pub(crate) async fn delete_offline_track(
             .join("psysonic-offline")
     };
 
-    // Walk upward, pruning directories that have become empty.
-    // Stops as soon as a non-empty directory or the boundary is reached.
-    let mut current = file_path.parent().map(|p| p.to_path_buf());
-    while let Some(dir) = current {
-        if dir == boundary || !dir.starts_with(&boundary) {
-            break;
-        }
-        match std::fs::read_dir(&dir) {
-            Ok(mut entries) => {
-                if entries.next().is_some() {
-                    break; // Directory still has contents — stop pruning.
-                }
-                if std::fs::remove_dir(&dir).is_err() {
-                    break; // Could not remove (e.g. permissions) — stop.
-                }
-                current = dir.parent().map(|p| p.to_path_buf());
-            }
-            Err(_) => break,
-        }
+    if let Some(parent) = file_path.parent() {
+        super::fs_utils::prune_empty_dirs_up_to(parent, &boundary);
     }
 
     Ok(())

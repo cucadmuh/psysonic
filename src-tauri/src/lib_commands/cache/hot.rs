@@ -172,31 +172,8 @@ pub(crate) async fn promote_stream_cache_to_hot_cache(
 
 #[tauri::command]
 pub(crate) async fn get_hot_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
-    fn dir_size(root: std::path::PathBuf) -> u64 {
-        if !root.exists() {
-            return 0;
-        }
-        let mut total: u64 = 0;
-        let mut stack = vec![root];
-        while let Some(dir) = stack.pop() {
-            let rd = match std::fs::read_dir(&dir) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            for entry in rd.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Ok(meta) = std::fs::metadata(&path) {
-                    total += meta.len();
-                }
-            }
-        }
-        total
-    }
-
     resolve_hot_cache_root(custom_dir, &app)
-        .map(|root| dir_size(root))
+        .map(|root| super::fs_utils::dir_size_recursive(&root))
         .unwrap_or(0)
 }
 
@@ -223,24 +200,8 @@ pub(crate) async fn delete_hot_cache_track(
     );
 
     let boundary = resolve_hot_cache_root(custom_dir, &app)?;
-
-    let mut current = file_path.parent().map(|p| p.to_path_buf());
-    while let Some(dir) = current {
-        if dir == boundary || !dir.starts_with(&boundary) {
-            break;
-        }
-        match std::fs::read_dir(&dir) {
-            Ok(mut entries) => {
-                if entries.next().is_some() {
-                    break;
-                }
-                if std::fs::remove_dir(&dir).is_err() {
-                    break;
-                }
-                current = dir.parent().map(|p| p.to_path_buf());
-            }
-            Err(_) => break,
-        }
+    if let Some(parent) = file_path.parent() {
+        super::fs_utils::prune_empty_dirs_up_to(parent, &boundary);
     }
 
     Ok(())
