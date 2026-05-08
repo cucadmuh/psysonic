@@ -152,32 +152,12 @@ pub async fn audio_play(
         return Ok(());
     }
 
-    let target_lufs = f32::from_bits(state.normalization_target_lufs.load(Ordering::Relaxed));
-    let cache_loudness = resolve_loudness_gain_from_cache(
-        &app,
-        &url,
-        target_lufs,
-        logical_trim.as_deref(),
-    );
-    let resolved_loudness_gain_db = cache_loudness;
-    let norm_mode = state.normalization_engine.load(Ordering::Relaxed);
-    let pre_analysis_db = loudness_pre_analysis_db_for_engine(&state);
-    let startup_loudness_gain_db = if norm_mode == 2 {
-        loudness_gain_db_after_resolve(
-            cache_loudness,
-            target_lufs,
-            pre_analysis_db,
-            false,
-            loudness_gain_db,
-        )
-    } else {
-        cache_loudness
-    };
+    let gain_inputs = resolve_track_gain_inputs(&state, &app, &url, logical_trim.as_deref(), loudness_gain_db);
     let (gain_linear, effective_volume) = compute_gain(
-        norm_mode,
+        gain_inputs.norm_mode,
         replay_gain_db,
         replay_gain_peak,
-        startup_loudness_gain_db,
+        gain_inputs.effective_loudness_db,
         pre_gain_db,
         fallback_db,
         volume,
@@ -186,22 +166,22 @@ pub async fn audio_play(
     crate::app_deprintln!(
         "[normalization] audio_play track_id={:?} engine={} replay_gain_db={:?} replay_gain_peak={:?} loudness_gain_db={:?} gain_linear={:.4} current_gain_db={:?} target_lufs={:.2} volume={:.3} effective_volume={:.3}",
         playback_identity(&url),
-        normalization_engine_name(norm_mode),
+        normalization_engine_name(gain_inputs.norm_mode),
         replay_gain_db,
         replay_gain_peak,
-        resolved_loudness_gain_db,
+        gain_inputs.cache_loudness_db,
         gain_linear,
         current_gain_db,
-        target_lufs,
+        gain_inputs.target_lufs,
         volume,
         effective_volume
     );
     maybe_emit_normalization_state(
         &app,
         NormalizationStatePayload {
-            engine: normalization_engine_name(norm_mode).to_string(),
+            engine: normalization_engine_name(gain_inputs.norm_mode).to_string(),
             current_gain_db,
-            target_lufs,
+            target_lufs: gain_inputs.target_lufs,
         },
     );
 
@@ -574,27 +554,12 @@ pub async fn audio_chain_preload(
     // current track ends, and `Sink::set_volume` affects the WHOLE Sink (incl.
     // the still-playing current source). Volume for the chained track is
     // applied at the gapless transition in `spawn_progress_task`, not here.
-    let target_lufs = f32::from_bits(state.normalization_target_lufs.load(Ordering::Relaxed));
-    let norm_mode = state.normalization_engine.load(Ordering::Relaxed);
-    let pre_analysis_db = loudness_pre_analysis_db_for_engine(&state);
-    let chain_loudness_db = if norm_mode == 2 {
-        loudness_gain_db_or_startup(
-            &app,
-            &url,
-            target_lufs,
-            logical_trim.as_deref(),
-            pre_analysis_db,
-            false,
-            loudness_gain_db,
-        )
-    } else {
-        resolve_loudness_gain_from_cache(&app, &url, target_lufs, logical_trim.as_deref())
-    };
+    let gain_inputs = resolve_track_gain_inputs(&state, &app, &url, logical_trim.as_deref(), loudness_gain_db);
     let (gain_linear, _effective_volume) = compute_gain(
-        norm_mode,
+        gain_inputs.norm_mode,
         replay_gain_db,
         replay_gain_peak,
-        chain_loudness_db,
+        gain_inputs.effective_loudness_db,
         pre_gain_db,
         fallback_db,
         volume,

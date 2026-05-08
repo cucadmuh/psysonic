@@ -438,32 +438,54 @@ pub(crate) fn loudness_gain_db_after_resolve(
     }
 }
 
-/// LUFS: DB-backed integrated LUFS only at bind time (`allow_js_when_uncached = false`);
-/// after `analysis:loudness-partial`, `audio_update_replay_gain` passes `true` so finite
-/// JS gain applies until SQLite catches up. Must never return `None` or `compute_gain` uses unity.
-pub(crate) fn loudness_gain_db_or_startup(
+/// Resolved gain inputs that both `audio_play` and `audio_chain_preload` need
+/// before calling [`compute_gain`]. Bundles the engine state reads + cache
+/// resolution in one shot so the call sites don't drift apart on subtle
+/// behaviour (e.g. one accidentally skipping the post-resolve step for
+/// LUFS mode).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TrackGainInputs {
+    pub(crate) target_lufs: f32,
+    pub(crate) norm_mode: u32,
+    /// Pre-resolve cache value — kept around for logging in `audio_play`.
+    pub(crate) cache_loudness_db: Option<f32>,
+    /// Value to feed into `compute_gain` — for LUFS mode this is the
+    /// post-`loudness_gain_db_after_resolve` value, otherwise the raw cache
+    /// resolution (or `None` when not in normalisation mode).
+    pub(crate) effective_loudness_db: Option<f32>,
+}
+
+/// Read engine state + resolve the loudness cache for a track that's about to
+/// start playing. JS-supplied `loudness_gain_db` is **not** consulted at bind
+/// time (only post-cache via `audio_update_replay_gain`).
+pub(crate) fn resolve_track_gain_inputs(
+    state: &AudioEngine,
     app: &AppHandle,
     url: &str,
-    target_lufs: f32,
     logical_track_id: Option<&str>,
-    pre_analysis_attenuation_db: f32,
-    allow_js_when_uncached: bool,
-    js_gain_db: Option<f32>,
-) -> Option<f32> {
-    let resolved = resolve_loudness_gain_from_cache_impl(
-        app,
-        url,
+    js_loudness_gain_db: Option<f32>,
+) -> TrackGainInputs {
+    let target_lufs = f32::from_bits(state.normalization_target_lufs.load(Ordering::Relaxed));
+    let norm_mode = state.normalization_engine.load(Ordering::Relaxed);
+    let pre_analysis_db = loudness_pre_analysis_db_for_engine(state);
+    let cache_loudness_db = resolve_loudness_gain_from_cache(app, url, target_lufs, logical_track_id);
+    let effective_loudness_db = if norm_mode == 2 {
+        loudness_gain_db_after_resolve(
+            cache_loudness_db,
+            target_lufs,
+            pre_analysis_db,
+            false,
+            js_loudness_gain_db,
+        )
+    } else {
+        cache_loudness_db
+    };
+    TrackGainInputs {
         target_lufs,
-        logical_track_id,
-        ResolveLoudnessCacheOpts::default(),
-    );
-    loudness_gain_db_after_resolve(
-        resolved,
-        target_lufs,
-        pre_analysis_attenuation_db,
-        allow_js_when_uncached,
-        js_gain_db,
-    )
+        norm_mode,
+        cache_loudness_db,
+        effective_loudness_db,
+    }
 }
 
 #[inline]
