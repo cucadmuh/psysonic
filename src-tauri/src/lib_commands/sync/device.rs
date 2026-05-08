@@ -345,11 +345,7 @@ pub(crate) async fn sync_track_to_device(
             .map_err(|e| e.to_string())?;
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent(subsonic_wire_user_agent())
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = subsonic_http_client(std::time::Duration::from_secs(300))?;
 
     let response = client.get(&track.url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
@@ -361,16 +357,12 @@ pub(crate) async fn sync_track_to_device(
     }
 
     let part_path = dest_path.with_extension(format!("{}.part", track.suffix));
-    if let Err(e) = stream_to_file(response, &part_path).await {
-        let _ = tokio::fs::remove_file(&part_path).await;
+    if let Err(e) = finalize_streamed_download(response, &dest_path, &part_path).await {
         let _ = app.emit("device:sync:progress", serde_json::json!({
             "jobId": job_id, "trackId": track.id, "status": "error", "error": e,
         }));
         return Err(e);
     }
-    tokio::fs::rename(&part_path, &dest_path)
-        .await
-        .map_err(|e| e.to_string())?;
 
     let _ = app.emit("device:sync:progress", serde_json::json!({
         "jobId": job_id, "trackId": track.id, "status": "done", "path": path_str,

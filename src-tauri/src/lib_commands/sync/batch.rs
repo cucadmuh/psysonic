@@ -137,11 +137,7 @@ pub(crate) async fn calculate_sync_payload(
     auth: SubsonicAuthPayload,
     target_dir: String,
 ) -> Result<SyncDeltaResult, String> {
-    let client = reqwest::Client::builder()
-        .user_agent(subsonic_wire_user_agent())
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = subsonic_http_client(std::time::Duration::from_secs(30))?;
 
     let mut add_bytes = 0;
     let mut add_count = 0;
@@ -365,11 +361,7 @@ pub(crate) async fn sync_batch_to_device(
     }
 
     // Shared reqwest client — reused across all downloads.
-    let client = reqwest::Client::builder()
-        .user_agent(subsonic_wire_user_agent())
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = subsonic_http_client(Duration::from_secs(300))?;
 
     // Concurrency limiter: max 2 parallel USB writes.
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
@@ -446,21 +438,11 @@ pub(crate) async fn sync_batch_to_device(
                 };
 
                 let part_path = dest_path.with_extension(format!("{}.part", track.suffix));
-                if let Err(e) = stream_to_file(response, &part_path).await {
-                    let _ = tokio::fs::remove_file(&part_path).await;
+                if let Err(e) = finalize_streamed_download(response, &dest_path, &part_path).await {
                     f.fetch_add(1, Ordering::Relaxed);
                     let _ = app2.emit("device:sync:progress", serde_json::json!({
                         "jobId": job, "trackId": track.id, "status": "error",
                         "error": e,
-                    }));
-                    return;
-                }
-                if let Err(e) = tokio::fs::rename(&part_path, &dest_path).await {
-                    let _ = tokio::fs::remove_file(&part_path).await;
-                    f.fetch_add(1, Ordering::Relaxed);
-                    let _ = app2.emit("device:sync:progress", serde_json::json!({
-                        "jobId": job, "trackId": track.id, "status": "error",
-                        "error": e.to_string(),
                     }));
                     return;
                 }

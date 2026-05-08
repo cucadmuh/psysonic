@@ -2,24 +2,6 @@ use super::*;
 
 // ─── Offline Track Cache ──────────────────────────────────────────────────────
 
-/// Streams an HTTP response body directly to `dest_path` in small chunks.
-/// Never buffers the full file in memory — keeps RAM flat regardless of file size.
-pub(crate) async fn stream_to_file(response: reqwest::Response, dest_path: &std::path::Path) -> Result<(), String> {
-    use futures_util::StreamExt;
-    use tokio::io::AsyncWriteExt;
-
-    let mut file = tokio::fs::File::create(dest_path)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
-    }
-    file.flush().await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 pub(crate) async fn enqueue_analysis_seed(app: &tauri::AppHandle, track_id: &str, bytes: &[u8]) -> Result<bool, String> {
     if let Some(cache) = app.try_state::<analysis_cache::AnalysisCache>() {
         if cache.cpu_seed_redundant_for_track(track_id).unwrap_or(false) {
@@ -116,26 +98,15 @@ pub(crate) async fn download_track_offline(
     // and released automatically when this function returns (success or error).
     let _permit = dl_sem.acquire().await.map_err(|e| e.to_string())?;
 
-    let client = reqwest::Client::builder()
-        .user_agent(subsonic_wire_user_agent())
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = subsonic_http_client(std::time::Duration::from_secs(120))?;
 
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status().as_u16()));
     }
 
-    // Stream directly to a .part file; rename on success to avoid partial files.
     let part_path = file_path.with_extension(format!("{suffix}.part"));
-    if let Err(e) = stream_to_file(response, &part_path).await {
-        let _ = tokio::fs::remove_file(&part_path).await;
-        return Err(e);
-    }
-    tokio::fs::rename(&part_path, &file_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    finalize_streamed_download(response, &file_path, &part_path).await?;
 
     enqueue_analysis_seed_from_file(&app, &track_id, &file_path).await;
 
