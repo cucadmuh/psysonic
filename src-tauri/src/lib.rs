@@ -10,8 +10,10 @@ pub(crate) mod logging;
 mod lib_commands;
 #[cfg(target_os = "windows")]
 mod taskbar_win;
+mod tray_runtime;
 
 pub(crate) use analysis_runtime::*;
+pub(crate) use tray_runtime::*;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -64,71 +66,6 @@ fn sync_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
     FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
 }
-
-/// Holds the live system-tray icon handle.  `None` means the tray is currently hidden/removed.
-/// Dropping the inner `TrayIcon` fully removes it from the OS notification area on all platforms.
-type TrayState = Mutex<Option<TrayIcon>>;
-
-/// Cached tray tooltip text. Updated by `set_tray_tooltip` and re-applied when the
-/// icon is rebuilt (e.g. after the user toggles the tray off and on again).
-/// Empty string means "use the default `Psysonic` tooltip".
-type TrayTooltip = Mutex<String>;
-
-#[derive(Default)]
-struct TrayPlaybackState(Mutex<String>);
-
-fn tray_state_icon(state: &str) -> &'static str {
-    match state {
-        "play" => "▶",
-        "pause" => "⏸",
-        _ => "⏹",
-    }
-}
-
-/// Handles to all updatable tray menu items, kept around so `set_tray_menu_labels`
-/// (i18n refresh) and `set_tray_tooltip` (track change) can re-text them without
-/// rebuilding the whole tray icon. The `now_playing` slot is `Some` on Linux
-/// only — it surfaces the current track as a disabled menu entry because
-/// AppIndicator has no hover tooltip API.
-struct TrayMenuItems {
-    play_pause: tauri::menu::MenuItem<tauri::Wry>,
-    next: tauri::menu::MenuItem<tauri::Wry>,
-    previous: tauri::menu::MenuItem<tauri::Wry>,
-    show_hide: tauri::menu::MenuItem<tauri::Wry>,
-    quit: tauri::menu::MenuItem<tauri::Wry>,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    now_playing: Option<tauri::menu::MenuItem<tauri::Wry>>,
-}
-
-type TrayMenuItemsState = Mutex<Option<TrayMenuItems>>;
-
-/// Cached translations for the tray menu. Defaults to English so the menu has
-/// readable labels before the frontend has had a chance to run `set_tray_menu_labels`.
-#[derive(Clone)]
-struct TrayMenuLabels {
-    play_pause: String,
-    next: String,
-    previous: String,
-    show_hide: String,
-    quit: String,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    nothing_playing: String,
-}
-
-impl Default for TrayMenuLabels {
-    fn default() -> Self {
-        Self {
-            play_pause: "Play / Pause".into(),
-            next: "Next Track".into(),
-            previous: "Previous Track".into(),
-            show_hide: "Show / Hide".into(),
-            quit: "Exit Psysonic".into(),
-            nothing_playing: "Nothing playing".into(),
-        }
-    }
-}
-
-type TrayMenuLabelsState = Mutex<TrayMenuLabels>;
 
 /// Shared handle to OS media controls (MPRIS2 on Linux, Now Playing on macOS, SMTC on Windows).
 /// `None` if souvlaki failed to initialize (e.g. no D-Bus session on Linux).
