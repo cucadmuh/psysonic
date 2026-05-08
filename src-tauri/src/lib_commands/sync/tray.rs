@@ -1,4 +1,18 @@
-use super::*;
+use std::sync::atomic::Ordering;
+
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+use tauri::tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "windows"))]
+use tauri::tray::MouseButtonState;
+
+use crate::audio;
+use crate::tray_runtime::{
+    tray_state_icon, TrayMenuItems, TrayMenuItemsState, TrayMenuLabels, TrayMenuLabelsState,
+    TrayPlaybackState, TrayState, TrayTooltip,
+};
+
+use super::super::ui::{PAUSE_RENDERING_JS, RESUME_RENDERING_JS};
 
 pub(crate) fn build_tray_icon(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
     let labels = app

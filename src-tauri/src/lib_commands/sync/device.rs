@@ -1,4 +1,6 @@
-use super::*;
+use tauri::Emitter;
+
+use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
 
 // ─── Device Sync ─────────────────────────────────────────────────────────────
 

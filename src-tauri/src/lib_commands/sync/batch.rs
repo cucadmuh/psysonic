@@ -1,4 +1,15 @@
-use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use tauri::Emitter;
+
+use crate::sync_cancel_flags;
+
+use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
+use super::device::{
+    build_track_path, get_removable_drives, is_path_on_mounted_volume, SyncBatchResult,
+    TrackSyncInfo,
+};
 
 #[tauri::command]
 pub(crate) async fn list_device_dir_files(dir: String) -> Result<Vec<String>, String> {

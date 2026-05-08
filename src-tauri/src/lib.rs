@@ -17,18 +17,10 @@ pub(crate) use tray_runtime::*;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
-use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
-};
+use tauri::{Emitter, Manager};
 use lib_commands::*;
-// MouseButtonState is only matched on non-Windows targets — on Windows the
-// tray uses DoubleClick which doesn't carry a button_state.
-#[cfg(not(target_os = "windows"))]
-use tauri::tray::MouseButtonState;
 
 /// Tracks which user-configured shortcuts are currently registered (shortcut_str → action).
 /// Prevents on_shortcut() accumulating duplicate handlers across JS reloads (HMR / StrictMode).
