@@ -10,11 +10,13 @@ use rodio::Player;
 use rodio::Source;
 use tauri::{AppHandle, Emitter, State};
 
-use super::decode::{build_source, build_streaming_source, SizedDecoder};
+use super::decode::build_source;
 use super::engine::{audio_http_client, AudioEngine};
 use super::helpers::*;
 use super::ipc::{maybe_emit_normalization_state, NormalizationStatePayload};
-use super::play_input::{select_play_input, url_format_hint, PlayInput, PlayInputContext};
+use super::play_input::{
+    build_source_from_play_input, select_play_input, url_format_hint, PlayInputContext,
+};
 use super::preview::preview_clear_for_new_main_playback;
 use super::progress_task::spawn_progress_task;
 use super::state::{ChainedInfo, PreloadedTrack};
@@ -216,65 +218,22 @@ pub async fn audio_play(
     let done_flag = Arc::new(AtomicBool::new(false));
     // Reset sample counter for the new track.
     state.samples_played.store(0, Ordering::Relaxed);
-    // Always 0 — no application-level resampling. Rodio handles conversion to
-    // the output device rate internally; we let every track play at its native rate.
-    let target_rate: u32 = 0;
-    let mut new_is_seekable = true;
-    let built = match play_input {
-        PlayInput::Bytes(data) => build_source(
-            data,
-            duration_hint,
-            state.eq_gains.clone(),
-            state.eq_enabled.clone(),
-            state.eq_pre_gain.clone(),
-            done_flag.clone(),
-            fade_in_dur,
-            state.samples_played.clone(),
-            target_rate,
-            format_hint.as_deref(),
-            hi_res_enabled,
-        ),
-        PlayInput::SeekableMedia { reader, format_hint, tag } => {
-            let decoder = tokio::task::spawn_blocking(move || {
-                SizedDecoder::new_streaming(reader, format_hint.as_deref(), tag)
-            })
-            .await
-            .map_err(|e| e.to_string())??;
-
-            build_streaming_source(
-                decoder,
-                duration_hint,
-                state.eq_gains.clone(),
-                state.eq_enabled.clone(),
-                state.eq_pre_gain.clone(),
-                done_flag.clone(),
-                fade_in_dur,
-                state.samples_played.clone(),
-                target_rate,
-            )
-        }
-        PlayInput::Streaming { reader, format_hint } => {
-            new_is_seekable = false;
-            let decoder = tokio::task::spawn_blocking(move || {
-                SizedDecoder::new_streaming(Box::new(reader), format_hint.as_deref(), "track-stream")
-            })
-            .await
-            .map_err(|e| e.to_string())??;
-
-            build_streaming_source(
-                decoder,
-                duration_hint,
-                state.eq_gains.clone(),
-                state.eq_enabled.clone(),
-                state.eq_pre_gain.clone(),
-                done_flag.clone(),
-                fade_in_dur,
-                state.samples_played.clone(),
-                target_rate,
-            )
-        }
-    }.map_err(|e| { app.emit("audio:error", &e).ok(); e })?;
-    state.current_is_seekable.store(new_is_seekable, Ordering::SeqCst);
+    let playback_source = build_source_from_play_input(
+        play_input,
+        &state,
+        format_hint.as_deref(),
+        done_flag.clone(),
+        fade_in_dur,
+        hi_res_enabled,
+        duration_hint,
+    )
+    .await
+    .map_err(|e| {
+        app.emit("audio:error", &e).ok();
+        e
+    })?;
+    state.current_is_seekable.store(playback_source.is_seekable, Ordering::SeqCst);
+    let built = playback_source.built;
     let source = built.source;
     let duration_secs = built.duration_secs;
     let output_rate = built.output_rate;

@@ -11,6 +11,7 @@ use ringbuf::{HeapCons, HeapRb};
 use symphonia::core::io::MediaSource;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use super::decode::{build_source, build_streaming_source, BuiltSource, SizedDecoder};
 use super::engine::{audio_http_client, AudioEngine};
 use super::helpers::{
     content_type_to_hint, fetch_data, format_hint_from_content_disposition,
@@ -382,4 +383,83 @@ pub(super) fn url_format_hint(url: &str) -> Option<String> {
                 )
         })
         .map(|s| s.to_lowercase())
+}
+
+/// Output of `build_source_from_play_input`: the wrapped rodio source plus
+/// whether the chosen source path is seekable (only the Streaming variant
+/// is not).
+pub(super) struct PlaybackSource {
+    pub(super) built: BuiltSource,
+    pub(super) is_seekable: bool,
+}
+
+/// Dispatch [`PlayInput`] → fully wrapped rodio source. For Bytes the full
+/// in-memory pipeline (incl. iTunSMPB scan); for SeekableMedia / Streaming
+/// the streaming variant runs the decoder build on a blocking thread.
+pub(super) async fn build_source_from_play_input(
+    play_input: PlayInput,
+    state: &State<'_, AudioEngine>,
+    format_hint: Option<&str>,
+    done_flag: Arc<AtomicBool>,
+    fade_in_dur: Duration,
+    hi_res_enabled: bool,
+    duration_hint: f64,
+) -> Result<PlaybackSource, String> {
+    // Always 0 — no application-level resampling. Rodio handles conversion to
+    // the output device rate internally; we let every track play at its native rate.
+    let target_rate: u32 = 0;
+    let mut is_seekable = true;
+    let built = match play_input {
+        PlayInput::Bytes(data) => build_source(
+            data,
+            duration_hint,
+            state.eq_gains.clone(),
+            state.eq_enabled.clone(),
+            state.eq_pre_gain.clone(),
+            done_flag,
+            fade_in_dur,
+            state.samples_played.clone(),
+            target_rate,
+            format_hint,
+            hi_res_enabled,
+        ),
+        PlayInput::SeekableMedia { reader, format_hint: media_hint, tag } => {
+            let decoder = tokio::task::spawn_blocking(move || {
+                SizedDecoder::new_streaming(reader, media_hint.as_deref(), tag)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            build_streaming_source(
+                decoder,
+                duration_hint,
+                state.eq_gains.clone(),
+                state.eq_enabled.clone(),
+                state.eq_pre_gain.clone(),
+                done_flag,
+                fade_in_dur,
+                state.samples_played.clone(),
+                target_rate,
+            )
+        }
+        PlayInput::Streaming { reader, format_hint: stream_hint } => {
+            is_seekable = false;
+            let decoder = tokio::task::spawn_blocking(move || {
+                SizedDecoder::new_streaming(Box::new(reader), stream_hint.as_deref(), "track-stream")
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            build_streaming_source(
+                decoder,
+                duration_hint,
+                state.eq_gains.clone(),
+                state.eq_enabled.clone(),
+                state.eq_pre_gain.clone(),
+                done_flag,
+                fade_in_dur,
+                state.samples_played.clone(),
+                target_rate,
+            )
+        }
+    }?;
+    Ok(PlaybackSource { built, is_seekable })
 }
