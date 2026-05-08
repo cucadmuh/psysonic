@@ -1,5 +1,6 @@
 use super::*;
 
+mod cli_bridge;
 mod core;
 mod navidrome;
 mod perf;
@@ -7,6 +8,7 @@ mod remote;
 mod integration;
 mod analysis;
 
+pub(crate) use cli_bridge::*;
 pub(crate) use core::*;
 pub(crate) use navidrome::*;
 pub(crate) use perf::*;
