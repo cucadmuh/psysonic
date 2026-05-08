@@ -1,20 +1,26 @@
 //! CLI surface for scripting / compositor bindings (e.g. Hyprland `exec`).
 
+mod exchange;
 mod parse;
 mod presenters;
 
+pub use exchange::*;
 pub use parse::*;
 pub use presenters::print_audio_devices_human;
+use exchange::{
+    print_library_cli_stdout, print_search_cli_stdout, print_server_list_cli_stdout,
+    read_library_cli_response_blocking, read_search_cli_response_blocking,
+    read_server_list_cli_response_blocking,
+};
 use parse::{cli_action_registry_entries, cli_registry_entry_by_command};
-use presenters::{print_info_human, print_library_human, print_search_human, print_server_list_human};
+use presenters::print_info_human;
 
 // Bundled at compile time for `psysonic completions bash|zsh` (no extra files in packages).
 const COMPLETIONS_BASH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../completions/psysonic.bash"));
 const COMPLETIONS_ZSH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../completions/_psysonic"));
 
-use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
@@ -27,51 +33,6 @@ pub fn print_version() {
     println!("{}", env!("CARGO_PKG_VERSION"));
 }
 
-/// JSON snapshot path (written by the GUI process, read by `psysonic --info`).
-pub fn cli_snapshot_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir).join("psysonic-cli-snapshot.json");
-        }
-    }
-    std::env::temp_dir().join("psysonic-cli-snapshot.json")
-}
-
-pub fn cli_audio_device_response_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir).join("psysonic-cli-audio-devices.json");
-        }
-    }
-    std::env::temp_dir().join("psysonic-cli-audio-devices.json")
-}
-
-pub fn cli_library_response_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir).join("psysonic-cli-library.json");
-        }
-    }
-    std::env::temp_dir().join("psysonic-cli-library.json")
-}
-
-pub fn cli_server_list_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir).join("psysonic-cli-servers.json");
-        }
-    }
-    std::env::temp_dir().join("psysonic-cli-servers.json")
-}
-
-pub fn cli_search_response_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir).join("psysonic-cli-search.json");
-        }
-    }
-    std::env::temp_dir().join("psysonic-cli-search.json")
-}
 
 /// `psysonic completions …` — returns exit code when this argv should not start the GUI.
 pub fn try_completions_dispatch(args: &[String]) -> Option<i32> {
@@ -123,17 +84,6 @@ fn print_completions_install_help(program: &str) {
     );
 }
 
-pub fn write_cli_snapshot(payload: &Value) -> Result<(), String> {
-    let path = cli_snapshot_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let data = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
 pub fn print_help(program: &str) {
     let version = env!("CARGO_PKG_VERSION");
@@ -281,143 +231,18 @@ pub fn run_tail_and_exit(args: &[String]) -> ! {
 }
 
 /// Wait for the webview to write `psysonic-cli-library.json` after `cli:library-list`.
-fn read_library_cli_response_blocking(max_wait: Duration) -> String {
-    let path = cli_library_response_path();
-    let deadline = Instant::now() + max_wait;
-    loop {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            let trimmed = text.trim();
-            if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-                if v.get("folders").and_then(|x| x.as_array()).is_some() {
-                    return text;
-                }
-            }
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(40));
-    }
-    std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into())
-}
-
-pub fn print_library_cli_stdout(text: &str, json_out: bool) {
-    if json_out {
-        println!("{}", text.trim());
-        return;
-    }
-    if let Ok(v) = serde_json::from_str::<Value>(text) {
-        print_library_human(&v);
-    } else {
-        println!("{}", text.trim());
-    }
-}
 
 
-pub fn write_library_cli_response(payload: &Value) -> Result<(), String> {
-    let path = cli_library_response_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let data = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
-pub fn write_server_list_cli_response(payload: &Value) -> Result<(), String> {
-    let path = cli_server_list_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let data = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
-pub fn write_search_cli_response(payload: &Value) -> Result<(), String> {
-    let path = cli_search_response_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let data = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
-}
+
 
 /// Wait for `psysonic-cli-servers.json` after `cli:server-list`.
-fn read_server_list_cli_response_blocking(max_wait: Duration) -> String {
-    let path = cli_server_list_path();
-    let deadline = Instant::now() + max_wait;
-    loop {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            let trimmed = text.trim();
-            if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-                if v.get("servers").and_then(|x| x.as_array()).is_some() {
-                    return text;
-                }
-            }
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(40));
-    }
-    std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into())
-}
 
-pub fn print_server_list_cli_stdout(text: &str, json_out: bool) {
-    if json_out {
-        println!("{}", text.trim());
-        return;
-    }
-    if let Ok(v) = serde_json::from_str::<Value>(text) {
-        print_server_list_human(&v);
-    } else {
-        println!("{}", text.trim());
-    }
-}
 
 
 /// Wait for `psysonic-cli-search.json` after `cli:search`.
-fn read_search_cli_response_blocking(max_wait: Duration) -> String {
-    let path = cli_search_response_path();
-    let deadline = Instant::now() + max_wait;
-    loop {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            let trimmed = text.trim();
-            if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-                let ready = v.get("ready").and_then(|x| x.as_bool()) == Some(true);
-                let has_err = v.get("error").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty());
-                if ready || has_err {
-                    return text;
-                }
-            }
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(40));
-    }
-    std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into())
-}
 
-pub fn print_search_cli_stdout(text: &str, json_out: bool) {
-    if json_out {
-        println!("{}", text.trim());
-        return;
-    }
-    if let Ok(v) = serde_json::from_str::<Value>(text) {
-        print_search_human(&v);
-    } else {
-        println!("{}", text.trim());
-    }
-}
 
 
 #[cfg(target_os = "linux")]
@@ -523,25 +348,6 @@ pub fn run_info_and_exit(args: &[String]) -> ! {
 
 
 
-pub fn write_audio_device_cli_response(engine: &crate::audio::AudioEngine) -> Result<(), String> {
-    let devices = crate::audio::audio_list_devices_for_engine(engine);
-    let default_device = crate::audio::audio_default_output_device_name();
-    let selected = engine.selected_device.lock().unwrap().clone();
-    let v = serde_json::json!({
-        "devices": devices,
-        "default": default_device,
-        "selected": selected,
-    });
-    let path = cli_audio_device_response_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let data = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
 
 /// Handle `--player` argv on the primary instance. Returns `true` if argv was a CLI action
