@@ -289,6 +289,10 @@ pub(crate) struct RangedHttpSource {
 impl Read for RangedHttpSource {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.gen_arc.load(Ordering::SeqCst) != self.gen {
+            crate::app_deprintln!(
+                "[stream] ranged-stream read EOF: superseded before first read (gen={} cur={} pos={}/{})",
+                self.gen, self.gen_arc.load(Ordering::SeqCst), self.pos, self.total_size
+            );
             return Ok(0);
         }
         if self.pos >= self.total_size {
@@ -303,6 +307,11 @@ impl Read for RangedHttpSource {
         let deadline = Instant::now() + Duration::from_secs(RADIO_READ_TIMEOUT_SECS);
         loop {
             if self.gen_arc.load(Ordering::SeqCst) != self.gen {
+                crate::app_deprintln!(
+                    "[stream] ranged-stream read EOF: superseded mid-wait (gen={} cur={} pos={}/{} dl={})",
+                    self.gen, self.gen_arc.load(Ordering::SeqCst), self.pos, self.total_size,
+                    self.downloaded_to.load(Ordering::SeqCst)
+                );
                 return Ok(0);
             }
             let dl = self.downloaded_to.load(Ordering::SeqCst) as u64;
@@ -321,6 +330,10 @@ impl Read for RangedHttpSource {
                     self.pos += avail as u64;
                     return Ok(avail);
                 }
+                crate::app_deprintln!(
+                    "[stream] ranged-stream read EOF: download done with no data ahead of cursor (pos={}/{} dl={})",
+                    self.pos, self.total_size, dl
+                );
                 return Ok(0);
             }
             if Instant::now() >= deadline {
@@ -654,6 +667,10 @@ pub(crate) async fn track_download_task(
         let mut byte_stream = response.bytes_stream();
         while let Some(chunk) = byte_stream.next().await {
             if gen_arc.load(Ordering::SeqCst) != gen {
+                crate::app_deprintln!(
+                    "[stream] track-stream dl superseded by skip: track_id={:?} gen={}→{}",
+                    cache_track_id, gen, gen_arc.load(Ordering::SeqCst)
+                );
                 done.store(true, Ordering::SeqCst);
                 return;
             }
@@ -842,6 +859,10 @@ pub(crate) async fn ranged_download_task(
         let mut byte_stream = response.bytes_stream();
         while let Some(chunk) = byte_stream.next().await {
             if gen_arc.load(Ordering::SeqCst) != gen {
+                crate::app_deprintln!(
+                    "[stream] ranged dl superseded by skip: track_id={:?} gen={}→{} downloaded={}/{} bytes",
+                    cache_track_id, gen, gen_arc.load(Ordering::SeqCst), downloaded, total_size
+                );
                 done.store(true, Ordering::SeqCst);
                 return;
             }
@@ -928,13 +949,24 @@ pub(crate) async fn ranged_download_task(
 
     done.store(true, Ordering::SeqCst);
 
-    crate::app_deprintln!(
-        "[stream] dl done: {} / {} bytes in {:.2}s ({} reconnects)",
-        downloaded,
-        total_size,
-        dl_started.elapsed().as_secs_f64(),
-        reconnects
-    );
+    if downloaded < total_size {
+        crate::app_eprintln!(
+            "[stream] ranged dl ABORTED: {} / {} bytes in {:.2}s ({} reconnects, track_id={:?})",
+            downloaded,
+            total_size,
+            dl_started.elapsed().as_secs_f64(),
+            reconnects,
+            cache_track_id
+        );
+    } else {
+        crate::app_deprintln!(
+            "[stream] dl done: {} / {} bytes in {:.2}s ({} reconnects)",
+            downloaded,
+            total_size,
+            dl_started.elapsed().as_secs_f64(),
+            reconnects
+        );
+    }
 
     if downloaded == total_size && total_size > 0 && total_size <= TRACK_STREAM_PROMOTE_MAX_BYTES {
         if let Some(ref tid) = cache_track_id {

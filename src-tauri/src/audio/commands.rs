@@ -147,11 +147,21 @@ pub async fn audio_play(
         &app,
     ).await? {
         Some(input) => input,
-        None => return Ok(()), // superseded — bail
+        None => {
+            crate::app_deprintln!(
+                "[audio] audio_play superseded inside select_play_input: gen={} cur={} track_id={:?}",
+                gen, state.generation.load(Ordering::SeqCst), cache_id_for_tasks
+            );
+            return Ok(());
+        }
     };
 
 
     if state.generation.load(Ordering::SeqCst) != gen {
+        crate::app_deprintln!(
+            "[audio] audio_play superseded after select_play_input: gen={} cur={} track_id={:?}",
+            gen, state.generation.load(Ordering::SeqCst), cache_id_for_tasks
+        );
         return Ok(());
     }
 
