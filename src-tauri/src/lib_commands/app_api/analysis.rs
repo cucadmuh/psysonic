@@ -205,25 +205,8 @@ pub(crate) fn analysis_prune_pending_to_track_ids(
     }
     let keep_track_ids: HashSet<&str> = normalized.iter().map(|s| s.as_str()).collect();
 
-    let http_removed = if let Some(shared) = ANALYSIS_BACKFILL.get() {
-        let mut st = shared
-            .state
-            .lock()
-            .map_err(|_| "analysis backfill lock poisoned".to_string())?;
-        st.prune_queued_not_in(&keep_track_ids)
-    } else {
-        0
-    };
-
-    let (cpu_removed_jobs, cpu_removed_waiters) = if let Some(shared) = ANALYSIS_CPU_SEED.get() {
-        let mut st = shared
-            .state
-            .lock()
-            .map_err(|_| "analysis cpu-seed lock poisoned".to_string())?;
-        st.prune_queued_not_in(&keep_track_ids)
-    } else {
-        (0, 0)
-    };
+    let (http_removed, cpu_removed_jobs, cpu_removed_waiters) =
+        prune_analysis_queues(&keep_track_ids)?;
 
     if http_removed > 0 || cpu_removed_jobs > 0 {
         crate::app_deprintln!(
