@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { showToast } from '../utils/toast';
+import i18n from '../i18n';
 import { buildCoverArtUrl, buildStreamUrl, getPlayQueue, savePlayQueue, reportNowPlaying, scrobbleSong, SubsonicSong, getSong, getRandomSongs, getSimilarSongs2, getTopSongs, InternetRadioStation, setRating, getAlbumInfo2 } from '../api/subsonic';
 import { resolvePlaybackUrl, streamUrlTrackId, getPlaybackSourceKind, type PlaybackSourceKind } from '../utils/resolvePlaybackUrl';
 import { redactSubsonicUrlForLog } from '../utils/redactSubsonicUrl';
@@ -1051,6 +1052,10 @@ async function reseedLoudnessForTrackId(trackId: string) {
   if (!trackId) return;
   const auth = useAuthStore.getState();
   if (auth.normalizationEngine !== 'loudness') return;
+  bumpWaveformRefreshGen(trackId);
+  if (usePlayerStore.getState().currentTrack?.id === trackId) {
+    usePlayerStore.setState({ waveformBins: null });
+  }
   clearLoudnessCacheStateForTrackId(trackId);
   resetLoudnessBackfillStateForTrackId(trackId);
   if (auth.normalizationEngine === 'loudness') {
@@ -1059,6 +1064,11 @@ async function reseedLoudnessForTrackId(trackId: string) {
       normalizationTargetLufs: auth.loudnessTargetLufs,
       normalizationEngineLive: 'loudness',
     });
+  }
+  try {
+    await invoke('analysis_delete_waveform_for_track', { trackId });
+  } catch (e) {
+    console.error('[psysonic] analysis_delete_waveform_for_track failed:', e);
   }
   try {
     await invoke('analysis_delete_loudness_for_track', { trackId });
@@ -3573,7 +3583,7 @@ export const usePlayerStore = create<PlayerState>()(
 
       reanalyzeLoudnessForTrack: async (trackId: string) => {
         try {
-          showToast('Recalculating loudness for this track…', 2000, 'info');
+          showToast(i18n.t('queue.recalculatingLoudnessWaveform'), 2000, 'info');
         } catch {
           // no-op
         }

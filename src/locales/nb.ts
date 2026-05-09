@@ -1161,6 +1161,8 @@ export const nbTranslation = {
     sourceOffline: 'Spiller fra offlinebibliotek',
     sourceHot: 'Spiller fra cache',
     sourceStream: 'Spiller fra nettverksstrøm',
+    clearCachedLoudnessWaveform: 'Clear cached loudness and waveform, then re-analyze this track',
+    recalculatingLoudnessWaveform: 'Recalculating loudness and waveform for this track…',
   },
   miniPlayer: {
     showQueue: 'Vis kø',

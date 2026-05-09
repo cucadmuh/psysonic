@@ -1161,6 +1161,8 @@ export const nlTranslation = {
     sourceOffline: 'Afspelen vanuit offlinebibliotheek',
     sourceHot: 'Afspelen vanuit cache',
     sourceStream: 'Afspelen vanuit netwerkstream',
+    clearCachedLoudnessWaveform: 'Clear cached loudness and waveform, then re-analyze this track',
+    recalculatingLoudnessWaveform: 'Recalculating loudness and waveform for this track…',
   },
   miniPlayer: {
     showQueue: 'Wachtrij tonen',

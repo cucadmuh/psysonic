@@ -1162,6 +1162,8 @@ export const frTranslation = {
     sourceOffline: 'Lecture depuis la bibliothèque hors ligne',
     sourceHot: 'Lecture depuis le cache',
     sourceStream: 'Lecture depuis le flux réseau',
+    clearCachedLoudnessWaveform: 'Clear cached loudness and waveform, then re-analyze this track',
+    recalculatingLoudnessWaveform: 'Recalculating loudness and waveform for this track…',
   },
   miniPlayer: {
     showQueue: 'Afficher la file',

@@ -1214,6 +1214,8 @@ export const ruTranslation = {
     sourceOffline: 'Играет из офлайн-библиотеки',
     sourceHot: 'Играет из кэша',
     sourceStream: 'Играет из сетевого потока',
+    clearCachedLoudnessWaveform: 'Сбросить кэш громкости (LUFS) и формы волны и заново проанализировать трек',
+    recalculatingLoudnessWaveform: 'Пересчёт громкости и формы волны для этого трека…',
   },
   miniPlayer: {
     showQueue: 'Показать очередь',

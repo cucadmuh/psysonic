@@ -1189,6 +1189,8 @@ export const enTranslation = {
     sourceOffline: 'Playing from offline library',
     sourceHot: 'Playing from cache',
     sourceStream: 'Playing from network stream',
+    clearCachedLoudnessWaveform: 'Clear cached loudness and waveform, then re-analyze this track',
+    recalculatingLoudnessWaveform: 'Recalculating loudness and waveform for this track…',
   },
   miniPlayer: {
     showQueue: 'Show queue',

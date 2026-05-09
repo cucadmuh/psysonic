@@ -142,6 +142,14 @@ pub fn analysis_delete_loudness_for_track(
 }
 
 #[tauri::command]
+pub fn analysis_delete_waveform_for_track(
+    track_id: String,
+    cache: tauri::State<'_, analysis_cache::AnalysisCache>,
+) -> Result<u64, String> {
+    cache.delete_waveform_for_track_id(&track_id)
+}
+
+#[tauri::command]
 pub fn analysis_delete_all_waveforms(
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
 ) -> Result<u64, String> {

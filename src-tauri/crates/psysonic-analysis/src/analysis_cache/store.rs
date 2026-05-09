@@ -109,6 +109,25 @@ impl AnalysisCache {
         Ok(total)
     }
 
+    /// Remove all `waveform_cache` rows for this logical track (bare id and `stream:` variant).
+    pub fn delete_waveform_for_track_id(&self, track_id: &str) -> Result<u64, String> {
+        if track_id.trim().is_empty() {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| "analysis_cache lock poisoned".to_string())?;
+        let mut total: u64 = 0;
+        for tid in track_id_cache_variants(track_id) {
+            let n = conn
+                .execute("DELETE FROM waveform_cache WHERE track_id = ?1", params![tid])
+                .map_err(|e| e.to_string())?;
+            total = total.saturating_add(n as u64);
+        }
+        Ok(total)
+    }
+
     /// Remove all cached waveform rows across all tracks/variants.
     pub fn delete_all_waveforms(&self) -> Result<u64, String> {
         let conn = self

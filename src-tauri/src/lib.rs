@@ -412,6 +412,7 @@ pub fn run() {
             psysonic_analysis::commands::analysis_get_waveform_for_track,
             psysonic_analysis::commands::analysis_get_loudness_for_track,
             psysonic_analysis::commands::analysis_delete_loudness_for_track,
+            psysonic_analysis::commands::analysis_delete_waveform_for_track,
             psysonic_analysis::commands::analysis_delete_all_waveforms,
             psysonic_analysis::commands::analysis_enqueue_seed_from_url,
             psysonic_analysis::commands::analysis_prune_pending_to_track_ids,

@@ -1166,6 +1166,8 @@ export const esTranslation = {
     sourceOffline: 'Reproducción desde la biblioteca sin conexión',
     sourceHot: 'Reproducción desde la caché',
     sourceStream: 'Reproducción desde la transmisión en red',
+    clearCachedLoudnessWaveform: 'Clear cached loudness and waveform, then re-analyze this track',
+    recalculatingLoudnessWaveform: 'Recalculating loudness and waveform for this track…',
   },
   miniPlayer: {
     showQueue: 'Mostrar cola',
