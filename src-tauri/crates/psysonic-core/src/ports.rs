@@ -13,24 +13,39 @@
 
 use std::sync::Arc;
 
-/// "Is this track currently being decoded/played?" — implementation lives in
-/// `psysonic-audio` (`AudioEngine::analysis_track_id_is_current_playback`).
-/// The shell crate registers an instance constructed via [`PlaybackQueryHandle::new`]
-/// as Tauri State; consumers in `psysonic-analysis` look it up.
+/// Read-only queries about the live playback session, used by analysis-side
+/// code to break the analysis→audio back-edge. The shell crate constructs an
+/// instance with two closures (each capturing an `AppHandle`) and registers it
+/// as Tauri State; `psysonic-analysis` looks it up via `try_state::<…>()`.
+///
+/// The closures are independent so each can be a no-op / always-false fallback
+/// without coupling the other.
 #[derive(Clone)]
 pub struct PlaybackQueryHandle {
-    inner: Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>,
+    is_playing: Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>,
+    should_defer_backfill: Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>,
 }
 
 impl PlaybackQueryHandle {
-    pub fn new<F>(f: F) -> Self
+    pub fn new<P, D>(is_playing: P, should_defer_backfill: D) -> Self
     where
-        F: Fn(&str) -> bool + Send + Sync + 'static,
+        P: Fn(&str) -> bool + Send + Sync + 'static,
+        D: Fn(&str) -> bool + Send + Sync + 'static,
     {
-        Self { inner: Arc::new(f) }
+        Self {
+            is_playing: Arc::new(is_playing),
+            should_defer_backfill: Arc::new(should_defer_backfill),
+        }
     }
 
+    /// `true` if `track_id` is the track currently being decoded/played.
     pub fn is_track_currently_playing(&self, track_id: &str) -> bool {
-        (self.inner)(track_id)
+        (self.is_playing)(track_id)
+    }
+
+    /// `true` if a ranged HTTP playback for `track_id` is mid-flight and will
+    /// seed analysis on completion — the backfill enqueue should defer.
+    pub fn ranged_loudness_backfill_should_defer(&self, track_id: &str) -> bool {
+        (self.should_defer_backfill)(track_id)
     }
 }

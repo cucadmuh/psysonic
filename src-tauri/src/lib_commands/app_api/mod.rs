@@ -1,4 +1,3 @@
-mod analysis;
 mod cli_bridge;
 mod core;
 mod integration;
@@ -20,12 +19,7 @@ pub(crate) use integration::{
     check_dir_accessible, mpris_set_metadata, mpris_set_playback, register_global_shortcut,
     unregister_global_shortcut,
 };
-pub(crate) use analysis::{
-    analysis_delete_all_waveforms, analysis_delete_loudness_for_track,
-    analysis_enqueue_seed_from_url, analysis_get_loudness_for_track, analysis_get_waveform,
-    analysis_get_waveform_for_track, analysis_prune_pending_to_track_ids,
-};
 
-// Discord, Navidrome admin, last.fm + radio-browser + CORS proxy, bandsintown
-// now live in `psysonic_integration`. invoke_handler! in lib.rs registers
-// them with their full paths so Tauri's `__cmd__*` macros resolve correctly.
+// Discord, Navidrome admin, last.fm + radio-browser + CORS proxy, bandsintown,
+// and analysis admin commands now live in their domain crates. invoke_handler!
+// in lib.rs registers them with full paths so Tauri's `__cmd__*` macros resolve.

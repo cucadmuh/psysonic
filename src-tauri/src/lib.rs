@@ -38,27 +38,6 @@ const MAX_DL_CONCURRENCY: usize = 4;
 /// `None` if souvlaki failed to initialize (e.g. no D-Bus session on Linux).
 type MprisControls = Mutex<Option<souvlaki::MediaControls>>;
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WaveformCachePayload {
-    bins: Vec<u8>,
-    bin_count: i64,
-    is_partial: bool,
-    known_until_sec: f64,
-    duration_sec: f64,
-    updated_at: i64,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LoudnessCachePayload {
-    integrated_lufs: f64,
-    true_peak: f64,
-    recommended_gain_db: f64,
-    target_lufs: f64,
-    updated_at: i64,
-}
-
 pub fn run() {
     // Linux: second `psysonic --player …` forwards over D-Bus before heavy startup.
     #[cfg(target_os = "linux")]
@@ -125,17 +104,25 @@ pub fn run() {
             }
 
             // ── Playback-query port (analysis → audio back-edge) ──────────
-            // Replace the placeholder registered above with a real handle
-            // that has access to the AppHandle, so analysis_runtime can ask
-            // AudioEngine if a track is currently playing.
+            // Two closures, each capturing an AppHandle, so analysis_runtime
+            // can ask AudioEngine playback questions without depending on the
+            // audio crate.
             {
-                let app_for_query = app.handle().clone();
-                let real_handle = psysonic_core::ports::PlaybackQueryHandle::new(move |track_id| {
-                    app_for_query
-                        .try_state::<crate::audio::AudioEngine>()
-                        .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
-                });
-                app.manage(real_handle);
+                let app_is_playing = app.handle().clone();
+                let app_defer = app.handle().clone();
+                let handle = psysonic_core::ports::PlaybackQueryHandle::new(
+                    move |track_id| {
+                        app_is_playing
+                            .try_state::<crate::audio::AudioEngine>()
+                            .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
+                    },
+                    move |track_id| {
+                        app_defer
+                            .try_state::<crate::audio::AudioEngine>()
+                            .is_some_and(|e| crate::audio::ranged_loudness_backfill_should_defer(&e, track_id))
+                    },
+                );
+                app.manage(handle);
             }
 
             // Periodic analysis queue sizes (debug logging mode only).
@@ -421,13 +408,13 @@ pub fn run() {
             psysonic_integration::remote::fetch_json_url,
             psysonic_integration::remote::fetch_icy_metadata,
             psysonic_integration::remote::resolve_stream_url,
-            analysis_get_waveform,
-            analysis_get_waveform_for_track,
-            analysis_get_loudness_for_track,
-            analysis_delete_loudness_for_track,
-            analysis_delete_all_waveforms,
-            analysis_enqueue_seed_from_url,
-            analysis_prune_pending_to_track_ids,
+            psysonic_analysis::commands::analysis_get_waveform,
+            psysonic_analysis::commands::analysis_get_waveform_for_track,
+            psysonic_analysis::commands::analysis_get_loudness_for_track,
+            psysonic_analysis::commands::analysis_delete_loudness_for_track,
+            psysonic_analysis::commands::analysis_delete_all_waveforms,
+            psysonic_analysis::commands::analysis_enqueue_seed_from_url,
+            psysonic_analysis::commands::analysis_prune_pending_to_track_ids,
             psysonic_syncfs::cache::offline::download_track_offline,
             psysonic_syncfs::cache::offline::delete_offline_track,
             psysonic_syncfs::cache::offline::get_offline_cache_size,

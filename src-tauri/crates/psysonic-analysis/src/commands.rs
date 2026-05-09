@@ -1,16 +1,43 @@
+//! Tauri commands that read/write the analysis cache and steer the backfill
+//! queue. Thin wrappers around `analysis_cache::*` and `analysis_runtime::*`
+//! plus the playback-query port (for "is this track currently playing? /
+//! is a ranged playback already going to seed it?").
+
 use std::collections::HashSet;
 
 use tauri::Manager;
+
+use psysonic_core::ports::PlaybackQueryHandle;
 
 use crate::analysis_cache;
 use crate::analysis_runtime::{
     analysis_backfill_is_current_track, analysis_backfill_shared, prune_analysis_queues,
     AnalysisBackfillEnqueueKind,
 };
-use crate::{LoudnessCachePayload, WaveformCachePayload};
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaveformCachePayload {
+    pub bins: Vec<u8>,
+    pub bin_count: i64,
+    pub is_partial: bool,
+    pub known_until_sec: f64,
+    pub duration_sec: f64,
+    pub updated_at: i64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoudnessCachePayload {
+    pub integrated_lufs: f64,
+    pub true_peak: f64,
+    pub recommended_gain_db: f64,
+    pub target_lufs: f64,
+    pub updated_at: i64,
+}
 
 #[tauri::command]
-pub(crate) fn analysis_get_waveform(
+pub fn analysis_get_waveform(
     track_id: String,
     md5_16kb: String,
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
@@ -50,7 +77,7 @@ pub(crate) fn analysis_get_waveform(
 }
 
 #[tauri::command]
-pub(crate) fn analysis_get_waveform_for_track(
+pub fn analysis_get_waveform_for_track(
     track_id: String,
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
 ) -> Result<Option<WaveformCachePayload>, String> {
@@ -83,7 +110,7 @@ pub(crate) fn analysis_get_waveform_for_track(
 }
 
 #[tauri::command]
-pub(crate) fn analysis_get_loudness_for_track(
+pub fn analysis_get_loudness_for_track(
     track_id: String,
     target_lufs: Option<f64>,
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
@@ -97,16 +124,17 @@ pub(crate) fn analysis_get_loudness_for_track(
             requested_target,
         );
         LoudnessCachePayload {
-        integrated_lufs: v.integrated_lufs,
-        true_peak: v.true_peak,
-        recommended_gain_db,
-        target_lufs: requested_target,
-        updated_at: v.updated_at,
-    }}))
+            integrated_lufs: v.integrated_lufs,
+            true_peak: v.true_peak,
+            recommended_gain_db,
+            target_lufs: requested_target,
+            updated_at: v.updated_at,
+        }
+    }))
 }
 
 #[tauri::command]
-pub(crate) fn analysis_delete_loudness_for_track(
+pub fn analysis_delete_loudness_for_track(
     track_id: String,
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
 ) -> Result<u64, String> {
@@ -114,14 +142,14 @@ pub(crate) fn analysis_delete_loudness_for_track(
 }
 
 #[tauri::command]
-pub(crate) fn analysis_delete_all_waveforms(
+pub fn analysis_delete_all_waveforms(
     cache: tauri::State<'_, analysis_cache::AnalysisCache>,
 ) -> Result<u64, String> {
     cache.delete_all_waveforms()
 }
 
 #[tauri::command]
-pub(crate) fn analysis_enqueue_seed_from_url(
+pub fn analysis_enqueue_seed_from_url(
     track_id: String,
     url: String,
     force: Option<bool>,
@@ -132,8 +160,8 @@ pub(crate) fn analysis_enqueue_seed_from_url(
     }
     let force = force.unwrap_or(false);
     if !force {
-        if let Some(engine) = app.try_state::<crate::audio::AudioEngine>() {
-            if crate::audio::ranged_loudness_backfill_should_defer(&engine, &track_id) {
+        if let Some(playback) = app.try_state::<PlaybackQueryHandle>() {
+            if playback.ranged_loudness_backfill_should_defer(&track_id) {
                 crate::app_deprintln!(
                     "[analysis] backfill skip track_id={} reason=ranged_playback_will_seed",
                     track_id
@@ -186,7 +214,7 @@ pub(crate) fn analysis_enqueue_seed_from_url(
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AnalysisPrunePendingResult {
+pub struct AnalysisPrunePendingResult {
     pub keep_count: usize,
     pub http_removed: usize,
     pub cpu_removed_jobs: usize,
@@ -197,7 +225,7 @@ pub(crate) struct AnalysisPrunePendingResult {
 ///
 /// Keeps currently-running jobs untouched; only queued (not-yet-started) jobs are removed.
 #[tauri::command]
-pub(crate) fn analysis_prune_pending_to_track_ids(
+pub fn analysis_prune_pending_to_track_ids(
     track_ids: Vec<String>,
 ) -> Result<AnalysisPrunePendingResult, String> {
     let mut normalized: Vec<String> = Vec::with_capacity(track_ids.len());
