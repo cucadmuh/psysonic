@@ -3608,6 +3608,7 @@ dependencies = [
  "libc",
  "lofty",
  "md5",
+ "psysonic-core",
  "reqwest",
  "ringbuf",
  "rodio",
@@ -3635,6 +3636,15 @@ dependencies = [
  "webkit2gtk",
  "windows 0.62.2",
  "zbus 5.15.0",
+]
+
+[[package]]
+name = "psysonic-core"
+version = "1.46.0-dev"
+dependencies = [
+ "libc",
+ "serde",
+ "tauri",
 ]
 
 [[package]]

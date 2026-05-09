@@ -1,13 +1,22 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "1.46.0-dev"
+edition = "2021"
+rust-version = "1.89"
+
 [package]
 name = "psysonic"
-version = "1.46.0-dev"
+version.workspace = true
 description = "Psysonic Desktop Music Player"
 authors = []
 license = ""
 repository = ""
 default-run = "psysonic"
-edition = "2021"
-rust-version = "1.89"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "psysonic_lib"
@@ -21,6 +30,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+psysonic-core = { path = "crates/psysonic-core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-shell = "2"

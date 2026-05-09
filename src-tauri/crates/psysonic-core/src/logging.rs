@@ -1,3 +1,10 @@
+//! Runtime logging facade.
+//!
+//! Provides level-gated `eprintln!` macros (`app_eprintln!` / `app_deprintln!`)
+//! that also append to a bounded in-memory ring buffer and a CLI-readable
+//! per-runtime log file. Live mode toggling at runtime via
+//! `set_logging_mode_from_str("off"|"normal"|"debug")`.
+
 #[cfg(unix)]
 use libc;
 use std::collections::VecDeque;
@@ -98,7 +105,7 @@ pub fn export_logs_to_file(path: &str) -> Result<usize, String> {
     Ok(lines)
 }
 
-pub(crate) fn log_timestamp_local() -> String {
+pub fn log_timestamp_local() -> String {
     let now = ::std::time::SystemTime::now()
         .duration_since(::std::time::UNIX_EPOCH)
         .unwrap_or_default();

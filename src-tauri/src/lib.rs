@@ -6,8 +6,10 @@ mod analysis_cache;
 mod analysis_runtime;
 pub mod cli;
 mod discord;
-pub(crate) mod logging;
 mod lib_commands;
+
+pub use psysonic_core::logging;
+pub use psysonic_core::{app_eprintln, app_deprintln};
 #[cfg(target_os = "windows")]
 mod taskbar_win;
 mod tray_runtime;
