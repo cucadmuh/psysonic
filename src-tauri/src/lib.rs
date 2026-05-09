@@ -1,29 +1,30 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod audio;
-mod analysis_cache;
 pub mod cli;
-mod discord;
-pub(crate) mod logging;
 mod lib_commands;
+
+pub use psysonic_integration::discord;
+
+pub use psysonic_core::logging;
+pub use psysonic_core::{app_eprintln, app_deprintln};
+pub use psysonic_core::user_agent::{
+    default_subsonic_wire_user_agent, runtime_subsonic_wire_user_agent, subsonic_wire_user_agent,
+};
+pub use psysonic_analysis::{analysis_cache, analysis_runtime};
+pub use psysonic_audio as audio;
+pub use psysonic_syncfs::{sync_cancel_flags, DownloadSemaphore};
 #[cfg(target_os = "windows")]
 mod taskbar_win;
+mod tray_runtime;
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
+pub(crate) use tray_runtime::*;
 
-use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
-};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use tauri::{Emitter, Manager};
 use lib_commands::*;
-// MouseButtonState is only matched on non-Windows targets — on Windows the
-// tray uses DoubleClick which doesn't carry a button_state.
-#[cfg(not(target_os = "windows"))]
-use tauri::tray::MouseButtonState;
 
 /// Tracks which user-configured shortcuts are currently registered (shortcut_str → action).
 /// Prevents on_shortcut() accumulating duplicate handlers across JS reloads (HMR / StrictMode).
@@ -33,577 +34,9 @@ type ShortcutMap = Mutex<HashMap<String, String>>;
 /// The frontend queues more tasks than this; Rust is the real throttle.
 const MAX_DL_CONCURRENCY: usize = 4;
 
-fn default_subsonic_wire_user_agent() -> String {
-    format!("psysonic/{}", env!("CARGO_PKG_VERSION"))
-}
-
-fn runtime_subsonic_wire_user_agent() -> &'static RwLock<String> {
-    static UA: OnceLock<RwLock<String>> = OnceLock::new();
-    UA.get_or_init(|| RwLock::new(default_subsonic_wire_user_agent()))
-}
-
-/// Unified outbound User-Agent for all Rust-side HTTP requests.
-/// It is initialized with `psysonic/<version>` and then overridden from
-/// the main WebView `navigator.userAgent` at app startup.
-pub(crate) fn subsonic_wire_user_agent() -> String {
-    runtime_subsonic_wire_user_agent()
-        .read()
-        .map(|ua| ua.clone())
-        .unwrap_or_else(|_| default_subsonic_wire_user_agent())
-}
-
-/// Shared semaphore that caps simultaneous `download_track_offline` executions.
-type DownloadSemaphore = Arc<tokio::sync::Semaphore>;
-
-/// Per-job cancellation flags for `sync_batch_to_device`.
-/// Each running sync registers an `Arc<AtomicBool>` here; `cancel_device_sync` flips it.
-fn sync_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-    static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
-    FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnalysisBackfillEnqueueKind {
-    /// New job at the tail of the queue.
-    NewBack,
-    /// New job for the currently playing track (head).
-    NewFront,
-    /// Same track was already waiting; moved to head with the latest URL.
-    ReorderedFront,
-    /// Low-priority duplicate while the track is already queued or running.
-    DuplicateSkipped,
-    /// High-priority request but that track is already being downloaded+seeded.
-    RunningSkipped,
-}
-
-#[derive(Default)]
-struct AnalysisBackfillQueueState {
-    deque: VecDeque<(String, String)>,
-    /// Set while this `track_id` is inside `analysis_backfill_download_and_seed` (not in deque).
-    in_progress: Option<String>,
-}
-
-impl AnalysisBackfillQueueState {
-    fn is_reserved(&self, tid: &str) -> bool {
-        self.in_progress.as_deref() == Some(tid)
-            || self.deque.iter().any(|(t, _)| t.as_str() == tid)
-    }
-
-    fn try_pop_next(&mut self) -> Option<(String, String)> {
-        let (tid, url) = self.deque.pop_front()?;
-        self.in_progress = Some(tid.clone());
-        Some((tid, url))
-    }
-
-    fn finish_job(&mut self, tid: &str) {
-        if self.in_progress.as_deref() == Some(tid) {
-            self.in_progress = None;
-        }
-    }
-
-    fn enqueue(
-        &mut self,
-        tid: String,
-        url: String,
-        high_priority: bool,
-    ) -> AnalysisBackfillEnqueueKind {
-        let tref = tid.as_str();
-        if self.is_reserved(tref) {
-            if !high_priority {
-                return AnalysisBackfillEnqueueKind::DuplicateSkipped;
-            }
-            if self.in_progress.as_deref() == Some(tref) {
-                return AnalysisBackfillEnqueueKind::RunningSkipped;
-            }
-            self.deque.retain(|(t, _)| t != &tid);
-            self.deque.push_front((tid, url));
-            return AnalysisBackfillEnqueueKind::ReorderedFront;
-        }
-        if high_priority {
-            self.deque.push_front((tid, url));
-            AnalysisBackfillEnqueueKind::NewFront
-        } else {
-            self.deque.push_back((tid, url));
-            AnalysisBackfillEnqueueKind::NewBack
-        }
-    }
-
-    fn prune_queued_not_in(&mut self, keep_track_ids: &HashSet<&str>) -> usize {
-        let before = self.deque.len();
-        self.deque
-            .retain(|(track_id, _)| keep_track_ids.contains(track_id.as_str()));
-        before.saturating_sub(self.deque.len())
-    }
-}
-
-struct AnalysisBackfillShared {
-    state: Mutex<AnalysisBackfillQueueState>,
-    wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
-}
-
-impl AnalysisBackfillShared {
-    fn ping_worker(&self) {
-        let _ = self.wake_tx.send(());
-    }
-}
-
-static ANALYSIS_BACKFILL: OnceLock<Arc<AnalysisBackfillShared>> = OnceLock::new();
-
-/// Lazily spawns the single backfill worker (first caller supplies `AppHandle`).
-fn analysis_backfill_shared(app: &tauri::AppHandle) -> Arc<AnalysisBackfillShared> {
-    ANALYSIS_BACKFILL
-        .get_or_init(|| {
-            let (wake_tx, wake_rx) = tokio::sync::mpsc::unbounded_channel();
-            let shared = Arc::new(AnalysisBackfillShared {
-                state: Mutex::new(AnalysisBackfillQueueState::default()),
-                wake_tx,
-            });
-            let app = app.clone();
-            let sh = shared.clone();
-            tauri::async_runtime::spawn(analysis_backfill_worker_loop(app, sh, wake_rx));
-            shared
-        })
-        .clone()
-}
-
-async fn analysis_backfill_download_and_seed(
-    app: &tauri::AppHandle,
-    track_id: &str,
-    url: &str,
-) -> Result<bool, String> {
-    let client = reqwest::Client::builder()
-        .user_agent(subsonic_wire_user_agent())
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status().as_u16()));
-    }
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    if bytes.is_empty() {
-        return Err("empty response".to_string());
-    }
-    enqueue_analysis_seed(app, track_id, &bytes).await
-}
-
-async fn analysis_backfill_worker_loop(
-    app: tauri::AppHandle,
-    shared: Arc<AnalysisBackfillShared>,
-    mut wake_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
-) {
-    loop {
-        if wake_rx.recv().await.is_none() {
-            break;
-        }
-        while let Some((track_id, url)) = {
-            let mut st = shared
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            st.try_pop_next()
-        } {
-            crate::app_deprintln!("[analysis] backfill worker: start track_id={}", track_id);
-            let result = analysis_backfill_download_and_seed(&app, &track_id, &url).await;
-            match &result {
-                Ok(has_loudness) => crate::app_deprintln!(
-                    "[analysis] backfill ready: {} (has_loudness={})",
-                    track_id,
-                    has_loudness
-                ),
-                Err(e) => crate::app_eprintln!("[analysis] backfill failed for {}: {}", track_id, e),
-            }
-            let mut st = shared
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            st.finish_job(&track_id);
-        }
-    }
-}
-
-fn analysis_backfill_is_current_track(app: &tauri::AppHandle, track_id: &str) -> bool {
-    app.try_state::<crate::audio::AudioEngine>()
-        .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
-}
-
-// ─── Full-track waveform + loudness: single CPU worker (mirrors HTTP backfill queue) ─
-// One `spawn_blocking` decode at a time; current playback is high-priority (front + reorder).
-// Same `track_id` queued again merges waiters onto one job; while decode runs, same-id
-// submitters attach to `running` followers so they all get the same outcome.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnalysisCpuSeedEnqueueKind {
-    NewBack,
-    NewFront,
-    ReorderedFront,
-    RunningFollower,
-    MergedQueued,
-}
-
-struct AnalysisCpuSeedJob {
-    track_id: String,
-    bytes: Vec<u8>,
-    waiters: Vec<tokio::sync::oneshot::Sender<Result<analysis_cache::SeedFromBytesOutcome, String>>>,
-}
-
-struct AnalysisCpuSeedQueueState {
-    deque: VecDeque<AnalysisCpuSeedJob>,
-    /// Decode in progress — same-id callers wait here for the same outcome.
-    running: Option<(
-        String,
-        Arc<Mutex<Vec<tokio::sync::oneshot::Sender<Result<analysis_cache::SeedFromBytesOutcome, String>>>>>,
-    )>,
-}
-
-impl AnalysisCpuSeedQueueState {
-    fn enqueue(
-        &mut self,
-        track_id: String,
-        bytes: Vec<u8>,
-        high_priority: bool,
-    ) -> (
-        AnalysisCpuSeedEnqueueKind,
-        tokio::sync::oneshot::Receiver<Result<analysis_cache::SeedFromBytesOutcome, String>>,
-    ) {
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-        let tid = track_id.as_str();
-
-        if let Some((rtid, followers)) = &self.running {
-            if rtid == tid {
-                followers
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .push(done_tx);
-                return (AnalysisCpuSeedEnqueueKind::RunningFollower, done_rx);
-            }
-        }
-
-        if let Some(pos) = self.deque.iter().position(|j| j.track_id == track_id) {
-            let mut job = self.deque.remove(pos).unwrap();
-            job.bytes = bytes;
-            job.waiters.push(done_tx);
-            let kind = if high_priority {
-                self.deque.push_front(job);
-                AnalysisCpuSeedEnqueueKind::ReorderedFront
-            } else {
-                self.deque.push_back(job);
-                AnalysisCpuSeedEnqueueKind::MergedQueued
-            };
-            return (kind, done_rx);
-        }
-
-        let job = AnalysisCpuSeedJob {
-            track_id: track_id.clone(),
-            bytes,
-            waiters: vec![done_tx],
-        };
-        let kind = if high_priority {
-            self.deque.push_front(job);
-            AnalysisCpuSeedEnqueueKind::NewFront
-        } else {
-            self.deque.push_back(job);
-            AnalysisCpuSeedEnqueueKind::NewBack
-        };
-        (kind, done_rx)
-    }
-
-    fn prune_queued_not_in(&mut self, keep_track_ids: &HashSet<&str>) -> (usize, usize) {
-        let mut kept = VecDeque::with_capacity(self.deque.len());
-        let mut removed_jobs = 0usize;
-        let mut removed_waiters = 0usize;
-        while let Some(job) = self.deque.pop_front() {
-            if keep_track_ids.contains(job.track_id.as_str()) {
-                kept.push_back(job);
-                continue;
-            }
-            removed_jobs += 1;
-            removed_waiters += job.waiters.len();
-            for tx in job.waiters {
-                let _ = tx.send(Err(
-                    "cpu-seed pruned: track no longer in playback queue".to_string(),
-                ));
-            }
-        }
-        self.deque = kept;
-        (removed_jobs, removed_waiters)
-    }
-}
-
-struct AnalysisCpuSeedShared {
-    state: Mutex<AnalysisCpuSeedQueueState>,
-    wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
-}
-
-impl Default for AnalysisCpuSeedQueueState {
-    fn default() -> Self {
-        Self {
-            deque: VecDeque::new(),
-            running: None,
-        }
-    }
-}
-
-impl AnalysisCpuSeedShared {
-    fn ping_worker(&self) {
-        let _ = self.wake_tx.send(());
-    }
-}
-
-static ANALYSIS_CPU_SEED: OnceLock<Arc<AnalysisCpuSeedShared>> = OnceLock::new();
-
-fn analysis_cpu_seed_shared(app: &tauri::AppHandle) -> Arc<AnalysisCpuSeedShared> {
-    ANALYSIS_CPU_SEED
-        .get_or_init(|| {
-            let (wake_tx, wake_rx) = tokio::sync::mpsc::unbounded_channel();
-            let shared = Arc::new(AnalysisCpuSeedShared {
-                state: Mutex::new(AnalysisCpuSeedQueueState::default()),
-                wake_tx,
-            });
-            let app = app.clone();
-            let sh = shared.clone();
-            tauri::async_runtime::spawn(analysis_cpu_seed_worker_loop(app, sh, wake_rx));
-            shared
-        })
-        .clone()
-}
-
-/// HTTP backfill + CPU seed queue sizes (debug log only — `app_deprintln!`).
-fn emit_analysis_queue_snapshot_line() {
-    let http = if let Some(arc) = ANALYSIS_BACKFILL.get() {
-        let st = arc.state.lock().unwrap_or_else(|e| e.into_inner());
-        format!(
-            "http_backfill={{queued:{} download_active:{:?}}}",
-            st.deque.len(),
-            st.in_progress.as_deref()
-        )
-    } else {
-        "http_backfill={{not_started}}".to_string()
-    };
-
-    let cpu = if let Some(arc) = ANALYSIS_CPU_SEED.get() {
-        let st = arc.state.lock().unwrap_or_else(|e| e.into_inner());
-        let queued_jobs = st.deque.len();
-        let pending_in_queued_jobs: usize = st.deque.iter().map(|j| j.waiters.len()).sum();
-        let (decoding_tid, decoding_extra_waiters) = match &st.running {
-            Some((tid, fl)) => (
-                Some(tid.as_str()),
-                fl.lock().map(|g| g.len()).unwrap_or(0),
-            ),
-            None => (None, 0usize),
-        };
-        format!(
-            "cpu_seed={{queued_jobs:{} pending_channels_in_queue:{} decoding_tid:{:?} extra_waiters_same_id:{}}}",
-            queued_jobs,
-            pending_in_queued_jobs,
-            decoding_tid,
-            decoding_extra_waiters
-        )
-    } else {
-        "cpu_seed={{not_started}}".to_string()
-    };
-
-    crate::app_deprintln!(
-        "[analysis] queue_snapshot interval_s=60 note=queues_in_memory_cleared_on_app_restart | {http} | {cpu}"
-    );
-}
-
-async fn analysis_queue_snapshot_loop() {
-    emit_analysis_queue_snapshot_line();
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        emit_analysis_queue_snapshot_line();
-    }
-}
-
-async fn analysis_cpu_seed_worker_loop(
-    app: tauri::AppHandle,
-    shared: Arc<AnalysisCpuSeedShared>,
-    mut wake_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
-) {
-    loop {
-        if wake_rx.recv().await.is_none() {
-            break;
-        }
-        loop {
-            let (job, followers) = {
-                let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-                let Some(j) = st.deque.pop_front() else {
-                    break;
-                };
-                let fl = Arc::new(Mutex::new(Vec::new()));
-                st.running = Some((j.track_id.clone(), fl.clone()));
-                (j, fl)
-            };
-            let tid_log = job.track_id.clone();
-            let app2 = app.clone();
-            let tid = job.track_id.clone();
-            let bytes = job.bytes;
-            let outcome = tokio::task::spawn_blocking(move || {
-                analysis_cache::seed_from_bytes_execute(&app2, &tid, &bytes)
-            })
-            .await
-            .unwrap_or_else(|e| Err(format!("cpu-seed spawn_blocking: {e}")));
-
-            let mut extra = followers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .drain(..)
-                .collect::<Vec<_>>();
-            for tx in job.waiters {
-                let _ = tx.send(outcome.clone());
-            }
-            for tx in extra.drain(..) {
-                let _ = tx.send(outcome.clone());
-            }
-
-            {
-                let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-                st.running = None;
-            }
-            let ok = outcome.as_ref().map(|o| *o == analysis_cache::SeedFromBytesOutcome::Upserted).unwrap_or(false);
-            crate::app_deprintln!(
-                "[analysis] cpu-seed worker: done track_id={} upserted={}",
-                tid_log,
-                ok
-            );
-        }
-    }
-}
-
-/// Submit full-buffer analysis; serializes with other producers. `high_priority` mirrors
-/// HTTP backfill head insertion for the currently playing track.
-///
-/// Emits `analysis:waveform-updated` when analysis **wrote** new waveform data (`Upserted`).
-/// Cache-hit skips (`SkippedWaveformCacheHit`) omit the event so the frontend does not
-/// re-run loudness refresh / waveform IPC for rows that were already current.
-pub(crate) async fn submit_analysis_cpu_seed(
-    app: tauri::AppHandle,
-    track_id: String,
-    bytes: Vec<u8>,
-    high_priority: bool,
-) -> Result<analysis_cache::SeedFromBytesOutcome, String> {
-    let shared = analysis_cpu_seed_shared(&app);
-    let rx = {
-        let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-        let (kind, rx) = st.enqueue(track_id.clone(), bytes, high_priority);
-        crate::app_deprintln!("[analysis] cpu-seed submit: kind={kind:?} high_priority={high_priority}");
-        drop(st);
-        shared.ping_worker();
-        rx
-    };
-    let outcome = match rx.await {
-        Ok(res) => res?,
-        Err(_) => return Err("cpu-seed: result channel dropped".to_string()),
-    };
-    if matches!(outcome, analysis_cache::SeedFromBytesOutcome::Upserted) {
-        let _ = app.emit(
-            "analysis:waveform-updated",
-            WaveformUpdatedPayload {
-                track_id: track_id.clone(),
-                is_partial: false,
-            },
-        );
-    }
-    Ok(outcome)
-}
-
-/// Holds the live system-tray icon handle.  `None` means the tray is currently hidden/removed.
-/// Dropping the inner `TrayIcon` fully removes it from the OS notification area on all platforms.
-type TrayState = Mutex<Option<TrayIcon>>;
-
-/// Cached tray tooltip text. Updated by `set_tray_tooltip` and re-applied when the
-/// icon is rebuilt (e.g. after the user toggles the tray off and on again).
-/// Empty string means "use the default `Psysonic` tooltip".
-type TrayTooltip = Mutex<String>;
-
-#[derive(Default)]
-struct TrayPlaybackState(Mutex<String>);
-
-fn tray_state_icon(state: &str) -> &'static str {
-    match state {
-        "play" => "▶",
-        "pause" => "⏸",
-        _ => "⏹",
-    }
-}
-
-/// Handles to all updatable tray menu items, kept around so `set_tray_menu_labels`
-/// (i18n refresh) and `set_tray_tooltip` (track change) can re-text them without
-/// rebuilding the whole tray icon. The `now_playing` slot is `Some` on Linux
-/// only — it surfaces the current track as a disabled menu entry because
-/// AppIndicator has no hover tooltip API.
-struct TrayMenuItems {
-    play_pause: tauri::menu::MenuItem<tauri::Wry>,
-    next: tauri::menu::MenuItem<tauri::Wry>,
-    previous: tauri::menu::MenuItem<tauri::Wry>,
-    show_hide: tauri::menu::MenuItem<tauri::Wry>,
-    quit: tauri::menu::MenuItem<tauri::Wry>,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    now_playing: Option<tauri::menu::MenuItem<tauri::Wry>>,
-}
-
-type TrayMenuItemsState = Mutex<Option<TrayMenuItems>>;
-
-/// Cached translations for the tray menu. Defaults to English so the menu has
-/// readable labels before the frontend has had a chance to run `set_tray_menu_labels`.
-#[derive(Clone)]
-struct TrayMenuLabels {
-    play_pause: String,
-    next: String,
-    previous: String,
-    show_hide: String,
-    quit: String,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    nothing_playing: String,
-}
-
-impl Default for TrayMenuLabels {
-    fn default() -> Self {
-        Self {
-            play_pause: "Play / Pause".into(),
-            next: "Next Track".into(),
-            previous: "Previous Track".into(),
-            show_hide: "Show / Hide".into(),
-            quit: "Exit Psysonic".into(),
-            nothing_playing: "Nothing playing".into(),
-        }
-    }
-}
-
-type TrayMenuLabelsState = Mutex<TrayMenuLabels>;
-
 /// Shared handle to OS media controls (MPRIS2 on Linux, Now Playing on macOS, SMTC on Windows).
 /// `None` if souvlaki failed to initialize (e.g. no D-Bus session on Linux).
 type MprisControls = Mutex<Option<souvlaki::MediaControls>>;
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WaveformCachePayload {
-    bins: Vec<u8>,
-    bin_count: i64,
-    is_partial: bool,
-    known_until_sec: f64,
-    duration_sec: f64,
-    updated_at: i64,
-}
-
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WaveformUpdatedPayload {
-    track_id: String,
-    is_partial: bool,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LoudnessCachePayload {
-    integrated_lufs: f64,
-    true_peak: f64,
-    recommended_gain_db: f64,
-    target_lufs: f64,
-    updated_at: i64,
-}
 
 pub fn run() {
     // Linux: second `psysonic --player …` forwards over D-Bus before heavy startup.
@@ -670,8 +103,30 @@ pub fn run() {
                 app.manage(cache);
             }
 
+            // ── Playback-query port (analysis → audio back-edge) ──────────
+            // Two closures, each capturing an AppHandle, so analysis_runtime
+            // can ask AudioEngine playback questions without depending on the
+            // audio crate.
+            {
+                let app_is_playing = app.handle().clone();
+                let app_defer = app.handle().clone();
+                let handle = psysonic_core::ports::PlaybackQueryHandle::new(
+                    move |track_id| {
+                        app_is_playing
+                            .try_state::<crate::audio::AudioEngine>()
+                            .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
+                    },
+                    move |track_id| {
+                        app_defer
+                            .try_state::<crate::audio::AudioEngine>()
+                            .is_some_and(|e| crate::audio::ranged_loudness_backfill_should_defer(&e, track_id))
+                    },
+                );
+                app.manage(handle);
+            }
+
             // Periodic analysis queue sizes (debug logging mode only).
-            tauri::async_runtime::spawn(analysis_queue_snapshot_loop());
+            tauri::async_runtime::spawn(psysonic_analysis::analysis_runtime::analysis_queue_snapshot_loop());
 
             // ── Custom title bar on Linux ─────────────────────────────────
             // Remove OS window decorations on all Linux so the React TitleBar
@@ -873,7 +328,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
-            calculate_sync_payload,
+            psysonic_syncfs::sync::batch::calculate_sync_payload,
             exit_app,
             cli_publish_player_snapshot,
             cli_publish_library_list,
@@ -901,96 +356,97 @@ pub fn run() {
             mpris_set_metadata,
             mpris_set_playback,
             audio::commands::audio_play,
-            audio::commands::audio_pause,
-            audio::commands::audio_resume,
-            audio::commands::audio_stop,
-            audio::commands::audio_seek,
-            audio::commands::audio_set_volume,
-            audio::commands::audio_update_replay_gain,
-            audio::commands::audio_set_eq,
-            audio::commands::autoeq_entries,
-            audio::commands::autoeq_fetch_profile,
-            audio::commands::audio_preload,
-            audio::commands::audio_play_radio,
+            audio::transport_commands::audio_pause,
+            audio::transport_commands::audio_resume,
+            audio::transport_commands::audio_stop,
+            audio::transport_commands::audio_seek,
+            audio::mix_commands::audio_set_volume,
+            audio::mix_commands::audio_update_replay_gain,
+            audio::mix_commands::audio_set_eq,
+            audio::autoeq_commands::autoeq_entries,
+            audio::autoeq_commands::autoeq_fetch_profile,
+            audio::preload_commands::audio_preload,
+            audio::radio_commands::audio_play_radio,
             audio::preview::audio_preview_play,
             audio::preview::audio_preview_stop,
             audio::preview::audio_preview_stop_silent,
             audio::preview::audio_preview_set_volume,
-            audio::commands::audio_set_crossfade,
-            audio::commands::audio_set_gapless,
-            audio::commands::audio_set_normalization,
-            audio::commands::audio_list_devices,
-            audio::commands::audio_canonicalize_selected_device,
-            audio::commands::audio_default_output_device_name,
-            audio::commands::audio_set_device,
+            audio::mix_commands::audio_set_crossfade,
+            audio::mix_commands::audio_set_gapless,
+            audio::mix_commands::audio_set_normalization,
+            audio::device_commands::audio_list_devices,
+            audio::device_commands::audio_canonicalize_selected_device,
+            audio::device_commands::audio_default_output_device_name,
+            audio::device_commands::audio_set_device,
             audio::commands::audio_chain_preload,
-            discord::discord_update_presence,
-            discord::discord_clear_presence,
-            lastfm_request,
-            upload_playlist_cover,
-            upload_radio_cover,
-            upload_artist_image,
-            delete_radio_cover,
-            navidrome_login,
-            nd_list_users,
-            nd_create_user,
-            nd_update_user,
-            nd_delete_user,
-            nd_list_libraries,
-            nd_list_songs,
-            nd_list_artists_by_role,
-            nd_list_albums_by_artist_role,
-            nd_set_user_libraries,
-            nd_list_playlists,
-            nd_create_playlist,
-            nd_update_playlist,
-            nd_get_playlist,
-            nd_delete_playlist,
-            nd_get_song_path,
-            search_radio_browser,
-            get_top_radio_stations,
-            fetch_url_bytes,
-            fetch_json_url,
-            fetch_icy_metadata,
-            resolve_stream_url,
-            analysis_get_waveform,
-            analysis_get_waveform_for_track,
-            analysis_get_loudness_for_track,
-            analysis_delete_loudness_for_track,
-            analysis_delete_all_waveforms,
-            analysis_enqueue_seed_from_url,
-            analysis_prune_pending_to_track_ids,
-            download_track_offline,
-            delete_offline_track,
-            get_offline_cache_size,
-            download_track_hot_cache,
-            promote_stream_cache_to_hot_cache,
-            get_hot_cache_size,
-            delete_hot_cache_track,
-            purge_hot_cache,
-            sync_track_to_device,
-            sync_batch_to_device,
-            cancel_device_sync,
-            compute_sync_paths,
-            list_device_dir_files,
-            delete_device_file,
-            delete_device_files,
-            get_removable_drives,
-            write_device_manifest,
-            read_device_manifest,
-            write_playlist_m3u8,
-            rename_device_files,
+            psysonic_integration::discord::discord_update_presence,
+            psysonic_integration::discord::discord_clear_presence,
+            psysonic_integration::remote::lastfm_request,
+            psysonic_integration::navidrome::covers::upload_playlist_cover,
+            psysonic_integration::navidrome::covers::upload_radio_cover,
+            psysonic_integration::navidrome::covers::upload_artist_image,
+            psysonic_integration::navidrome::covers::delete_radio_cover,
+            psysonic_integration::navidrome::users::navidrome_login,
+            psysonic_integration::navidrome::users::nd_list_users,
+            psysonic_integration::navidrome::users::nd_create_user,
+            psysonic_integration::navidrome::users::nd_update_user,
+            psysonic_integration::navidrome::users::nd_delete_user,
+            psysonic_integration::navidrome::queries::nd_list_libraries,
+            psysonic_integration::navidrome::queries::nd_list_songs,
+            psysonic_integration::navidrome::queries::nd_list_artists_by_role,
+            psysonic_integration::navidrome::queries::nd_list_albums_by_artist_role,
+            psysonic_integration::navidrome::queries::nd_set_user_libraries,
+            psysonic_integration::navidrome::playlists::nd_list_playlists,
+            psysonic_integration::navidrome::playlists::nd_create_playlist,
+            psysonic_integration::navidrome::playlists::nd_update_playlist,
+            psysonic_integration::navidrome::playlists::nd_get_playlist,
+            psysonic_integration::navidrome::playlists::nd_delete_playlist,
+            psysonic_integration::navidrome::queries::nd_get_song_path,
+            psysonic_integration::remote::search_radio_browser,
+            psysonic_integration::remote::get_top_radio_stations,
+            psysonic_integration::remote::fetch_url_bytes,
+            psysonic_integration::remote::fetch_json_url,
+            psysonic_integration::remote::fetch_icy_metadata,
+            psysonic_integration::remote::resolve_stream_url,
+            psysonic_analysis::commands::analysis_get_waveform,
+            psysonic_analysis::commands::analysis_get_waveform_for_track,
+            psysonic_analysis::commands::analysis_get_loudness_for_track,
+            psysonic_analysis::commands::analysis_delete_loudness_for_track,
+            psysonic_analysis::commands::analysis_delete_waveform_for_track,
+            psysonic_analysis::commands::analysis_delete_all_waveforms,
+            psysonic_analysis::commands::analysis_enqueue_seed_from_url,
+            psysonic_analysis::commands::analysis_prune_pending_to_track_ids,
+            psysonic_syncfs::cache::offline::download_track_offline,
+            psysonic_syncfs::cache::offline::delete_offline_track,
+            psysonic_syncfs::cache::offline::get_offline_cache_size,
+            psysonic_syncfs::cache::hot::download_track_hot_cache,
+            psysonic_syncfs::cache::hot::promote_stream_cache_to_hot_cache,
+            psysonic_syncfs::cache::hot::get_hot_cache_size,
+            psysonic_syncfs::cache::hot::delete_hot_cache_track,
+            psysonic_syncfs::cache::hot::purge_hot_cache,
+            psysonic_syncfs::sync::device::sync_track_to_device,
+            psysonic_syncfs::sync::batch::sync_batch_to_device,
+            psysonic_syncfs::sync::batch::cancel_device_sync,
+            psysonic_syncfs::sync::device::compute_sync_paths,
+            psysonic_syncfs::sync::batch::list_device_dir_files,
+            psysonic_syncfs::sync::batch::delete_device_file,
+            psysonic_syncfs::sync::batch::delete_device_files,
+            psysonic_syncfs::sync::device::get_removable_drives,
+            psysonic_syncfs::sync::device::write_device_manifest,
+            psysonic_syncfs::sync::device::read_device_manifest,
+            psysonic_syncfs::sync::device::write_playlist_m3u8,
+            psysonic_syncfs::sync::device::rename_device_files,
             toggle_tray_icon,
             set_tray_tooltip,
             set_tray_menu_labels,
             check_dir_accessible,
-            download_zip,
-            check_arch_linux,
-            download_update,
-            open_folder,
-            get_embedded_lyrics,
-            fetch_netease_lyrics,
-            fetch_bandsintown_events,
+            psysonic_syncfs::cache::downloads::download_zip,
+            psysonic_syncfs::cache::downloads::check_arch_linux,
+            psysonic_syncfs::cache::downloads::download_update,
+            psysonic_syncfs::cache::downloads::open_folder,
+            psysonic_syncfs::cache::downloads::get_embedded_lyrics,
+            psysonic_syncfs::cache::downloads::fetch_netease_lyrics,
+            psysonic_integration::bandsintown::fetch_bandsintown_events,
             #[cfg(target_os = "windows")]
             taskbar_win::update_taskbar_icon,
         ])

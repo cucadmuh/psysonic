@@ -814,8 +814,8 @@ function QueuePanelHostOrSolo() {
                           setLufsTgtOpen(false);
                           void reanalyzeLoudnessForTrack(currentTrack.id);
                         }}
-                        data-tooltip="Clear cached loudness and re-analyze this track"
-                        aria-label="Clear cached loudness and re-analyze this track"
+                        data-tooltip={t('queue.clearCachedLoudnessWaveform')}
+                        aria-label={t('queue.clearCachedLoudnessWaveform')}
                       >
                         {liveGainLabel}
                       </button>

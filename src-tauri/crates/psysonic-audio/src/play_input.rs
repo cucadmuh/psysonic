@@ -1,0 +1,543 @@
+//! Source-selection logic for `audio_play`: given a URL + various caches +
+//! Subsonic hints, decide whether to play from in-memory bytes, a seekable
+//! local file, a seekable RangedHttpSource, or a non-seekable streaming reader.
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use ringbuf::traits::Split;
+use ringbuf::{HeapCons, HeapRb};
+use symphonia::core::io::MediaSource;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use super::decode::{build_source, build_streaming_source, BuiltSource, SizedDecoder};
+use super::engine::{audio_http_client, AudioEngine};
+use super::helpers::{
+    content_type_to_hint, fetch_data, format_hint_from_content_disposition,
+    normalize_stream_suffix_for_hint, sniff_stream_format_extension,
+    spawn_analysis_seed_from_in_memory_bytes, same_playback_target,
+    STREAM_FORMAT_SNIFF_PROBE_BYTES,
+};
+use super::stream::{
+    ranged_download_task, track_download_task, AudioStreamReader,
+    LocalFileSource, RangedHttpSource, LOCAL_FILE_PLAYBACK_SEED_MAX_BYTES,
+    RADIO_READ_TIMEOUT_SECS, TRACK_STREAM_MAX_BUF_CAPACITY, TRACK_STREAM_MIN_BUF_CAPACITY,
+};
+
+/// What `audio_play` will hand to `build_source` / `build_streaming_source`.
+pub(super) enum PlayInput {
+    Bytes(Vec<u8>),
+    /// Seekable on-demand source — `RangedHttpSource` for HTTP streams,
+    /// `LocalFileSource` for `psysonic-local://` files. Goes through
+    /// `build_streaming_source` (no iTunSMPB scan, since we don't have the
+    /// bytes in memory; chained-track gapless trim still applies via the
+    /// re-played `Bytes` path on the next start).
+    SeekableMedia {
+        reader: Box<dyn MediaSource>,
+        format_hint: Option<String>,
+        tag: &'static str,
+    },
+    Streaming {
+        reader: AudioStreamReader,
+        format_hint: Option<String>,
+    },
+}
+
+/// Inputs `audio_play` has already computed before source selection.
+pub(super) struct PlayInputContext<'a> {
+    pub url: &'a str,
+    pub gen: u64,
+    pub duration_hint: f64,
+    pub stream_format_suffix: Option<&'a str>,
+    pub format_hint: Option<&'a str>,
+    pub cache_id_for_tasks: Option<&'a str>,
+    /// `Some(bytes)` when manual-skip onto a pre-chained track reuses bytes
+    /// from the chained-info block.
+    pub reuse_chained_bytes: Option<Vec<u8>>,
+}
+
+/// Resolves the play input for `audio_play` honouring (in priority order):
+/// 1. Reused chained bytes — manual skip onto pre-chained track.
+/// 2. `psysonic-local://` files — open as seekable LocalFileSource.
+/// 3. Remote HTTP without preload/stream-cache hit — try ranged HTTP, fall
+///    back to non-seekable AudioStreamReader.
+/// 4. Preload/stream-cache hit — replay in-memory bytes via `fetch_data`.
+///
+/// Returns `Ok(None)` when the operation was superseded by a later
+/// `audio_play` call (generation bump) — caller should bail out silently.
+pub(super) async fn select_play_input(
+    ctx: PlayInputContext<'_>,
+    state: &State<'_, AudioEngine>,
+    app: &AppHandle,
+) -> Result<Option<PlayInput>, String> {
+    if let Some(d) = ctx.reuse_chained_bytes {
+        spawn_analysis_seed_from_in_memory_bytes(
+            app,
+            ctx.cache_id_for_tasks,
+            ctx.gen,
+            &state.generation,
+            &d,
+        );
+        return Ok(Some(PlayInput::Bytes(d)));
+    }
+
+    let stream_cache_hit = {
+        let streamed = state.stream_completed_cache.lock().unwrap();
+        streamed
+            .as_ref()
+            .is_some_and(|p| same_playback_target(&p.url, ctx.url))
+    };
+    let preloaded_hit = {
+        let preloaded = state.preloaded.lock().unwrap();
+        preloaded
+            .as_ref()
+            .is_some_and(|p| same_playback_target(&p.url, ctx.url))
+    };
+    let is_local = ctx.url.starts_with("psysonic-local://");
+
+    if is_local && !stream_cache_hit && !preloaded_hit {
+        return Ok(Some(open_local_file_input(&ctx, state, app)?));
+    }
+    if !stream_cache_hit && !preloaded_hit && !is_local {
+        return open_ranged_or_streaming_input(&ctx, state, app).await;
+    }
+
+    // Preloaded or stream-cache hit → replay in-memory bytes.
+    let data = match fetch_data(ctx.url, state, ctx.gen, app).await? {
+        Some(d) => d,
+        None => return Ok(None), // superseded while downloading
+    };
+    spawn_analysis_seed_from_in_memory_bytes(
+        app,
+        ctx.cache_id_for_tasks,
+        ctx.gen,
+        &state.generation,
+        &data,
+    );
+    Ok(Some(PlayInput::Bytes(data)))
+}
+
+/// `psysonic-local://<path>` → seekable `LocalFileSource`. Spawns a
+/// background CPU-seed for the analysis cache when the file is small
+/// enough (skipped if the cache already has a row for this track).
+fn open_local_file_input(
+    ctx: &PlayInputContext<'_>,
+    state: &State<'_, AudioEngine>,
+    app: &AppHandle,
+) -> Result<PlayInput, String> {
+    let path = ctx.url.strip_prefix("psysonic-local://").unwrap();
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let local_hint = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase());
+    crate::app_deprintln!(
+        "[stream] LocalFileSource selected — size={} KB, hint={:?}",
+        len / 1024,
+        local_hint
+    );
+    if let Some(seed_id) = ctx.cache_id_for_tasks {
+        let skip_cpu_seed = app
+            .try_state::<psysonic_analysis::analysis_cache::AnalysisCache>()
+            .map(|c| c.cpu_seed_redundant_for_track(seed_id).unwrap_or(false))
+            .unwrap_or(false);
+        if !skip_cpu_seed {
+            let path_owned = std::path::PathBuf::from(path);
+            let app_seed = app.clone();
+            let gen_seed = ctx.gen;
+            let gen_arc_seed = state.generation.clone();
+            let seed_id = seed_id.to_string();
+            tokio::spawn(async move {
+                if gen_arc_seed.load(Ordering::SeqCst) != gen_seed {
+                    return;
+                }
+                let data = match tokio::fs::read(&path_owned).await {
+                    Ok(d) => d,
+                    Err(_) => return,
+                };
+                if gen_arc_seed.load(Ordering::SeqCst) != gen_seed {
+                    return;
+                }
+                if data.is_empty() || data.len() > LOCAL_FILE_PLAYBACK_SEED_MAX_BYTES {
+                    crate::app_deprintln!(
+                        "[stream] psysonic-local: skip analysis seed track_id={} bytes={} (over {} MiB cap)",
+                        seed_id,
+                        data.len(),
+                        LOCAL_FILE_PLAYBACK_SEED_MAX_BYTES / (1024 * 1024)
+                    );
+                    return;
+                }
+                crate::app_deprintln!(
+                    "[stream] psysonic-local: file read complete track_id={} size_mib={:.2} — full-track analysis (cpu-seed queue)",
+                    seed_id,
+                    data.len() as f64 / (1024.0 * 1024.0)
+                );
+                let high = crate::engine::analysis_seed_high_priority_for_track(&app_seed, &seed_id);
+                if let Err(e) =
+                    psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app_seed.clone(), seed_id.clone(), data, high).await
+                {
+                    crate::app_eprintln!(
+                        "[analysis] local-file seed failed for {}: {}",
+                        seed_id,
+                        e
+                    );
+                }
+            });
+        }
+    }
+    let reader = LocalFileSource { file, len };
+    Ok(PlayInput::SeekableMedia {
+        reader: Box::new(reader),
+        format_hint: local_hint,
+        tag: "local-file",
+    })
+}
+
+/// Manual or auto-advance starts that aren't already cached: try ranged HTTP
+/// (seekable) first, fall back to a non-seekable `AudioStreamReader` if the
+/// server doesn't advertise byte-range support or a length.
+async fn open_ranged_or_streaming_input(
+    ctx: &PlayInputContext<'_>,
+    state: &State<'_, AudioEngine>,
+    app: &AppHandle,
+) -> Result<Option<PlayInput>, String> {
+    let response = audio_http_client(state).get(ctx.url).send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        if state.generation.load(Ordering::SeqCst) != ctx.gen {
+            return Ok(None); // superseded
+        }
+        let status = response.status().as_u16();
+        let msg = format!("HTTP {status}");
+        app.emit("audio:error", &msg).ok();
+        return Err(msg);
+    }
+
+    let mut stream_hint = content_type_to_hint(
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(""),
+    )
+    .or_else(|| {
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(format_hint_from_content_disposition)
+    })
+    .or_else(|| normalize_stream_suffix_for_hint(ctx.stream_format_suffix))
+    .or_else(|| ctx.format_hint.map(|s| s.to_string()));
+
+    let supports_range = response.headers()
+        .get(reqwest::header::ACCEPT_RANGES)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().contains("bytes"));
+    let total_size = response.content_length();
+
+    if stream_hint.is_none() && supports_range {
+        if let Some(total_u64) = total_size.filter(|&t| t > 0) {
+            let last = total_u64
+                .saturating_sub(1)
+                .min((STREAM_FORMAT_SNIFF_PROBE_BYTES - 1) as u64);
+            if let Ok(pr) = audio_http_client(state)
+                .get(ctx.url)
+                .header(reqwest::header::RANGE, format!("bytes=0-{last}"))
+                .send()
+                .await
+            {
+                let stat = pr.status();
+                let ok = stat == reqwest::StatusCode::PARTIAL_CONTENT
+                    || stat == reqwest::StatusCode::OK;
+                if ok {
+                    match pr.bytes().await {
+                        Ok(bytes) if !bytes.is_empty() => {
+                            stream_hint = sniff_stream_format_extension(&bytes).or(stream_hint);
+                            if stream_hint.is_some() {
+                                crate::app_deprintln!(
+                                    "[stream] ranged: format sniff from {} B prefix → hint={:?}",
+                                    bytes.len(),
+                                    stream_hint
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Guardrail: when format/container hint is unknown, some demuxers may
+    // seek near EOF during probe. With a progressively downloaded ranged
+    // source that can delay first audible samples until most/all bytes are
+    // fetched. Prefer sequential streaming in that case for faster start.
+    if let (true, Some(total), true) = (supports_range, total_size, stream_hint.is_some()) {
+        let total_usize = total as usize;
+        crate::app_deprintln!(
+            "[stream] RangedHttpSource selected — total={} KB, hint={:?}",
+            total_usize / 1024,
+            stream_hint
+        );
+        let buf = Arc::new(Mutex::new(vec![0u8; total_usize]));
+        let downloaded_to = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicBool::new(false));
+        let loudness_hold_for_defer = (total_usize <= super::stream::TRACK_STREAM_PROMOTE_MAX_BYTES)
+            .then_some(state.ranged_loudness_seed_hold.clone());
+        tokio::spawn(ranged_download_task(
+            ctx.gen,
+            state.generation.clone(),
+            audio_http_client(state),
+            app.clone(),
+            ctx.duration_hint,
+            ctx.url.to_string(),
+            response,
+            buf.clone(),
+            downloaded_to.clone(),
+            done.clone(),
+            state.stream_completed_cache.clone(),
+            state.normalization_engine.clone(),
+            state.normalization_target_lufs.clone(),
+            state.loudness_pre_analysis_attenuation_db.clone(),
+            ctx.cache_id_for_tasks.map(|s| s.to_string()),
+            loudness_hold_for_defer,
+        ));
+        let reader = RangedHttpSource {
+            buf,
+            downloaded_to,
+            total_size: total,
+            pos: 0,
+            done,
+            gen_arc: state.generation.clone(),
+            gen: ctx.gen,
+        };
+        return Ok(Some(PlayInput::SeekableMedia {
+            reader: Box::new(reader),
+            format_hint: stream_hint,
+            tag: "ranged-stream",
+        }));
+    }
+
+    // Legacy non-seekable streaming reader fallback.
+    crate::app_deprintln!(
+        "[stream] legacy AudioStreamReader (non-seekable) — accept-ranges={}, content-length={:?}, hint={:?}",
+        supports_range, total_size, stream_hint
+    );
+    let buffer_cap = total_size
+        .map(|n| n as usize)
+        .unwrap_or(TRACK_STREAM_MIN_BUF_CAPACITY)
+        .clamp(TRACK_STREAM_MIN_BUF_CAPACITY, TRACK_STREAM_MAX_BUF_CAPACITY);
+    let rb = HeapRb::<u8>::new(buffer_cap);
+    let (prod, cons) = rb.split();
+    let done = Arc::new(AtomicBool::new(false));
+    tokio::spawn(track_download_task(
+        ctx.gen,
+        state.generation.clone(),
+        audio_http_client(state),
+        app.clone(),
+        ctx.url.to_string(),
+        response,
+        prod,
+        done.clone(),
+        state.stream_completed_cache.clone(),
+        state.normalization_engine.clone(),
+        state.normalization_target_lufs.clone(),
+        state.loudness_pre_analysis_attenuation_db.clone(),
+        ctx.cache_id_for_tasks.map(|s| s.to_string()),
+    ));
+
+    let (_new_cons_tx, new_cons_rx) = std::sync::mpsc::channel::<HeapCons<u8>>();
+    let reader = AudioStreamReader {
+        cons: Mutex::new(cons),
+        new_cons_rx: Mutex::new(new_cons_rx),
+        deadline: std::time::Instant::now()
+            + Duration::from_secs(RADIO_READ_TIMEOUT_SECS),
+        gen_arc: state.generation.clone(),
+        gen: ctx.gen,
+        source_tag: "track-stream",
+        eof_when_empty: Some(done),
+        pos: 0,
+    };
+    Ok(Some(PlayInput::Streaming {
+        reader,
+        format_hint: stream_hint,
+    }))
+}
+
+/// Pulled out of the format_hint extraction block in `audio_play` — strip the
+/// query string first so Subsonic-style URLs (`stream.view?...&v=1.16.1&...`)
+/// don't latch onto random query-param substrings; only accept short
+/// alphanumeric tails that look like an actual audio extension.
+pub(super) fn url_format_hint(url: &str) -> Option<String> {
+    url.split('?').next()
+        .and_then(|path| path.rsplit('.').next())
+        .filter(|ext| {
+            (1..=5).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+                && matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "mp3" | "flac" | "ogg" | "oga" | "opus" | "m4a" | "mp4"
+                    | "aac" | "wav" | "wave" | "ape" | "wv" | "webm" | "mka"
+                )
+        })
+        .map(|s| s.to_lowercase())
+}
+
+/// Output of `build_source_from_play_input`: the wrapped rodio source plus
+/// whether the chosen source path is seekable (only the Streaming variant
+/// is not).
+pub(super) struct PlaybackSource {
+    pub(super) built: BuiltSource,
+    pub(super) is_seekable: bool,
+}
+
+/// State + decisions audio_play computed before the sink swap.
+pub(super) struct SinkSwapInputs {
+    pub(super) sink: Arc<rodio::Player>,
+    pub(super) duration_secs: f64,
+    pub(super) volume: f32,
+    pub(super) gain_linear: f32,
+    pub(super) fadeout_trigger: Arc<AtomicBool>,
+    pub(super) fadeout_samples: Arc<std::sync::atomic::AtomicU64>,
+    pub(super) crossfade_enabled: bool,
+    pub(super) actual_fade_secs: f32,
+}
+
+/// Atomically swap the new sink into `state.current`, then handle the old
+/// sink: trigger sample-level fade-out (crossfade enabled) or stop it
+/// immediately (hard cut). The fade-out is handed off to a small spawned
+/// task that drops the old sink ~`actual_fade_secs + 0.5 s` later.
+pub(super) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapInputs) {
+    use std::time::Instant;
+
+    let SinkSwapInputs {
+        sink,
+        duration_secs,
+        volume,
+        gain_linear,
+        fadeout_trigger: new_fadeout_trigger,
+        fadeout_samples: new_fadeout_samples,
+        crossfade_enabled,
+        actual_fade_secs,
+    } = inputs;
+
+    let (old_sink, old_fadeout_trigger, old_fadeout_samples) = {
+        let mut cur = state.current.lock().unwrap();
+        let old = cur.sink.take();
+        let old_fo_trigger = cur.fadeout_trigger.take();
+        let old_fo_samples = cur.fadeout_samples.take();
+        cur.sink = Some(sink);
+        cur.duration_secs = duration_secs;
+        cur.seek_offset = 0.0;
+        cur.play_started = Some(Instant::now());
+        cur.paused_at = None;
+        cur.replay_gain_linear = gain_linear;
+        cur.base_volume = volume.clamp(0.0, 1.0);
+        cur.fadeout_trigger = Some(new_fadeout_trigger);
+        cur.fadeout_samples = Some(new_fadeout_samples);
+        (old, old_fo_trigger, old_fo_samples)
+    };
+
+    if crossfade_enabled {
+        if let Some(old) = old_sink {
+            // Trigger sample-level fade-out on Track A via TriggeredFadeOut.
+            // Calculate total fade samples from the measured actual_fade_secs.
+            let rate = state.current_sample_rate.load(Ordering::Relaxed);
+            let ch = state.current_channels.load(Ordering::Relaxed);
+            let fade_total = (actual_fade_secs as f64 * rate as f64 * ch as f64) as u64;
+
+            if let (Some(trigger), Some(samples)) = (old_fadeout_trigger, old_fadeout_samples) {
+                samples.store(fade_total.max(1), Ordering::SeqCst);
+                trigger.store(true, Ordering::SeqCst);
+            }
+
+            // Keep old sink alive until the fade completes + small margin,
+            // then drop it. No volume stepping needed — the fade-out runs
+            // at sample level inside the audio thread.
+            *state.fading_out_sink.lock().unwrap() = Some(old);
+            let fo_arc = state.fading_out_sink.clone();
+            let cleanup_dur = Duration::from_secs_f32(actual_fade_secs + 0.5);
+            tokio::spawn(async move {
+                tokio::time::sleep(cleanup_dur).await;
+                if let Some(s) = fo_arc.lock().unwrap().take() {
+                    s.stop();
+                }
+            });
+        }
+    } else if let Some(old) = old_sink {
+        old.stop();
+    }
+}
+
+/// Dispatch [`PlayInput`] → fully wrapped rodio source. For Bytes the full
+/// in-memory pipeline (incl. iTunSMPB scan); for SeekableMedia / Streaming
+/// the streaming variant runs the decoder build on a blocking thread.
+pub(super) async fn build_source_from_play_input(
+    play_input: PlayInput,
+    state: &State<'_, AudioEngine>,
+    format_hint: Option<&str>,
+    done_flag: Arc<AtomicBool>,
+    fade_in_dur: Duration,
+    hi_res_enabled: bool,
+    duration_hint: f64,
+) -> Result<PlaybackSource, String> {
+    // Always 0 — no application-level resampling. Rodio handles conversion to
+    // the output device rate internally; we let every track play at its native rate.
+    let target_rate: u32 = 0;
+    let mut is_seekable = true;
+    let built = match play_input {
+        PlayInput::Bytes(data) => build_source(
+            data,
+            duration_hint,
+            state.eq_gains.clone(),
+            state.eq_enabled.clone(),
+            state.eq_pre_gain.clone(),
+            done_flag,
+            fade_in_dur,
+            state.samples_played.clone(),
+            target_rate,
+            format_hint,
+            hi_res_enabled,
+        ),
+        PlayInput::SeekableMedia { reader, format_hint: media_hint, tag } => {
+            let decoder = tokio::task::spawn_blocking(move || {
+                SizedDecoder::new_streaming(reader, media_hint.as_deref(), tag)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            build_streaming_source(
+                decoder,
+                duration_hint,
+                state.eq_gains.clone(),
+                state.eq_enabled.clone(),
+                state.eq_pre_gain.clone(),
+                done_flag,
+                fade_in_dur,
+                state.samples_played.clone(),
+                target_rate,
+            )
+        }
+        PlayInput::Streaming { reader, format_hint: stream_hint } => {
+            is_seekable = false;
+            let decoder = tokio::task::spawn_blocking(move || {
+                SizedDecoder::new_streaming(Box::new(reader), stream_hint.as_deref(), "track-stream")
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            build_streaming_source(
+                decoder,
+                duration_hint,
+                state.eq_gains.clone(),
+                state.eq_enabled.clone(),
+                state.eq_pre_gain.clone(),
+                done_flag,
+                fade_in_dur,
+                state.samples_played.clone(),
+                target_rate,
+            )
+        }
+    }?;
+    Ok(PlaybackSource { built, is_seekable })
+}

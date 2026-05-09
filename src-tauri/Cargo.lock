@@ -3608,6 +3608,11 @@ dependencies = [
  "libc",
  "lofty",
  "md5",
+ "psysonic-analysis",
+ "psysonic-audio",
+ "psysonic-core",
+ "psysonic-integration",
+ "psysonic-syncfs",
  "reqwest",
  "ringbuf",
  "rodio",
@@ -3635,6 +3640,98 @@ dependencies = [
  "webkit2gtk",
  "windows 0.62.2",
  "zbus 5.15.0",
+]
+
+[[package]]
+name = "psysonic-analysis"
+version = "1.46.0-dev"
+dependencies = [
+ "ebur128",
+ "futures-util",
+ "md5",
+ "psysonic-core",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "tauri",
+ "tokio",
+]
+
+[[package]]
+name = "psysonic-audio"
+version = "1.46.0-dev"
+dependencies = [
+ "biquad",
+ "dasp_sample",
+ "futures-util",
+ "id3",
+ "libc",
+ "lofty",
+ "md5",
+ "psysonic-analysis",
+ "psysonic-core",
+ "reqwest",
+ "ringbuf",
+ "rodio",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "symphonia-adapter-libopus",
+ "tauri",
+ "thread-priority",
+ "tokio",
+ "url",
+ "windows 0.62.2",
+ "zbus 5.15.0",
+]
+
+[[package]]
+name = "psysonic-core"
+version = "1.46.0-dev"
+dependencies = [
+ "libc",
+ "serde",
+ "tauri",
+]
+
+[[package]]
+name = "psysonic-integration"
+version = "1.46.0-dev"
+dependencies = [
+ "discord-rich-presence",
+ "futures-util",
+ "md5",
+ "psysonic-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "psysonic-syncfs"
+version = "1.46.0-dev"
+dependencies = [
+ "futures-util",
+ "id3",
+ "lofty",
+ "md5",
+ "psysonic-analysis",
+ "psysonic-audio",
+ "psysonic-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tokio",
+ "url",
 ]
 
 [[package]]

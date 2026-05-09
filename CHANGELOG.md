@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
+### Orbit — in-app diagnostics popover with copyable event log
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), prompted by reports from nzxl + RavingGrob, PR [#524](https://github.com/Psychotoxical/psysonic/pull/524)**
+
+* New **Activity-icon** button in the Orbit session bar opens a diagnostics popover. Live mini-display (role, host vs. guest track, position, drift, state-age) updates once a second; below it, a scrolling **event log textarea** is fed by a 200-entry in-memory ring buffer.
+* **Copy** + **Clear** buttons. Copy drops formatted `[ISO] [scope] body` lines on the clipboard — paste straight into a Discord bug report.
+* Instrumentation lands at every previously-silent decision point in the guest tick (`initial-sync`, `track-change` followed / diverged, `play-pause-flip`) plus host state pushes, so the "stopped after the first song" Orbit symptom is now diagnosable from the buffer alone.
+* Events are also bridged to the existing `frontend_debug_log` command when **Settings → Logging** is on Debug, so power users still get the same data in `psysonic-logs-*.log` for offline triage.
+* i18n: full `orbit.diag.*` namespace across all 8 locales (EN + DE native; ES / FR / NB / NL / RU / ZH first-pass, polish welcome).
+
 ### Player Bar — album context menu on song title right-click
 
 **By [@Psychotoxical](https://github.com/Psychotoxical), PR [#512](https://github.com/Psychotoxical/psysonic/pull/512)**
@@ -111,6 +121,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Toggleable in the Home customizer like every other rail; respects the existing performance flags ("Disable rail artwork", "Disable Home album rows").
 
 ## Changed
+
+### Backend — Cargo workspace with 5 domain crates (Rust refactor)
+
+**By [@cucadmuh](https://github.com/cucadmuh) + [@Psychotoxical](https://github.com/Psychotoxical), PR [#532](https://github.com/Psychotoxical/psysonic/pull/532)**
+
+* The Rust backend was lifted out of a single `psysonic` crate into a **Cargo workspace** with five domain crates: `psysonic-core` (logging + ports), `psysonic-analysis` (waveform + LUFS cache + admin commands), `psysonic-audio` (engine, decode, sources, codec, stream sub-modules, audio Tauri commands), `psysonic-syncfs` (offline + hot cache + downloads + USB/SD sync), `psysonic-integration` (Discord rich-presence, Navidrome native API, Last.fm scrobbling, internet-radio browsing, Bandsintown). The top `psysonic` crate keeps only the Tauri-shell wiring.
+* `lib.rs` shrank from ~1000+ LOC to **454 LOC**, retaining only Tauri-shell concerns (setup hook, plugin registration, window events, tray builder).
+* The Audio→Analysis circular-dependency loop is broken via two `Arc<dyn Fn(&str) -> bool>` closures registered in `lib.rs:setup`, avoiding what would have been a 32-callsite migration to `State<Arc<AudioEngine>>`.
+* **No user-visible behaviour change.** Automated parity check confirmed **121/121 Tauri commands** resolve identically vs. the pre-refactor tree; `cargo check --workspace` and `cargo clippy --workspace --all-targets` are clean; smoke tests pass on Linux, Windows, and macOS.
+* Foundation work — per-domain bug fixes and features now ship with much narrower diff scope (this release's Orbit batch + waveform fixes were the first to benefit).
 
 ### Settings — collapse-by-default cleanup, font picker without dropdown, OpenDyslexic at top
 
@@ -210,6 +230,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Anyone who had `'reduced'` or `'static'` selected silently lands on the normal animation path on first launch after upgrade — the persist layer strips the obsolete field, no user-facing prompt.
 
 ## Fixed
+
+### Orbit — guest playback fixes
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), reported by nzxl + RavingGrob, PR [#525](https://github.com/Psychotoxical/psysonic/pull/525)**
+
+* **All local queue-extension paths are suppressed for the entire Orbit session lifecycle**, not just while the session is `active`. Radio top-up, infinite-queue top-up, queue-exhaustion fallback, and the proactive "≤ 2 auto-tracks ahead" topper all refuse to extend the local queue while role is host or guest and phase is `starting` / `joining` / `active`. Even fetch promises that were already in flight re-check at resolution time, so a click-Join racing with a fetch can't pop the bulk-add modal *after* the join completes. Without this lockout the guest got a "Add 5 tracks to the Orbit queue?" prompt on track-end (offering to inject unrelated suggestions into the host's shared queue) and the local queue silently drifted off the host's playlist.
+* **Natural track-end no longer reads as "the guest manually paused"** — the divergence check in the guest pull tick now distinguishes the two via the player's `currentTime` (which `handleAudioEnded` resets to 0, while a real pause leaves it mid-track). Without the discriminator the guest sat silent on every host-driven track change that arrived in the 0–2.5 s window after the guest's own track had ended.
+* **Initial-sync and Catch Up both now wait for the audio engine to actually report playing before seeking** (up to 5 s on initial-sync, 4 s on Catch Up). The previous timeout-and-fire approach would drop a seek onto a not-yet-ready engine, where it silently no-oped — guest played from 0:00 while believing they were synced. The visible symptom was "I clicked Catch Up and the song jumped 50 % forward": the second click finally caught the engine ready, so the seek that should have happened on join finally landed.
+* **Catch Up button no longer flickers and no longer changes the bar height.** Drift is computed from a noisy signal (guest's `currentTime` updates in coarse chunks while host's position is extrapolated linearly), so the diff swings ±5 s on a normal session even when sync is fine — and the button popping in/out shifted the whole Orbit bar up and down because it was 6 px taller than the other action buttons. Visibility is now debounced (must stay over the threshold for ≥ 3 s before the button appears) and the button matches the 26 px height of its neighbours so the bar's vertical layout is stable.
+* **Double-clicking the inline play button on an album-track row now suggests/enqueues to the host's queue**, matching the existing double-click-on-row behaviour. Previously the button stopped propagation on click, so its double-click never reached the row's orbit-aware handler — clicking it twice just bounced the "double-click to add" hint toast.
+* **Track preview is now hidden + blocked during an Orbit session.** The preview path runs through the same Rust audio engine as the shared playback, so starting a preview as a guest would clobber the host's track in the local player. The preview button is hidden across all surfaces (album / artist / favourites / playlist / random-mix track lists) via a global `[data-orbit-active]` CSS rule, and `previewStore.startPreview` no-ops as a defensive guard for keyboard shortcuts and any programmatic callers.
+* **Audio reliably starts on join, even after a slow first cold-start** (PR [#526](https://github.com/Psychotoxical/psysonic/pull/526)). Two cases were leaving the guest silent on join: (a) the initial sync's 5 s ready-poll timed out (slow Navidrome warmup), the next pull tick took the cheap "track already loaded" shortcut and fired `seek` + `resume` on a stuck engine — both no-oped against a track that never started; (b) `playTrack`'s optimistic `isPlaying: true` write masked a later `audio_play` rejection, so the guest tick recorded a "successful" sync but the engine had silently fallen back to paused. Both are now handled: the shortcut is gated on engine state matching the host's expected state, and a recovery check at the top of the pull tick resets the anchor whenever the engine is paused while the host is still playing the same track — the next 500 ms fast-poll fires a fresh `playTrack` and audio kicks in.
+* **Catch Up button stays clickable on high-latency sessions** (PR [#527](https://github.com/Psychotoxical/psysonic/pull/527)). On a real-world high-latency session the genuine drift fluctuates between ~1 s and ~8 s in lockstep with both sides' chunked `currentTime` updates — the previous single-stage debounce hid the button as soon as drift briefly dipped below 3 s even though the baseline drift was still 5–8 s, so the button "appeared and vanished too fast to click". Two-stage hysteresis now: show after drift > 3 s for 3 s, hide only after drift < 1 s for 1 s.
+* **Initial-sync seek visually sticks on join** (PR [#528](https://github.com/Psychotoxical/psysonic/pull/528)). On join the waveform briefly showed the host's live position then snapped back to 0:00 with audio playing from the start — the post-`playTrack` poll fired `applyMirror`'s seek against `playTrack`'s optimistic `isPlaying: true`, before the Tauri `audio_play` had actually produced any samples. The seek's store update landed (waveform at 70 %) but the `audio_seek` debounced behind it no-oped on the not-ready engine, and the engine's first progress events from 0:00 overwrote the optimistic position. Now the poll waits for `currentTime > 0.1` before applying the seek, and `applyMirror` defers the play-state mirror by 200 ms so the seek's invoke wins the IPC ordering race against pause/resume.
+* **Host single-track plays no longer wipe the Orbit queue** (PR [#529](https://github.com/Psychotoxical/psysonic/pull/529)). A `playTrack(track, [track])` call from any UI that passes an explicit 1-track replacement queue (e.g. OfflineLibrary's "Play this album" on a single-track album) slipped past the orbit bulk-guard (which only fires for `queue.length > 1`) and replaced the host's `playerStore.queue`. Since the host's queue *is* the shared Orbit queue, that one click destroyed every accepted guest suggestion + every upcoming track. Now intercepted: when role is host and the incoming queue is a single track, append + jump instead of replacing.
 
 ### Context menu — render above the floating player bar
 

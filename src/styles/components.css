@@ -1907,6 +1907,14 @@
   transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
+/* Hide track preview controls inside an active Orbit session — preview
+   playback shares the audio engine with the orbit-driven main player and
+   the two would step on each other. The defensive guard in
+   `previewStore.startPreview` catches keyboard / programmatic callers. */
+[data-orbit-active] .playlist-suggestion-preview-btn {
+  display: none;
+}
+
 .playlist-suggestions .track-row:hover .playlist-suggestion-preview-btn,
 .playlist-suggestion-preview-btn:hover,
 .playlist-suggestion-preview-btn.is-previewing {
@@ -12579,12 +12587,18 @@ html[data-perf-disable-home-artwork-clip="true"] .home-lite-artwork .song-card-c
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  /* Match the 26 px height of the other bar icon-buttons (.orbit-bar__settings)
+     so the bar's vertical layout is stable whether or not catch-up is showing.
+     The button used to be ~32 px tall, so it pushed the bar height up when it
+     flickered in/out — visually annoying on a high-latency setup where the
+     trigger fires intermittently. */
+  height: 26px;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--accent);
   border: 1px solid var(--accent);
   color: #fff;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -13321,6 +13335,104 @@ html[data-perf-disable-home-artwork-clip="true"] .home-lite-artwork .song-card-c
   border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,0.1));
   border-radius: var(--radius-md);
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* ── Diagnostics popover ──────────────────────────────────────────────── */
+.orbit-diag-pop {
+  width: 920px;
+  max-width: calc(100vw - 24px);
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,0.1));
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.orbit-diag-pop__head {
+  padding: 2px 4px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+.orbit-diag-pop__live {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.orbit-diag-pop__live-row {
+  display: contents;
+}
+.orbit-diag-pop__live-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.orbit-diag-pop__mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.orbit-diag-pop__log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.orbit-diag-pop__btn-row {
+  display: flex;
+  gap: 6px;
+}
+.orbit-diag-pop__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.orbit-diag-pop__btn:hover {
+  background: var(--bg-hover, var(--bg-input));
+  border-color: var(--accent);
+}
+.orbit-diag-pop__log {
+  width: 100%;
+  height: 220px;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.45;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  white-space: pre;
+  overflow: auto;
+}
+.orbit-diag-pop__hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  font-style: italic;
 }
 
 .orbit-settings-pop__head {

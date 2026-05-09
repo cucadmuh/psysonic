@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, Shuffle, Settings2, Share2, HelpCircle } from 'lucide-react';
+import { X, RefreshCw, Shuffle, Settings2, Share2, HelpCircle, Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useOrbitStore } from '../store/orbitStore';
 import { useHelpModalStore } from '../store/helpModalStore';
@@ -16,6 +16,7 @@ import OrbitParticipantsPopover from './OrbitParticipantsPopover';
 import OrbitExitModal from './OrbitExitModal';
 import OrbitSettingsPopover from './OrbitSettingsPopover';
 import OrbitSharePopover from './OrbitSharePopover';
+import OrbitDiagnosticsPopover from './OrbitDiagnosticsPopover';
 import ConfirmModal from './ConfirmModal';
 
 /**
@@ -49,10 +50,12 @@ export default function OrbitSessionBar() {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const peopleBtnRef = useRef<HTMLButtonElement>(null);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const shareBtnRef = useRef<HTMLButtonElement>(null);
+  const diagBtnRef = useRef<HTMLButtonElement>(null);
 
   // Second-level tick just for the shuffle countdown + drift readout —
   // the store itself only ticks at 2.5 s which is too coarse for a smooth
@@ -62,6 +65,74 @@ export default function OrbitSessionBar() {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [state, phase]);
+
+  // ── Catch Up button visibility — debounced + hysteresis ───────────────
+  // The raw drift signal is noisy: guest's `currentTime` updates in coarse
+  // ~5 s chunks while host's position is extrapolated linearly via
+  // `(nowMs - posAt)`, so the diff swings between ~1 s and ~8 s every
+  // tick on a normal session even when both sides are perfectly synced.
+  // Two-stage filter:
+  //   - **Hidden → shown**: drift must stay over the show-threshold (3 s)
+  //     for 3 s of wall-clock. Filters out brief over-threshold blips.
+  //   - **Shown → hidden**: drift must stay under the hide-threshold
+  //     (1 s) for 1 s of wall-clock. Once visible, the button persists
+  //     through the 1–3 s "drift back to small" valleys that come from
+  //     guest's currentTime catching up in chunks; otherwise the button
+  //     would vanish too fast to actually click on a high-latency
+  //     session where genuine drift fluctuates around 5–8 s.
+  const SHOW_THRESHOLD_MS = CATCH_UP_DRIFT_THRESHOLD_MS;
+  const HIDE_THRESHOLD_MS = 1_000;
+  const SHOW_DEBOUNCE_MS = 3_000;
+  const HIDE_DEBOUNCE_MS = 1_000;
+  const [showCatchUp, setShowCatchUp] = useState(false);
+  const overSinceRef = useRef<number | null>(null);
+  const underSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    // Note: `state.isPlaying` is *not* a gate. A guest who joined while
+    // the host was paused still benefits from Catch Up if their sync to
+    // the host's paused position failed — the only signal that matters
+    // is "is there drift between us and the host's last reported state".
+    // `computeOrbitDriftMs` correctly stops time-extrapolation when the
+    // host is paused, so the formula holds in both states.
+    if (role !== 'guest' || !state || !state.currentTrack) {
+      overSinceRef.current = null;
+      underSinceRef.current = null;
+      setShowCatchUp(false);
+      return;
+    }
+    const player = usePlayerStore.getState();
+    const localPositionMs = Math.round((player.currentTime ?? 0) * 1000);
+    const driftMs = player.currentTrack?.id === state.currentTrack.trackId
+      ? computeOrbitDriftMs(state, localPositionMs, nowMs)
+      : null;
+    const absDrift = driftMs == null ? Infinity : Math.abs(driftMs);
+    if (showCatchUp) {
+      // Currently visible — only hide once drift has been clearly small
+      // for the full hide-debounce window.
+      overSinceRef.current = null;
+      if (absDrift < HIDE_THRESHOLD_MS) {
+        if (underSinceRef.current === null) underSinceRef.current = Date.now();
+        if (Date.now() - underSinceRef.current >= HIDE_DEBOUNCE_MS) {
+          setShowCatchUp(false);
+          underSinceRef.current = null;
+        }
+      } else {
+        underSinceRef.current = null;
+      }
+    } else {
+      // Currently hidden — only show after sustained over-threshold drift.
+      underSinceRef.current = null;
+      if (absDrift > SHOW_THRESHOLD_MS) {
+        if (overSinceRef.current === null) overSinceRef.current = Date.now();
+        if (Date.now() - overSinceRef.current >= SHOW_DEBOUNCE_MS) {
+          setShowCatchUp(true);
+          overSinceRef.current = null;
+        }
+      } else {
+        overSinceRef.current = null;
+      }
+    }
+  }, [role, state, nowMs, showCatchUp]);
 
   // Bar is visible while active, ended (pre-ack), or explicitly kicked / soft-removed.
   const shouldShowBar = !!state && (
@@ -74,17 +145,6 @@ export default function OrbitSessionBar() {
   );
 
   const untilShuffle = Math.max(0, (state.lastShuffle + effectiveShuffleIntervalMs(state)) - nowMs);
-
-  // Guest-only: detect drift from the host's estimated live position.
-  const guestPlayback = usePlayerStore.getState();
-  const localPositionMs = Math.round((guestPlayback.currentTime ?? 0) * 1000);
-  const driftMs = role === 'guest' && state.currentTrack && guestPlayback.currentTrack?.id === state.currentTrack.trackId
-    ? computeOrbitDriftMs(state, localPositionMs, nowMs)
-    : null;
-  const showCatchUp = role === 'guest'
-    && state.isPlaying
-    && state.currentTrack
-    && (driftMs == null || Math.abs(driftMs) > CATCH_UP_DRIFT_THRESHOLD_MS);
 
   const performExit = async () => {
     try {
@@ -121,18 +181,44 @@ export default function OrbitSessionBar() {
       const player = usePlayerStore.getState();
       const fraction = targetSec / Math.max(1, track.duration);
       if (player.currentTrack?.id === trackId) {
+        // `player.seek` debounces the underlying `audio_seek` invoke via
+        // `setTimeout(0)`, while `pause`/`resume` fire their invokes
+        // synchronously. Calling them back-to-back races on the Tauri
+        // command queue: pause/resume can arrive at the engine before
+        // the seek does, leaving the engine paused at the *old*
+        // position with the seek queued behind it — when the user
+        // hits play later the engine resumes from the pre-Catch-Up
+        // spot and the waveform jumps back. Defer the play-state
+        // mirror by one short tick so the seek lands first.
         player.seek(fraction);
-        if (hostPlaying && !player.isPlaying) player.resume();
-        else if (!hostPlaying && player.isPlaying) player.pause();
+        if (hostPlaying !== player.isPlaying) {
+          window.setTimeout(() => {
+            const p = usePlayerStore.getState();
+            if (p.currentTrack?.id !== trackId) return;
+            if (hostPlaying && !p.isPlaying) p.resume();
+            else if (!hostPlaying && p.isPlaying) p.pause();
+          }, 200);
+        }
       } else {
-        // Different track: play + seek on next tick once engine is ready.
+        // Different track: play + seek once the engine reports the track
+        // loaded. The previous 400 ms blind delay was too short for an
+        // HTTP-streamed cold-start on a transcontinental link, so the seek
+        // would silently no-op and playback started at 0:00 — making Catch
+        // Up effectively useless on the very latency where it matters most.
+        // Mirrors the poll-until-ready pattern used by `syncToHost`.
         player.playTrack(track, [track]);
-        window.setTimeout(() => {
+        const deadline = Date.now() + 4000;
+        const poll = () => {
           const p = usePlayerStore.getState();
-          if (p.currentTrack?.id !== trackId) return;
-          p.seek(fraction);
-          if (!hostPlaying && p.isPlaying) p.pause();
-        }, 400);
+          if (p.currentTrack?.id !== trackId) return; // user changed tracks
+          if (p.isPlaying || Date.now() >= deadline) {
+            p.seek(fraction);
+            if (!hostPlaying && p.isPlaying) p.pause();
+            return;
+          }
+          window.setTimeout(poll, 100);
+        };
+        window.setTimeout(poll, 100);
       }
     } catch {
       // silent — if the track is gone from the host's library, nothing we can do.
@@ -210,6 +296,18 @@ export default function OrbitSessionBar() {
           </button>
         )}
         <button
+          ref={diagBtnRef}
+          type="button"
+          className="orbit-bar__settings"
+          onClick={() => setDiagOpen(v => !v)}
+          data-tooltip={t('orbit.diag.openTooltip')}
+          aria-haspopup="dialog"
+          aria-expanded={diagOpen || undefined}
+          aria-label={t('orbit.diag.openTooltip')}
+        >
+          <Activity size={14} />
+        </button>
+        <button
           type="button"
           className="orbit-bar__settings"
           onClick={() => useHelpModalStore.getState().open()}
@@ -245,6 +343,12 @@ export default function OrbitSessionBar() {
         <OrbitSharePopover
           anchorRef={shareBtnRef}
           onClose={() => setShareOpen(false)}
+        />
+      )}
+      {diagOpen && (
+        <OrbitDiagnosticsPopover
+          anchorRef={diagBtnRef}
+          onClose={() => setDiagOpen(false)}
         />
       )}
       <OrbitExitModal />
