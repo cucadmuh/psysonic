@@ -144,7 +144,7 @@ pub async fn audio_preview_play(
     let preview_http = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
         .use_rustls_tls()
-        .user_agent(crate::subsonic_wire_user_agent())
+        .user_agent(psysonic_core::user_agent::subsonic_wire_user_agent())
         .build()
         .unwrap_or_else(|_| audio_http_client(&state));
     let bytes = preview_http

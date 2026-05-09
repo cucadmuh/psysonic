@@ -65,7 +65,7 @@ pub struct AudioEngine {
     pub gapless_switch_at: Arc<AtomicU64>,
     /// Active radio session state.  None for regular (non-radio) tracks.
     /// Dropping the value aborts the HTTP download task via RadioLiveState::Drop.
-    pub(crate) radio_state: Mutex<Option<crate::audio::stream::RadioLiveState>>,
+    pub(crate) radio_state: Mutex<Option<crate::stream::RadioLiveState>>,
     /// URL last committed to `AudioCurrent` — used so `audio_update_replay_gain` can
     /// resolve LUFS / startup trim when the frontend passes `loudnessGainDb: null`
     /// (otherwise `compute_gain` would treat that as unity gain and playback "jumps").
@@ -345,7 +345,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
             reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .use_rustls_tls()
-                .user_agent(crate::subsonic_wire_user_agent())
+                .user_agent(psysonic_core::user_agent::subsonic_wire_user_agent())
                 .build()
                 .unwrap_or_default(),
         )),
@@ -381,7 +381,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
 }
 /// `analysis_enqueue_seed_from_url` should bail while this track's ranged HTTP buffer
 /// is still filling — playback will seed on completion with the same bytes.
-pub(crate) fn ranged_loudness_backfill_should_defer(engine: &AudioEngine, track_id: &str) -> bool {
+pub fn ranged_loudness_backfill_should_defer(engine: &AudioEngine, track_id: &str) -> bool {
     let tid = track_id.trim();
     if tid.is_empty() {
         return false;
@@ -392,9 +392,22 @@ pub(crate) fn ranged_loudness_backfill_should_defer(engine: &AudioEngine, track_
     matches!(&*g, Some((t, _)) if t.as_str() == tid)
 }
 
+/// Stops the Rust audio engine cleanly (mirrors the logic in `audio_stop`).
+/// Called before process exit on macOS to ensure audio stops immediately.
+pub fn stop_audio_engine(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+    let engine = app.state::<AudioEngine>();
+    engine.generation.fetch_add(1, Ordering::SeqCst);
+    *engine.chained_info.lock().unwrap() = None;
+    drop(engine.radio_state.lock().unwrap().take());
+    let mut cur = engine.current.lock().unwrap();
+    if let Some(sink) = cur.sink.take() { sink.stop(); }
+}
+
 /// Subsonic id pinned for the playing source (`audio_play`). Used to prioritize
 /// HTTP loudness backfill for the track the user is listening to.
-pub(crate) fn analysis_track_id_is_current_playback(engine: &AudioEngine, track_id: &str) -> bool {
+pub fn analysis_track_id_is_current_playback(engine: &AudioEngine, track_id: &str) -> bool {
     let needle = track_id.trim();
     if needle.is_empty() {
         return false;

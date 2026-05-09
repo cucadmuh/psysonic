@@ -279,9 +279,9 @@ pub(crate) async fn ranged_download_task(
             }
             downloaded += n;
             downloaded_to.store(downloaded, Ordering::SeqCst);
-            if downloaded >= crate::audio::helpers::PARTIAL_LOUDNESS_MIN_BYTES
+            if downloaded >= crate::helpers::PARTIAL_LOUDNESS_MIN_BYTES
                 && total_size > 0
-                && last_partial_loudness_emit.elapsed() >= Duration::from_millis(crate::audio::helpers::PARTIAL_LOUDNESS_EMIT_INTERVAL_MS)
+                && last_partial_loudness_emit.elapsed() >= Duration::from_millis(crate::helpers::PARTIAL_LOUDNESS_EMIT_INTERVAL_MS)
             {
                 last_partial_loudness_emit = Instant::now();
                 if normalization_engine.load(Ordering::Relaxed) == 2 {
@@ -289,14 +289,14 @@ pub(crate) async fn ranged_download_task(
                     let start_db = f32::from_bits(loudness_pre_analysis_attenuation_db.load(Ordering::Relaxed))
                         .clamp(-24.0, 0.0);
                     if let Some(provisional_db) =
-                        crate::audio::helpers::provisional_loudness_gain_from_progress(downloaded, total_size, target_lufs, start_db)
+                        crate::helpers::provisional_loudness_gain_from_progress(downloaded, total_size, target_lufs, start_db)
                     {
-                        let track_key = crate::audio::helpers::playback_identity(&url).unwrap_or_else(|| url.clone());
-                        if crate::audio::ipc::partial_loudness_should_emit(&track_key, provisional_db) {
+                        let track_key = crate::helpers::playback_identity(&url).unwrap_or_else(|| url.clone());
+                        if crate::ipc::partial_loudness_should_emit(&track_key, provisional_db) {
                             let _ = app.emit(
                                 "analysis:loudness-partial",
-                                crate::audio::ipc::PartialLoudnessPayload {
-                                    track_id: crate::audio::helpers::playback_identity(&url),
+                                crate::ipc::PartialLoudnessPayload {
+                                    track_id: crate::helpers::playback_identity(&url),
                                     gain_db: provisional_db,
                                     target_lufs,
                                     is_partial: true,
@@ -368,8 +368,8 @@ pub(crate) async fn ranged_download_task(
             );
         }
         if let Some(track_id) = cache_track_id {
-            let high = crate::audio::engine::analysis_seed_high_priority_for_track(&app, &track_id);
-            if let Err(e) = crate::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
+            let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
+            if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
                 crate::app_eprintln!("[analysis] ranged seed failed for {}: {}", track_id, e);
             }
         }

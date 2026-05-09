@@ -1,12 +1,9 @@
-use std::sync::atomic::Ordering;
-
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 #[cfg(not(target_os = "windows"))]
 use tauri::tray::MouseButtonState;
 
-use crate::audio;
 use crate::tray_runtime::{
     tray_state_icon, TrayMenuItems, TrayMenuItemsState, TrayMenuLabels, TrayMenuLabelsState,
     TrayPlaybackState, TrayState, TrayTooltip,
@@ -355,16 +352,7 @@ pub(crate) fn toggle_tray_icon(
     Ok(())
 }
 
-/// Stops the Rust audio engine cleanly (mirrors the logic in `audio_stop`).
-/// Called before process exit on macOS to ensure audio stops immediately.
-pub(crate) fn stop_audio_engine(app: &tauri::AppHandle) {
-    let engine = app.state::<audio::AudioEngine>();
-    engine.generation.fetch_add(1, Ordering::SeqCst);
-    *engine.chained_info.lock().unwrap() = None;
-    drop(engine.radio_state.lock().unwrap().take());
-    let mut cur = engine.current.lock().unwrap();
-    if let Some(sink) = cur.sink.take() { sink.stop(); }
-}
+pub(crate) use crate::audio::stop_audio_engine;
 
 /// Returns `true` if running under a tiling window manager (Hyprland, Sway, i3,
 /// bspwm, AwesomeWM, Openbox, etc.).  Detection is based on environment variables

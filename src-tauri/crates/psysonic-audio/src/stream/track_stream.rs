@@ -132,7 +132,7 @@ pub(crate) async fn track_download_task(
                         }
                     }
                     if !capture_over_limit
-                        && last_partial_loudness_emit.elapsed() >= Duration::from_millis(crate::audio::helpers::PARTIAL_LOUDNESS_EMIT_INTERVAL_MS)
+                        && last_partial_loudness_emit.elapsed() >= Duration::from_millis(crate::helpers::PARTIAL_LOUDNESS_EMIT_INTERVAL_MS)
                     {
                         last_partial_loudness_emit = Instant::now();
                         if normalization_engine.load(Ordering::Relaxed) == 2 {
@@ -141,7 +141,7 @@ pub(crate) async fn track_download_task(
                                 loudness_pre_analysis_attenuation_db.load(Ordering::Relaxed),
                             )
                             .clamp(-24.0, 0.0);
-                            crate::audio::helpers::emit_partial_loudness_from_bytes(&app, &url, &capture, target_lufs, pre_db);
+                            crate::helpers::emit_partial_loudness_from_bytes(&app, &url, &capture, target_lufs, pre_db);
                         }
                     }
                     offset += pushed;
@@ -160,9 +160,9 @@ pub(crate) async fn track_download_task(
                     track_id,
                     capture.len() as f64 / (1024.0 * 1024.0)
                 );
-                let high = crate::audio::engine::analysis_seed_high_priority_for_track(&app, &track_id);
+                let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
                 if let Err(e) =
-                    crate::submit_analysis_cpu_seed(app.clone(), track_id.clone(), capture.clone(), high).await
+                    psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), capture.clone(), high).await
                 {
                     crate::app_eprintln!("[analysis] track seed failed for {}: {}", track_id, e);
                 }

@@ -55,8 +55,8 @@ pub async fn audio_preload(
             track_id,
             data.len() as f64 / (1024.0 * 1024.0)
         );
-        let high = crate::audio::engine::analysis_track_id_is_current_playback(&state, &track_id);
-        if let Err(e) = crate::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
+        let high = crate::engine::analysis_track_id_is_current_playback(&state, &track_id);
+        if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
             crate::app_eprintln!("[analysis] preload seed failed for {}: {}", track_id, e);
         }
     }

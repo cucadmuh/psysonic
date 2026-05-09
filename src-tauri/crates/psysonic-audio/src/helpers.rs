@@ -8,8 +8,8 @@ use rodio::Player;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::audio::engine::AudioEngine;
-use crate::audio::ipc::{
+use crate::engine::AudioEngine;
+use crate::ipc::{
     partial_loudness_should_emit, PartialLoudnessPayload, PARTIAL_LOUDNESS_DELTA_THRESHOLD_DB,
 };
 
@@ -336,7 +336,7 @@ pub(crate) fn resolve_loudness_gain_from_cache_impl(
         }
         return None;
     };
-    let Some(cache) = app.try_state::<crate::analysis_cache::AnalysisCache>() else {
+    let Some(cache) = app.try_state::<psysonic_analysis::analysis_cache::AnalysisCache>() else {
         if opts.log_soft_misses {
             crate::app_deprintln!(
                 "[normalization] resolve_loudness_gain source=no-analysis-cache track_id={}",
@@ -351,7 +351,7 @@ pub(crate) fn resolve_loudness_gain_from_cache_impl(
     }
     match cache.get_latest_loudness_for_track(&track_id) {
         Ok(Some(row)) if row.integrated_lufs.is_finite() => {
-            let recommended = crate::analysis_cache::recommended_gain_for_target(
+            let recommended = psysonic_analysis::analysis_cache::recommended_gain_for_target(
                 row.integrated_lufs,
                 row.true_peak,
                 target_lufs as f64,
@@ -404,7 +404,7 @@ const LOUDNESS_PLACEHOLDER_INTEGRATED_LUFS: f64 = -14.0;
 pub(crate) fn loudness_gain_placeholder_until_cache(target_lufs: f32, pre_analysis_attenuation_db: f32) -> f32 {
     let pre = pre_analysis_attenuation_db.clamp(-24.0, 0.0).min(0.0);
     // `true_peak = 0.0` skips the headroom cap until integrated measurement exists.
-    let pivot = crate::analysis_cache::recommended_gain_for_target(
+    let pivot = psysonic_analysis::analysis_cache::recommended_gain_for_target(
         LOUDNESS_PLACEHOLDER_INTEGRATED_LUFS,
         0.0,
         f64::from(target_lufs),
@@ -551,7 +551,7 @@ pub(crate) async fn fetch_data(
         return Ok(Some(data));
     }
 
-    let response = crate::audio::engine::audio_http_client(&state).get(url).send().await.map_err(|e| e.to_string())?;
+    let response = crate::engine::audio_http_client(&state).get(url).send().await.map_err(|e| e.to_string())?;
     let status = response.status();
     let ct = response.headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -604,7 +604,7 @@ pub(crate) fn spawn_analysis_seed_from_in_memory_bytes(
     let Some(track_id) = cache_track_id.map(str::trim).filter(|s| !s.is_empty()) else {
         return;
     };
-    if bytes.is_empty() || bytes.len() > crate::audio::stream::TRACK_STREAM_PROMOTE_MAX_BYTES {
+    if bytes.is_empty() || bytes.len() > crate::stream::TRACK_STREAM_PROMOTE_MAX_BYTES {
         return;
     }
     let track_id = track_id.to_string();
@@ -616,12 +616,12 @@ pub(crate) fn spawn_analysis_seed_from_in_memory_bytes(
         track_id,
         bytes.len() as f64 / (1024.0 * 1024.0)
     );
-    let high = crate::audio::engine::analysis_seed_high_priority_for_track(&app, &track_id);
+    let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
     tokio::spawn(async move {
         if gen_arc.load(Ordering::SeqCst) != gen {
             return;
         }
-        if let Err(e) = crate::submit_analysis_cpu_seed(app.clone(), track_id.clone(), bytes, high).await {
+        if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), bytes, high).await {
             crate::app_eprintln!(
                 "[analysis] in-memory play path seed failed for {}: {}",
                 track_id,

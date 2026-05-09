@@ -1,7 +1,10 @@
-//! Audio playback: Symphonia decode, rodio output, HTTP radio/streaming, gapless, previews.
-//!
-//! Implementation is split into submodules (`sources`, `decode`, `stream`, `commands`, …)
-//! for navigation; behavior matches the historical single `audio.rs` file.
+//! `psysonic-audio` — Symphonia decode, rodio output, HTTP radio/streaming,
+//! gapless, previews. Submodules (`sources`, `decode`, `stream`, `commands`, …)
+//! preserve the historical single `audio.rs` partitioning.
+
+// Re-export the logging facade so submodules can keep using
+// `crate::app_eprintln!()` / `crate::app_deprintln!()`.
+pub use psysonic_core::{app_deprintln, app_eprintln, logging};
 
 pub mod autoeq_commands;
 mod codec;
@@ -51,4 +54,4 @@ pub fn register_post_sleep_audio_recovery(app: tauri::AppHandle) {
     let _ = app;
 }
 
-pub(crate) use engine::{analysis_track_id_is_current_playback, ranged_loudness_backfill_should_defer};
+pub use engine::{analysis_track_id_is_current_playback, ranged_loudness_backfill_should_defer, stop_audio_engine};

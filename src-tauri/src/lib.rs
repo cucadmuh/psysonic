@@ -1,7 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod audio;
 pub mod cli;
 mod discord;
 mod lib_commands;
@@ -12,9 +11,7 @@ pub use psysonic_core::user_agent::{
     default_subsonic_wire_user_agent, runtime_subsonic_wire_user_agent, subsonic_wire_user_agent,
 };
 pub use psysonic_analysis::{analysis_cache, analysis_runtime};
-// `crate::submit_analysis_cpu_seed` shorthand kept so the audio modules don't
-// have to spell out `psysonic_analysis::analysis_runtime::...` until M3.
-pub(crate) use psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed;
+pub use psysonic_audio as audio;
 #[cfg(target_os = "windows")]
 mod taskbar_win;
 mod tray_runtime;

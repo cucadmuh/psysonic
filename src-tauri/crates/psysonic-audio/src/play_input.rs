@@ -140,7 +140,7 @@ fn open_local_file_input(
     );
     if let Some(seed_id) = ctx.cache_id_for_tasks {
         let skip_cpu_seed = app
-            .try_state::<crate::analysis_cache::AnalysisCache>()
+            .try_state::<psysonic_analysis::analysis_cache::AnalysisCache>()
             .map(|c| c.cpu_seed_redundant_for_track(seed_id).unwrap_or(false))
             .unwrap_or(false);
         if !skip_cpu_seed {
@@ -174,9 +174,9 @@ fn open_local_file_input(
                     seed_id,
                     data.len() as f64 / (1024.0 * 1024.0)
                 );
-                let high = crate::audio::engine::analysis_seed_high_priority_for_track(&app_seed, &seed_id);
+                let high = crate::engine::analysis_seed_high_priority_for_track(&app_seed, &seed_id);
                 if let Err(e) =
-                    crate::submit_analysis_cpu_seed(app_seed.clone(), seed_id.clone(), data, high).await
+                    psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app_seed.clone(), seed_id.clone(), data, high).await
                 {
                     crate::app_eprintln!(
                         "[analysis] local-file seed failed for {}: {}",

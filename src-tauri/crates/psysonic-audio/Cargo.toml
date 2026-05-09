@@ -1,0 +1,41 @@
+[package]
+name = "psysonic-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+psysonic-core = { path = "../psysonic-core" }
+psysonic-analysis = { path = "../psysonic-analysis" }
+
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time", "sync"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls", "blocking"] }
+futures-util = "0.3"
+rodio = { version = "0.22", default-features = false, features = ["playback", "symphonia-all"] }
+symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3", "pcm", "aac", "alac", "isomp4", "vorbis", "ogg", "wav", "adpcm"] }
+symphonia-adapter-libopus = "0.2.9"
+ringbuf = "0.5"
+biquad = "0.6"
+dasp_sample = "0.11.0"
+md5 = "0.8"
+url = "2"
+thread-priority = "3"
+lofty = "0.24"
+id3 = "1.16.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.15", default-features = false, features = ["blocking-api"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+] }

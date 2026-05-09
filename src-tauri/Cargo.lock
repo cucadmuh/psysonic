@@ -3609,6 +3609,7 @@ dependencies = [
  "lofty",
  "md5",
  "psysonic-analysis",
+ "psysonic-audio",
  "psysonic-core",
  "reqwest",
  "ringbuf",
@@ -3654,6 +3655,34 @@ dependencies = [
  "symphonia",
  "tauri",
  "tokio",
+]
+
+[[package]]
+name = "psysonic-audio"
+version = "1.46.0-dev"
+dependencies = [
+ "biquad",
+ "dasp_sample",
+ "futures-util",
+ "id3",
+ "libc",
+ "lofty",
+ "md5",
+ "psysonic-analysis",
+ "psysonic-core",
+ "reqwest",
+ "ringbuf",
+ "rodio",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "symphonia-adapter-libopus",
+ "tauri",
+ "thread-priority",
+ "tokio",
+ "url",
+ "windows 0.62.2",
+ "zbus 5.15.0",
 ]
 
 [[package]]
