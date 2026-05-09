@@ -2,6 +2,7 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::Manager;
 
+#[cfg(target_os = "linux")]
 use crate::lib_commands::sync::is_tiling_wm;
 
 // ── Mini Player window ──────────────────────────────────────────────────────
