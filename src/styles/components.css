@@ -1907,6 +1907,14 @@
   transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
+/* Hide track preview controls inside an active Orbit session — preview
+   playback shares the audio engine with the orbit-driven main player and
+   the two would step on each other. The defensive guard in
+   `previewStore.startPreview` catches keyboard / programmatic callers. */
+[data-orbit-active] .playlist-suggestion-preview-btn {
+  display: none;
+}
+
 .playlist-suggestions .track-row:hover .playlist-suggestion-preview-btn,
 .playlist-suggestion-preview-btn:hover,
 .playlist-suggestion-preview-btn.is-previewing {
@@ -12579,12 +12587,18 @@ html[data-perf-disable-home-artwork-clip="true"] .home-lite-artwork .song-card-c
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  /* Match the 26 px height of the other bar icon-buttons (.orbit-bar__settings)
+     so the bar's vertical layout is stable whether or not catch-up is showing.
+     The button used to be ~32 px tall, so it pushed the bar height up when it
+     flickered in/out — visually annoying on a high-latency setup where the
+     trigger fires intermittently. */
+  height: 26px;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--accent);
   border: 1px solid var(--accent);
   color: #fff;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;

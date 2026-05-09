@@ -103,16 +103,22 @@ export function useOrbitGuest(): void {
 
         player.playTrack(track, [track]);
 
-        // Poll until the engine has the track loaded; fall back to a blind
-        // apply after 2 s so a stuck load doesn't leave us spinning forever.
+        // Poll until the engine actually reports the track playing — the
+        // earlier "blind apply at deadline" path could fire a seek into a
+        // not-yet-ready engine, where the seek silently no-ops and the
+        // guest plays from 0 while believing they're synced (the visible
+        // 50 % jump-on-Catch-Up symptom). Wait for `p.isPlaying === true`
+        // up to 5 s, then give up and let the outer pull tick retry —
+        // the syncToHost-failed path keeps `lastAppliedRef` null so the
+        // 500 ms fast-poll in `tick` will try again immediately.
         return await new Promise<boolean>(resolve => {
-          const deadline = Date.now() + 2000;
+          const deadline = Date.now() + 5000;
           const poll = () => {
             if (cancelled) { resolve(false); return; }
             const p = usePlayerStore.getState();
             const trackReady = p.currentTrack?.id === trackId;
             if (trackReady && p.isPlaying) { resolve(applyMirror()); return; }
-            if (Date.now() >= deadline) { resolve(applyMirror()); return; }
+            if (Date.now() >= deadline) { resolve(false); return; }
             window.setTimeout(poll, 100);
           };
           window.setTimeout(poll, 100);
@@ -228,7 +234,17 @@ export function useOrbitGuest(): void {
           lastAppliedRef.current = { trackId: null, isPlaying: hostPlaying };
         }
       } else if (last.trackId !== hostTrackId) {
-        const diverged = player.isPlaying !== last.isPlaying;
+        // Distinguish "user manually paused" (true divergence) from "track
+        // ended naturally" (NOT divergence — guest just needs the host's
+        // next track loaded). Both leave `player.isPlaying === false`, but
+        // `handleAudioEnded` keeps `currentTrack` pinned to the just-ended
+        // track and resets `currentTime` to 0; a manual pause leaves
+        // `currentTime` somewhere mid-track. The 0-position discriminator
+        // separates them.
+        const naturalEnd = !player.isPlaying
+          && player.currentTrack?.id === last.trackId
+          && (player.currentTime ?? 0) < 0.5;
+        const diverged = !naturalEnd && player.isPlaying !== last.isPlaying;
         if (diverged) {
           // Guest is running their own show (typically: paused while host
           // kept going). Do not load/start the host's new track — just
