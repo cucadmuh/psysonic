@@ -122,6 +122,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Changed
 
+### Backend — Cargo workspace with 5 domain crates (Rust refactor)
+
+**By [@cucadmuh](https://github.com/cucadmuh) + [@Psychotoxical](https://github.com/Psychotoxical), PR [#532](https://github.com/Psychotoxical/psysonic/pull/532)**
+
+* The Rust backend was lifted out of a single `psysonic` crate into a **Cargo workspace** with five domain crates: `psysonic-core` (logging + ports), `psysonic-analysis` (waveform + LUFS cache + admin commands), `psysonic-audio` (engine, decode, sources, codec, stream sub-modules, audio Tauri commands), `psysonic-syncfs` (offline + hot cache + downloads + USB/SD sync), `psysonic-integration` (Discord rich-presence, Navidrome native API, Last.fm scrobbling, internet-radio browsing, Bandsintown). The top `psysonic` crate keeps only the Tauri-shell wiring.
+* `lib.rs` shrank from ~1000+ LOC to **454 LOC**, retaining only Tauri-shell concerns (setup hook, plugin registration, window events, tray builder).
+* The Audio→Analysis circular-dependency loop is broken via two `Arc<dyn Fn(&str) -> bool>` closures registered in `lib.rs:setup`, avoiding what would have been a 32-callsite migration to `State<Arc<AudioEngine>>`.
+* **No user-visible behaviour change.** Automated parity check confirmed **121/121 Tauri commands** resolve identically vs. the pre-refactor tree; `cargo check --workspace` and `cargo clippy --workspace --all-targets` are clean; smoke tests pass on Linux, Windows, and macOS.
+* Foundation work — per-domain bug fixes and features now ship with much narrower diff scope (this release's Orbit batch + waveform fixes were the first to benefit).
+
 ### Settings — collapse-by-default cleanup, font picker without dropdown, OpenDyslexic at top
 
 **By [@Psychotoxical](https://github.com/Psychotoxical), PR [#508](https://github.com/Psychotoxical/psysonic/pull/508)**
