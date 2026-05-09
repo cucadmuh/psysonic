@@ -1,9 +1,10 @@
+use crate::analysis_runtime::enqueue_analysis_seed;
 use crate::audio;
 use crate::subsonic_wire_user_agent;
 
 use super::super::file_transfer::stream_to_file;
 use super::downloads::{resolve_hot_cache_root, HotCacheDownloadResult};
-use super::offline::{enqueue_analysis_seed, enqueue_analysis_seed_from_file};
+use super::offline::enqueue_analysis_seed_from_file;
 
 #[tauri::command]
 pub(crate) async fn download_track_hot_cache(

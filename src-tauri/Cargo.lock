@@ -3608,6 +3608,7 @@ dependencies = [
  "libc",
  "lofty",
  "md5",
+ "psysonic-analysis",
  "psysonic-core",
  "reqwest",
  "ringbuf",
@@ -3636,6 +3637,23 @@ dependencies = [
  "webkit2gtk",
  "windows 0.62.2",
  "zbus 5.15.0",
+]
+
+[[package]]
+name = "psysonic-analysis"
+version = "1.46.0-dev"
+dependencies = [
+ "ebur128",
+ "futures-util",
+ "md5",
+ "psysonic-core",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "tauri",
+ "tokio",
 ]
 
 [[package]]

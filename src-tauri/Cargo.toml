@@ -31,6 +31,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 psysonic-core = { path = "crates/psysonic-core" }
+psysonic-analysis = { path = "crates/psysonic-analysis" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-shell = "2"

@@ -1,49 +1,36 @@
-//! Cross-crate port traits.
+//! Cross-crate port handles.
 //!
-//! These traits exist purely to break dependency cycles that would otherwise
-//! force `psysonic-audio` ↔ `psysonic-analysis` to depend on each other in
-//! both directions. Implementers register themselves as Tauri State on app
-//! bootstrap; consumers look them up via `app.try_state::<Arc<dyn _>>()`.
+//! Exists to break the one back-edge in the audio↔analysis dependency:
+//! `psysonic-analysis` needs to ask "is this track currently playing?", but
+//! must not depend on `psysonic-audio` (which has the real dep on analysis,
+//! not the other way around).
 //!
-//! Layout:
-//! - `AnalysisOrchestrator`  — implemented in `psysonic-analysis`, called from
-//!   `psysonic-audio` to enqueue full-buffer loudness/waveform analysis.
-//! - `PlaybackQuery`         — implemented in `psysonic-audio` on `AudioEngine`,
-//!   called from `psysonic-analysis` to ask "is this track currently playing?".
+//! Implementation note: ports are exposed as **closure handles** rather than
+//! `Arc<dyn Trait>` — this avoids forcing every existing `State<AudioEngine>`
+//! callsite to switch to `State<Arc<AudioEngine>>` (which Tauri State requires
+//! for trait-object registration). The shell crate creates the handle by
+//! capturing an `AppHandle` and looking up the audio engine at call time.
 
-use std::future::Future;
-use std::pin::Pin;
+use std::sync::Arc;
 
-use tauri::AppHandle;
-
-/// Read-only queries about the live playback session. Implemented on
-/// `AudioEngine` in `psysonic-audio`.
-///
-/// Registered as `Arc<dyn PlaybackQuery>` in Tauri State so non-audio crates
-/// can query without taking a hard dep on the audio crate.
-pub trait PlaybackQuery: Send + Sync + 'static {
-    /// `true` if `track_id` is the track currently being decoded/played.
-    fn is_track_currently_playing(&self, track_id: &str) -> bool;
+/// "Is this track currently being decoded/played?" — implementation lives in
+/// `psysonic-audio` (`AudioEngine::analysis_track_id_is_current_playback`).
+/// The shell crate registers an instance constructed via [`PlaybackQueryHandle::new`]
+/// as Tauri State; consumers in `psysonic-analysis` look it up.
+#[derive(Clone)]
+pub struct PlaybackQueryHandle {
+    inner: Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>,
 }
 
-/// Triggers full-buffer analysis on already-captured track bytes. Implemented
-/// on `AnalysisRuntime` in `psysonic-analysis`.
-///
-/// Registered as `Arc<dyn AnalysisOrchestrator>` in Tauri State so audio
-/// callsites (`stream::ranged_http`, `stream::track_stream`, `helpers`,
-/// `play_input`, `preload_commands`) can submit without depending on
-/// `psysonic-analysis`.
-pub trait AnalysisOrchestrator: Send + Sync + 'static {
-    /// Enqueue a CPU-seed analysis pass for `track_id` over the given byte
-    /// buffer. `high_priority` mirrors the HTTP-backfill head-insertion
-    /// behaviour for the currently playing track.
-    ///
-    /// Errors are stringified — audio callers only care about pass/fail.
-    fn submit_cpu_seed<'a>(
-        &'a self,
-        app: AppHandle,
-        track_id: String,
-        bytes: Vec<u8>,
-        high_priority: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+impl PlaybackQueryHandle {
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(&str) -> bool + Send + Sync + 'static,
+    {
+        Self { inner: Arc::new(f) }
+    }
+
+    pub fn is_track_currently_playing(&self, track_id: &str) -> bool {
+        (self.inner)(track_id)
+    }
 }

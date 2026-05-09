@@ -3,21 +3,21 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use tauri::{Emitter, Manager};
 
-use super::analysis_cache;
-use super::lib_commands::*;
-use super::subsonic_wire_user_agent;
+use psysonic_core::user_agent::subsonic_wire_user_agent;
+
+use crate::analysis_cache;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WaveformUpdatedPayload {
-    pub(crate) track_id: String,
-    pub(crate) is_partial: bool,
+pub struct WaveformUpdatedPayload {
+    pub track_id: String,
+    pub is_partial: bool,
 }
 
 // ─── HTTP backfill queue: download tracks + seed analysis cache ──────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AnalysisBackfillEnqueueKind {
+pub enum AnalysisBackfillEnqueueKind {
     /// New job at the tail of the queue.
     NewBack,
     /// New job for the currently playing track (head).
@@ -31,10 +31,10 @@ pub(crate) enum AnalysisBackfillEnqueueKind {
 }
 
 #[derive(Default)]
-pub(crate) struct AnalysisBackfillQueueState {
-    pub(crate) deque: VecDeque<(String, String)>,
+pub struct AnalysisBackfillQueueState {
+    pub deque: VecDeque<(String, String)>,
     /// Set while this `track_id` is inside `analysis_backfill_download_and_seed` (not in deque).
-    pub(crate) in_progress: Option<String>,
+    pub in_progress: Option<String>,
 }
 
 impl AnalysisBackfillQueueState {
@@ -55,7 +55,7 @@ impl AnalysisBackfillQueueState {
         }
     }
 
-    pub(crate) fn enqueue(
+    pub fn enqueue(
         &mut self,
         tid: String,
         url: String,
@@ -82,7 +82,7 @@ impl AnalysisBackfillQueueState {
         }
     }
 
-    pub(crate) fn prune_queued_not_in(&mut self, keep_track_ids: &HashSet<&str>) -> usize {
+    pub fn prune_queued_not_in(&mut self, keep_track_ids: &HashSet<&str>) -> usize {
         let before = self.deque.len();
         self.deque
             .retain(|(track_id, _)| keep_track_ids.contains(track_id.as_str()));
@@ -90,13 +90,13 @@ impl AnalysisBackfillQueueState {
     }
 }
 
-pub(crate) struct AnalysisBackfillShared {
-    pub(crate) state: Mutex<AnalysisBackfillQueueState>,
+pub struct AnalysisBackfillShared {
+    pub state: Mutex<AnalysisBackfillQueueState>,
     wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
 impl AnalysisBackfillShared {
-    pub(crate) fn ping_worker(&self) {
+    pub fn ping_worker(&self) {
         let _ = self.wake_tx.send(());
     }
 }
@@ -104,7 +104,7 @@ impl AnalysisBackfillShared {
 static ANALYSIS_BACKFILL: OnceLock<Arc<AnalysisBackfillShared>> = OnceLock::new();
 
 /// Lazily spawns the single backfill worker (first caller supplies `AppHandle`).
-pub(crate) fn analysis_backfill_shared(app: &tauri::AppHandle) -> Arc<AnalysisBackfillShared> {
+pub fn analysis_backfill_shared(app: &tauri::AppHandle) -> Arc<AnalysisBackfillShared> {
     ANALYSIS_BACKFILL
         .get_or_init(|| {
             let (wake_tx, wake_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -118,6 +118,44 @@ pub(crate) fn analysis_backfill_shared(app: &tauri::AppHandle) -> Arc<AnalysisBa
             shared
         })
         .clone()
+}
+
+/// Decode `bytes` for `track_id` via the cpu-seed queue. Returns `Ok(true)` when
+/// a loudness row exists in the cache after the seed (cache-hit short-circuits as
+/// well as fresh decode hits).
+pub async fn enqueue_analysis_seed(
+    app: &tauri::AppHandle,
+    track_id: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    if let Some(cache) = app.try_state::<analysis_cache::AnalysisCache>() {
+        if cache.cpu_seed_redundant_for_track(track_id).unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+    let high = analysis_backfill_is_current_track(app, track_id);
+    let outcome = submit_analysis_cpu_seed(
+        app.clone(),
+        track_id.to_string(),
+        bytes.to_vec(),
+        high,
+    )
+    .await
+    .map_err(|e| {
+        crate::app_eprintln!("[analysis] failed to seed {}: {}", track_id, e);
+        e
+    })?;
+    let has_loudness = app
+        .try_state::<analysis_cache::AnalysisCache>()
+        .and_then(|cache| cache.get_latest_loudness_for_track(track_id).ok().flatten())
+        .is_some();
+    crate::app_deprintln!(
+        "[analysis] seed result track_id={} bytes={} has_loudness={} outcome={outcome:?}",
+        track_id,
+        bytes.len(),
+        has_loudness
+    );
+    Ok(has_loudness)
 }
 
 async fn analysis_backfill_download_and_seed(
@@ -176,9 +214,9 @@ async fn analysis_backfill_worker_loop(
     }
 }
 
-pub(crate) fn analysis_backfill_is_current_track(app: &tauri::AppHandle, track_id: &str) -> bool {
-    app.try_state::<crate::audio::AudioEngine>()
-        .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
+pub fn analysis_backfill_is_current_track(app: &tauri::AppHandle, track_id: &str) -> bool {
+    app.try_state::<psysonic_core::ports::PlaybackQueryHandle>()
+        .is_some_and(|p| p.is_track_currently_playing(track_id))
 }
 
 // ─── Full-track waveform + loudness: single CPU worker (mirrors HTTP backfill queue) ─
@@ -187,7 +225,7 @@ pub(crate) fn analysis_backfill_is_current_track(app: &tauri::AppHandle, track_i
 // submitters attach to `running` followers so they all get the same outcome.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AnalysisCpuSeedEnqueueKind {
+pub enum AnalysisCpuSeedEnqueueKind {
     NewBack,
     NewFront,
     ReorderedFront,
@@ -362,7 +400,7 @@ fn emit_analysis_queue_snapshot_line() {
     );
 }
 
-pub(crate) async fn analysis_queue_snapshot_loop() {
+pub async fn analysis_queue_snapshot_loop() {
     emit_analysis_queue_snapshot_line();
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
@@ -432,7 +470,7 @@ async fn analysis_cpu_seed_worker_loop(
 ///
 /// Returns `(http_removed, cpu_removed_jobs, cpu_removed_waiters)`. Either
 /// queue may not have been initialized yet — those slots return 0.
-pub(crate) fn prune_analysis_queues(
+pub fn prune_analysis_queues(
     keep_track_ids: &HashSet<&str>,
 ) -> Result<(usize, usize, usize), String> {
     let http_removed = if let Some(shared) = ANALYSIS_BACKFILL.get() {
@@ -464,7 +502,7 @@ pub(crate) fn prune_analysis_queues(
 /// Emits `analysis:waveform-updated` when analysis **wrote** new waveform data (`Upserted`).
 /// Cache-hit skips (`SkippedWaveformCacheHit`) omit the event so the frontend does not
 /// re-run loudness refresh / waveform IPC for rows that were already current.
-pub(crate) async fn submit_analysis_cpu_seed(
+pub async fn submit_analysis_cpu_seed(
     app: tauri::AppHandle,
     track_id: String,
     bytes: Vec<u8>,

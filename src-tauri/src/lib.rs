@@ -2,23 +2,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
-mod analysis_cache;
-mod analysis_runtime;
 pub mod cli;
 mod discord;
 mod lib_commands;
 
 pub use psysonic_core::logging;
 pub use psysonic_core::{app_eprintln, app_deprintln};
+pub use psysonic_core::user_agent::{
+    default_subsonic_wire_user_agent, runtime_subsonic_wire_user_agent, subsonic_wire_user_agent,
+};
+pub use psysonic_analysis::{analysis_cache, analysis_runtime};
+// `crate::submit_analysis_cpu_seed` shorthand kept so the audio modules don't
+// have to spell out `psysonic_analysis::analysis_runtime::...` until M3.
+pub(crate) use psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed;
 #[cfg(target_os = "windows")]
 mod taskbar_win;
 mod tray_runtime;
 
-pub(crate) use analysis_runtime::*;
 pub(crate) use tray_runtime::*;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::AtomicBool;
 
 use tauri::{Emitter, Manager};
@@ -31,25 +35,6 @@ type ShortcutMap = Mutex<HashMap<String, String>>;
 /// Maximum number of offline track downloads that can run concurrently.
 /// The frontend queues more tasks than this; Rust is the real throttle.
 const MAX_DL_CONCURRENCY: usize = 4;
-
-fn default_subsonic_wire_user_agent() -> String {
-    format!("psysonic/{}", env!("CARGO_PKG_VERSION"))
-}
-
-fn runtime_subsonic_wire_user_agent() -> &'static RwLock<String> {
-    static UA: OnceLock<RwLock<String>> = OnceLock::new();
-    UA.get_or_init(|| RwLock::new(default_subsonic_wire_user_agent()))
-}
-
-/// Unified outbound User-Agent for all Rust-side HTTP requests.
-/// It is initialized with `psysonic/<version>` and then overridden from
-/// the main WebView `navigator.userAgent` at app startup.
-pub(crate) fn subsonic_wire_user_agent() -> String {
-    runtime_subsonic_wire_user_agent()
-        .read()
-        .map(|ua| ua.clone())
-        .unwrap_or_else(|_| default_subsonic_wire_user_agent())
-}
 
 /// Shared semaphore that caps simultaneous `download_track_offline` executions.
 type DownloadSemaphore = Arc<tokio::sync::Semaphore>;
@@ -151,8 +136,22 @@ pub fn run() {
                 app.manage(cache);
             }
 
+            // ── Playback-query port (analysis → audio back-edge) ──────────
+            // Replace the placeholder registered above with a real handle
+            // that has access to the AppHandle, so analysis_runtime can ask
+            // AudioEngine if a track is currently playing.
+            {
+                let app_for_query = app.handle().clone();
+                let real_handle = psysonic_core::ports::PlaybackQueryHandle::new(move |track_id| {
+                    app_for_query
+                        .try_state::<crate::audio::AudioEngine>()
+                        .is_some_and(|e| crate::audio::analysis_track_id_is_current_playback(&e, track_id))
+                });
+                app.manage(real_handle);
+            }
+
             // Periodic analysis queue sizes (debug logging mode only).
-            tauri::async_runtime::spawn(analysis_queue_snapshot_loop());
+            tauri::async_runtime::spawn(psysonic_analysis::analysis_runtime::analysis_queue_snapshot_loop());
 
             // ── Custom title bar on Linux ─────────────────────────────────
             // Remove OS window decorations on all Linux so the React TitleBar

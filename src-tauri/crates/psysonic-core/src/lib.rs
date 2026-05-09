@@ -6,3 +6,4 @@
 
 pub mod logging;
 pub mod ports;
+pub mod user_agent;

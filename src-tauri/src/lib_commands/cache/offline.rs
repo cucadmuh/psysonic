@@ -1,43 +1,12 @@
 use tauri::Manager;
 
 use crate::analysis_cache;
-use crate::analysis_runtime::{analysis_backfill_is_current_track, submit_analysis_cpu_seed};
+use crate::analysis_runtime::enqueue_analysis_seed;
 use crate::DownloadSemaphore;
 
 use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
 
 // ─── Offline Track Cache ──────────────────────────────────────────────────────
-
-pub(crate) async fn enqueue_analysis_seed(app: &tauri::AppHandle, track_id: &str, bytes: &[u8]) -> Result<bool, String> {
-    if let Some(cache) = app.try_state::<analysis_cache::AnalysisCache>() {
-        if cache.cpu_seed_redundant_for_track(track_id).unwrap_or(false) {
-            return Ok(true);
-        }
-    }
-    let high = analysis_backfill_is_current_track(app, track_id);
-    let outcome = submit_analysis_cpu_seed(
-        app.clone(),
-        track_id.to_string(),
-        bytes.to_vec(),
-        high,
-    )
-    .await
-    .map_err(|e| {
-        crate::app_eprintln!("[analysis] failed to seed {}: {}", track_id, e);
-        e
-    })?;
-    let has_loudness = app
-        .try_state::<analysis_cache::AnalysisCache>()
-        .and_then(|cache| cache.get_latest_loudness_for_track(track_id).ok().flatten())
-        .is_some();
-    crate::app_deprintln!(
-        "[analysis] seed result track_id={} bytes={} has_loudness={} outcome={outcome:?}",
-        track_id,
-        bytes.len(),
-        has_loudness
-    );
-    Ok(has_loudness)
-}
 
 pub(crate) async fn enqueue_analysis_seed_from_file(
     app: &tauri::AppHandle,

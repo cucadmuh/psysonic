@@ -15,5 +15,3 @@ pub(crate) use downloads::{
     check_arch_linux, download_update, download_zip, fetch_netease_lyrics, get_embedded_lyrics,
     open_folder,
 };
-// Internal helper consumed by analysis_runtime (used as analysis_runtime depends on it):
-pub(crate) use offline::enqueue_analysis_seed;
