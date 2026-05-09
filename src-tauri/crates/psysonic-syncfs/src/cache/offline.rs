@@ -1,14 +1,14 @@
 use tauri::Manager;
 
-use crate::analysis_cache;
-use crate::analysis_runtime::enqueue_analysis_seed;
+use psysonic_analysis::analysis_cache;
+use psysonic_analysis::analysis_runtime::enqueue_analysis_seed;
 use crate::DownloadSemaphore;
 
-use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
+use crate::file_transfer::{finalize_streamed_download, subsonic_http_client};
 
 // ─── Offline Track Cache ──────────────────────────────────────────────────────
 
-pub(crate) async fn enqueue_analysis_seed_from_file(
+pub async fn enqueue_analysis_seed_from_file(
     app: &tauri::AppHandle,
     track_id: &str,
     file_path: &std::path::Path,
@@ -32,7 +32,7 @@ pub(crate) async fn enqueue_analysis_seed_from_file(
 /// Returns the absolute file path so TypeScript can store it and later
 /// construct a `psysonic-local://<path>` URL for the audio engine.
 #[tauri::command]
-pub(crate) async fn download_track_offline(
+pub async fn download_track_offline(
     track_id: String,
     server_id: String,
     url: String,
@@ -90,7 +90,7 @@ pub(crate) async fn download_track_offline(
 
 /// Returns the total size in bytes of all files in the offline cache directory (and optional custom dir).
 #[tauri::command]
-pub(crate) async fn get_offline_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
+pub async fn get_offline_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
     let default_dir = match app.path().app_data_dir() {
         Ok(d) => d.join("psysonic-offline"),
         Err(_) => return 0,
@@ -111,7 +111,7 @@ pub(crate) async fn get_offline_cache_size(custom_dir: Option<String>, app: taur
 /// After deleting the file, empty parent directories up to (but not including)
 /// `base_dir` are pruned using `remove_dir` (never `remove_dir_all`).
 #[tauri::command]
-pub(crate) async fn delete_offline_track(
+pub async fn delete_offline_track(
     local_path: String,
     base_dir: Option<String>,
     app: tauri::AppHandle,

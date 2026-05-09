@@ -12,6 +12,7 @@ pub use psysonic_core::user_agent::{
 };
 pub use psysonic_analysis::{analysis_cache, analysis_runtime};
 pub use psysonic_audio as audio;
+pub use psysonic_syncfs::{sync_cancel_flags, DownloadSemaphore};
 #[cfg(target_os = "windows")]
 mod taskbar_win;
 mod tray_runtime;
@@ -19,8 +20,7 @@ mod tray_runtime;
 pub(crate) use tray_runtime::*;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use tauri::{Emitter, Manager};
 use lib_commands::*;
@@ -32,16 +32,6 @@ type ShortcutMap = Mutex<HashMap<String, String>>;
 /// Maximum number of offline track downloads that can run concurrently.
 /// The frontend queues more tasks than this; Rust is the real throttle.
 const MAX_DL_CONCURRENCY: usize = 4;
-
-/// Shared semaphore that caps simultaneous `download_track_offline` executions.
-type DownloadSemaphore = Arc<tokio::sync::Semaphore>;
-
-/// Per-job cancellation flags for `sync_batch_to_device`.
-/// Each running sync registers an `Arc<AtomicBool>` here; `cancel_device_sync` flips it.
-fn sync_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-    static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
-    FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
-}
 
 /// Shared handle to OS media controls (MPRIS2 on Linux, Now Playing on macOS, SMTC on Windows).
 /// `None` if souvlaki failed to initialize (e.g. no D-Bus session on Linux).
@@ -350,7 +340,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
-            calculate_sync_payload,
+            psysonic_syncfs::sync::batch::calculate_sync_payload,
             exit_app,
             cli_publish_player_snapshot,
             cli_publish_library_list,
@@ -437,36 +427,36 @@ pub fn run() {
             analysis_delete_all_waveforms,
             analysis_enqueue_seed_from_url,
             analysis_prune_pending_to_track_ids,
-            download_track_offline,
-            delete_offline_track,
-            get_offline_cache_size,
-            download_track_hot_cache,
-            promote_stream_cache_to_hot_cache,
-            get_hot_cache_size,
-            delete_hot_cache_track,
-            purge_hot_cache,
-            sync_track_to_device,
-            sync_batch_to_device,
-            cancel_device_sync,
-            compute_sync_paths,
-            list_device_dir_files,
-            delete_device_file,
-            delete_device_files,
-            get_removable_drives,
-            write_device_manifest,
-            read_device_manifest,
-            write_playlist_m3u8,
-            rename_device_files,
+            psysonic_syncfs::cache::offline::download_track_offline,
+            psysonic_syncfs::cache::offline::delete_offline_track,
+            psysonic_syncfs::cache::offline::get_offline_cache_size,
+            psysonic_syncfs::cache::hot::download_track_hot_cache,
+            psysonic_syncfs::cache::hot::promote_stream_cache_to_hot_cache,
+            psysonic_syncfs::cache::hot::get_hot_cache_size,
+            psysonic_syncfs::cache::hot::delete_hot_cache_track,
+            psysonic_syncfs::cache::hot::purge_hot_cache,
+            psysonic_syncfs::sync::device::sync_track_to_device,
+            psysonic_syncfs::sync::batch::sync_batch_to_device,
+            psysonic_syncfs::sync::batch::cancel_device_sync,
+            psysonic_syncfs::sync::device::compute_sync_paths,
+            psysonic_syncfs::sync::batch::list_device_dir_files,
+            psysonic_syncfs::sync::batch::delete_device_file,
+            psysonic_syncfs::sync::batch::delete_device_files,
+            psysonic_syncfs::sync::device::get_removable_drives,
+            psysonic_syncfs::sync::device::write_device_manifest,
+            psysonic_syncfs::sync::device::read_device_manifest,
+            psysonic_syncfs::sync::device::write_playlist_m3u8,
+            psysonic_syncfs::sync::device::rename_device_files,
             toggle_tray_icon,
             set_tray_tooltip,
             set_tray_menu_labels,
             check_dir_accessible,
-            download_zip,
-            check_arch_linux,
-            download_update,
-            open_folder,
-            get_embedded_lyrics,
-            fetch_netease_lyrics,
+            psysonic_syncfs::cache::downloads::download_zip,
+            psysonic_syncfs::cache::downloads::check_arch_linux,
+            psysonic_syncfs::cache::downloads::download_update,
+            psysonic_syncfs::cache::downloads::open_folder,
+            psysonic_syncfs::cache::downloads::get_embedded_lyrics,
+            psysonic_syncfs::cache::downloads::fetch_netease_lyrics,
             fetch_bandsintown_events,
             #[cfg(target_os = "windows")]
             taskbar_win::update_taskbar_icon,

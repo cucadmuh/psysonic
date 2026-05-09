@@ -1,8 +1,8 @@
 use tauri::{Emitter, Manager};
 
-use crate::subsonic_wire_user_agent;
+use psysonic_core::user_agent::subsonic_wire_user_agent;
 
-pub(crate) fn resolve_hot_cache_root(
+pub fn resolve_hot_cache_root(
     custom_dir: Option<String>,
     app: &tauri::AppHandle,
 ) -> Result<std::path::PathBuf, String> {
@@ -24,7 +24,7 @@ pub(crate) fn resolve_hot_cache_root(
 /// Returns true if the current Linux system is Arch-based
 /// (checks /etc/arch-release and /etc/os-release).
 #[tauri::command]
-pub(crate) fn check_arch_linux() -> bool {
+pub fn check_arch_linux() -> bool {
     #[cfg(target_os = "linux")]
     {
         if std::path::Path::new("/etc/arch-release").exists() {
@@ -46,7 +46,7 @@ pub(crate) fn check_arch_linux() -> bool {
 /// Progress payload emitted during an update binary download.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct UpdateDownloadProgress {
+pub struct UpdateDownloadProgress {
     bytes: u64,
     total: Option<u64>,
 }
@@ -55,7 +55,7 @@ pub(crate) struct UpdateDownloadProgress {
 /// Emits `update:download:progress` events with `{ bytes, total }` every 250 ms.
 /// Returns the final absolute file path on success.
 #[tauri::command]
-pub(crate) async fn download_update(url: String, filename: String, app: tauri::AppHandle) -> Result<String, String> {
+pub async fn download_update(url: String, filename: String, app: tauri::AppHandle) -> Result<String, String> {
     use futures_util::StreamExt;
     use std::time::{Duration, Instant};
     use tokio::io::AsyncWriteExt;
@@ -128,7 +128,7 @@ pub(crate) async fn download_update(url: String, filename: String, app: tauri::A
 /// Performs a track search, then fetches the LRC string for the best match.
 /// Returns `None` if no match or no lyrics are found.
 #[tauri::command]
-pub(crate) async fn fetch_netease_lyrics(artist: String, title: String) -> Result<Option<String>, String> {
+pub async fn fetch_netease_lyrics(artist: String, title: String) -> Result<Option<String>, String> {
     let client = reqwest::Client::builder()
         .user_agent(subsonic_wire_user_agent())
         .timeout(std::time::Duration::from_secs(8))
@@ -181,7 +181,7 @@ pub(crate) async fn fetch_netease_lyrics(artist: String, title: String) -> Resul
 /// Errors are silenced and mapped to `None` so the frontend falls through to the
 /// next lyrics source without crashing.
 #[tauri::command]
-pub(crate) fn get_embedded_lyrics(path: String) -> Option<String> {
+pub fn get_embedded_lyrics(path: String) -> Option<String> {
     use lofty::file::FileType;
     use lofty::prelude::*;
     use lofty::probe::Probe;
@@ -198,7 +198,7 @@ pub(crate) fn get_embedded_lyrics(path: String) -> Option<String> {
     let file_type = probe.file_type();
 
     // ── MP3 / MPEG: use the `id3` crate for SYLT / USLT ─────────────────────
-    // lofty's MpegFile::id3v2_tag field is pub(crate) — not accessible here.
+    // lofty's MpegFile::id3v2_tag field is pub — not accessible here.
     // The `id3` crate exposes a clean public API for typed ID3v2 frames.
     if matches!(file_type, Some(FileType::Mpeg)) {
         use id3::{Content, Tag as Id3Tag};
@@ -280,7 +280,7 @@ pub(crate) fn get_embedded_lyrics(path: String) -> Option<String> {
 /// Uses platform-specific process spawning — tauri-plugin-shell's open() only
 /// allows https:// URLs per the capability scope and fails silently for paths.
 #[tauri::command]
-pub(crate) fn open_folder(path: String) -> Result<(), String> {
+pub fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer.exe")
@@ -310,7 +310,7 @@ pub(crate) fn open_folder(path: String) -> Result<(), String> {
 /// (Navidrome on-the-fly ZIPs).
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ZipProgress {
+pub struct ZipProgress {
     id: String,
     bytes: u64,
     total: Option<u64>,
@@ -321,7 +321,7 @@ pub(crate) struct ZipProgress {
 /// live MB-counter without holding any binary data in the WebView process.
 /// Returns the final destination path on success.
 #[tauri::command]
-pub(crate) async fn download_zip(
+pub async fn download_zip(
     id: String,
     url: String,
     dest_path: String,
@@ -398,7 +398,7 @@ pub(crate) async fn download_zip(
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct HotCacheDownloadResult {
-    pub(crate) path: String,
-    pub(crate) size: u64,
+pub struct HotCacheDownloadResult {
+    pub path: String,
+    pub size: u64,
 }

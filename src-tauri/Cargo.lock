@@ -3611,6 +3611,7 @@ dependencies = [
  "psysonic-analysis",
  "psysonic-audio",
  "psysonic-core",
+ "psysonic-syncfs",
  "reqwest",
  "ringbuf",
  "rodio",
@@ -3692,6 +3693,28 @@ dependencies = [
  "libc",
  "serde",
  "tauri",
+]
+
+[[package]]
+name = "psysonic-syncfs"
+version = "1.46.0-dev"
+dependencies = [
+ "futures-util",
+ "id3",
+ "lofty",
+ "md5",
+ "psysonic-analysis",
+ "psysonic-audio",
+ "psysonic-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tokio",
+ "url",
 ]
 
 [[package]]

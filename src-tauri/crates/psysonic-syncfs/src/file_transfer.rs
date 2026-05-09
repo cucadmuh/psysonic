@@ -4,9 +4,9 @@ use std::time::Duration;
 /// Build a reqwest client with the standard Subsonic UA and a single overall timeout.
 /// For flows that need separate connect + read timeouts (long-running update/zip
 /// downloads with progress events), build the client inline.
-pub(crate) fn subsonic_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
+pub fn subsonic_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent(crate::subsonic_wire_user_agent())
+        .user_agent(psysonic_core::user_agent::subsonic_wire_user_agent())
         .timeout(timeout)
         .build()
         .map_err(|e| e.to_string())
@@ -14,7 +14,7 @@ pub(crate) fn subsonic_http_client(timeout: Duration) -> Result<reqwest::Client,
 
 /// Streams an HTTP response body to `dest_path` in chunks. Never buffers the full
 /// file in memory — keeps RAM flat regardless of file size.
-pub(crate) async fn stream_to_file(
+pub async fn stream_to_file(
     response: reqwest::Response,
     dest_path: &Path,
 ) -> Result<(), String> {
@@ -40,7 +40,7 @@ pub(crate) async fn stream_to_file(
 /// Note vs. previous inline implementations: the offline/device single-track
 /// flows used to leave a `.part` orphan if the final rename failed. This helper
 /// always cleans up, matching the batch-sync flow that already did.
-pub(crate) async fn finalize_streamed_download(
+pub async fn finalize_streamed_download(
     response: reqwest::Response,
     dest_path: &Path,
     part_path: &Path,

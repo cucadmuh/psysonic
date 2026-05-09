@@ -5,14 +5,14 @@ use tauri::Emitter;
 
 use crate::sync_cancel_flags;
 
-use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
+use crate::file_transfer::{finalize_streamed_download, subsonic_http_client};
 use super::device::{
     build_track_path, get_removable_drives, is_path_on_mounted_volume, SyncBatchResult,
     TrackSyncInfo,
 };
 
 #[tauri::command]
-pub(crate) async fn list_device_dir_files(dir: String) -> Result<Vec<String>, String> {
+pub async fn list_device_dir_files(dir: String) -> Result<Vec<String>, String> {
     let root = std::path::PathBuf::from(&dir);
     if !root.exists() {
         return Err("VOLUME_NOT_FOUND".to_string());
@@ -45,7 +45,7 @@ pub(crate) async fn list_device_dir_files(dir: String) -> Result<Vec<String>, St
 /// Deletes a file from the device and prunes empty parent directories
 /// (up to 2 levels: album folder, then artist folder).
 #[tauri::command]
-pub(crate) async fn delete_device_file(path: String) -> Result<(), String> {
+pub async fn delete_device_file(path: String) -> Result<(), String> {
     let p = std::path::PathBuf::from(&path);
     if p.exists() {
         tokio::fs::remove_file(&p).await.map_err(|e| e.to_string())?;
@@ -55,7 +55,7 @@ pub(crate) async fn delete_device_file(path: String) -> Result<(), String> {
 }
 
 /// Prune empty parent directories up to `levels` levels above `file_path`.
-pub(crate) async fn prune_empty_parents(file_path: &std::path::Path, levels: usize) {
+pub async fn prune_empty_parents(file_path: &std::path::Path, levels: usize) {
     let mut current = file_path.parent().map(|d| d.to_path_buf());
     for _ in 0..levels {
         let Some(dir) = current else { break };
@@ -73,7 +73,7 @@ pub(crate) async fn prune_empty_parents(file_path: &std::path::Path, levels: usi
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SubsonicAuthPayload {
+pub struct SubsonicAuthPayload {
     base_url: String,
     u: String,
     t: String,
@@ -84,7 +84,7 @@ pub(crate) struct SubsonicAuthPayload {
 }
 
 #[derive(serde::Deserialize, Clone)]
-pub(crate) struct DeviceSyncSourcePayload {
+pub struct DeviceSyncSourcePayload {
     #[serde(rename = "type")]
     source_type: String,
     id: String,
@@ -96,7 +96,7 @@ pub(crate) struct DeviceSyncSourcePayload {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SyncDeltaResult {
+pub struct SyncDeltaResult {
     add_bytes: u64,
     add_count: u32,
     del_bytes: u64,
@@ -105,7 +105,7 @@ pub(crate) struct SyncDeltaResult {
     tracks: Vec<serde_json::Value>,
 }
 
-pub(crate) async fn fetch_subsonic_songs(
+pub async fn fetch_subsonic_songs(
     client: &reqwest::Client,
     auth: &SubsonicAuthPayload,
     endpoint: &str,
@@ -142,7 +142,7 @@ pub(crate) async fn fetch_subsonic_songs(
 }
 
 #[tauri::command]
-pub(crate) async fn calculate_sync_payload(
+pub async fn calculate_sync_payload(
     sources: Vec<DeviceSyncSourcePayload>,
     deletion_ids: Vec<String>,
     auth: SubsonicAuthPayload,
@@ -314,7 +314,7 @@ pub(crate) async fn calculate_sync_payload(
 
 /// Signals a running `sync_batch_to_device` job to stop after its current tracks finish.
 #[tauri::command]
-pub(crate) fn cancel_device_sync(job_id: String, app: tauri::AppHandle) {
+pub fn cancel_device_sync(job_id: String, app: tauri::AppHandle) {
     if let Ok(flags) = sync_cancel_flags().lock() {
         if let Some(flag) = flags.get(&job_id) {
             flag.store(true, Ordering::Relaxed);
@@ -328,7 +328,7 @@ pub(crate) fn cancel_device_sync(job_id: String, app: tauri::AppHandle) {
 /// Emits throttled `device:sync:progress` events (max once per 500ms) and a
 /// final `device:sync:complete` event with the summary.
 #[tauri::command]
-pub(crate) async fn sync_batch_to_device(
+pub async fn sync_batch_to_device(
     tracks: Vec<TrackSyncInfo>,
     dest_dir: String,
     job_id: String,
@@ -517,7 +517,7 @@ pub(crate) async fn sync_batch_to_device(
 /// Deletes multiple files from the device in one call and prunes empty parent
 /// directories. Returns the number of files successfully deleted.
 #[tauri::command]
-pub(crate) async fn delete_device_files(paths: Vec<String>) -> Result<u32, String> {
+pub async fn delete_device_files(paths: Vec<String>) -> Result<u32, String> {
     let mut deleted: u32 = 0;
     for path in &paths {
         let p = std::path::PathBuf::from(path);

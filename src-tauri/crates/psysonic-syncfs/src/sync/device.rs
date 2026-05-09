@@ -1,25 +1,25 @@
 use tauri::Emitter;
 
-use super::super::file_transfer::{finalize_streamed_download, subsonic_http_client};
+use crate::file_transfer::{finalize_streamed_download, subsonic_http_client};
 
 // ─── Device Sync ─────────────────────────────────────────────────────────────
 
 /// Information about a single mounted removable drive.
 #[derive(Clone, serde::Serialize)]
-pub(crate) struct RemovableDrive {
-    pub(crate) name: String,
-    pub(crate) mount_point: String,
-    pub(crate) available_space: u64,
-    pub(crate) total_space: u64,
-    pub(crate) file_system: String,
-    pub(crate) is_removable: bool,
+pub struct RemovableDrive {
+    pub name: String,
+    pub mount_point: String,
+    pub available_space: u64,
+    pub total_space: u64,
+    pub file_system: String,
+    pub is_removable: bool,
 }
 
 /// Returns all currently mounted removable drives.
 /// On Linux these are typically USB sticks / SD cards under /media or /run/media.
 /// On macOS they appear under /Volumes. On Windows they are separate drive letters.
 #[tauri::command]
-pub(crate) fn get_removable_drives() -> Vec<RemovableDrive> {
+pub fn get_removable_drives() -> Vec<RemovableDrive> {
     use sysinfo::Disks;
     let disks = Disks::new_with_refreshed_list();
     disks
@@ -41,7 +41,7 @@ pub(crate) fn get_removable_drives() -> Vec<RemovableDrive> {
 /// The file records which sources (albums/playlists/artists) are synced to this
 /// device so that another machine can pick them up without relying on localStorage.
 #[tauri::command]
-pub(crate) fn write_device_manifest(dest_dir: String, sources: serde_json::Value) -> Result<(), String> {
+pub fn write_device_manifest(dest_dir: String, sources: serde_json::Value) -> Result<(), String> {
     let path = std::path::Path::new(&dest_dir).join("psysonic-sync.json");
     // Manifest v2: fixed "{AlbumArtist}/{Album}/{TrackNum} - {Title}.{ext}" schema,
     // no user-configurable filename template. Readers still accept v1 manifests.
@@ -57,7 +57,7 @@ pub(crate) fn write_device_manifest(dest_dir: String, sources: serde_json::Value
 /// Reads `psysonic-sync.json` from the target directory.
 /// Returns the parsed JSON value, or null if the file doesn't exist.
 #[tauri::command]
-pub(crate) fn read_device_manifest(dest_dir: String) -> Option<serde_json::Value> {
+pub fn read_device_manifest(dest_dir: String) -> Option<serde_json::Value> {
     let path = std::path::Path::new(&dest_dir).join("psysonic-sync.json");
     let content = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&content).ok()
@@ -65,7 +65,7 @@ pub(crate) fn read_device_manifest(dest_dir: String) -> Option<serde_json::Value
 
 /// Per-entry result for `rename_device_files`.
 #[derive(serde::Serialize)]
-pub(crate) struct RenameResult {
+pub struct RenameResult {
     #[serde(rename = "oldPath")]
     old_path: String,
     #[serde(rename = "newPath")]
@@ -85,7 +85,7 @@ pub(crate) struct RenameResult {
 /// and which failed. Does not roll back on partial failure — each `fs::rename`
 /// is atomic, so nothing can be half-renamed.
 #[tauri::command]
-pub(crate) fn rename_device_files(
+pub fn rename_device_files(
     target_dir: String,
     pairs: Vec<(String, String)>,
 ) -> Result<Vec<RenameResult>, String> {
@@ -170,7 +170,7 @@ pub(crate) fn rename_device_files(
 /// playlist is self-contained — moving/copying the folder anywhere keeps it
 /// working. Tracks are expected to be in playlist order (index starts at 1).
 #[tauri::command]
-pub(crate) fn write_playlist_m3u8(
+pub fn write_playlist_m3u8(
     dest_dir: String,
     playlist_name: String,
     tracks: Vec<TrackSyncInfo>,
@@ -199,7 +199,7 @@ pub(crate) fn write_playlist_m3u8(
 /// filesystem). This prevents accidentally writing to `/media/usb` after the
 /// USB drive has been unmounted — at that point the path would fall through to `/`
 /// and fill the root partition.
-pub(crate) fn is_path_on_mounted_volume(path: &std::path::Path) -> bool {
+pub fn is_path_on_mounted_volume(path: &std::path::Path) -> bool {
     use sysinfo::Disks;
     let disks = Disks::new_with_refreshed_list();
     let canonical = match path.canonicalize() {
@@ -232,53 +232,53 @@ pub(crate) fn is_path_on_mounted_volume(path: &std::path::Path) -> bool {
 }
 
 #[derive(serde::Deserialize, Clone)]
-pub(crate) struct TrackSyncInfo {
-    pub(crate) id: String,
-    pub(crate) url: String,
-    pub(crate) suffix: String,
+pub struct TrackSyncInfo {
+    pub id: String,
+    pub url: String,
+    pub suffix: String,
     /// Track artist — used in Extended M3U (#EXTINF) entries so playlists display
     /// the actual performer rather than the album artist.
-    pub(crate) artist: String,
+    pub artist: String,
     /// Album artist — used for the top-level folder so compilation albums stay together.
     /// Falls back to `artist` in the frontend when the server has no albumArtist tag.
     #[serde(rename = "albumArtist")]
-    pub(crate) album_artist: String,
-    pub(crate) album: String,
-    pub(crate) title: String,
+    pub album_artist: String,
+    pub album: String,
+    pub title: String,
     #[serde(rename = "trackNumber")]
-    pub(crate) track_number: Option<u32>,
+    pub track_number: Option<u32>,
     /// Duration in seconds — needed for Extended M3U (#EXTINF) playlist entries.
     #[serde(default)]
-    pub(crate) duration: Option<u32>,
+    pub duration: Option<u32>,
     /// When set, the track belongs to a playlist source and is placed under
     /// `Playlists/{name}/` with `playlist_index` as its filename prefix.
     /// Same track synced from both an album and a playlist source ends up twice
     /// on the device — once in the album tree, once in the playlist folder.
     #[serde(default, rename = "playlistName")]
-    pub(crate) playlist_name: Option<String>,
+    pub playlist_name: Option<String>,
     #[serde(default, rename = "playlistIndex")]
-    pub(crate) playlist_index: Option<u32>,
+    pub playlist_index: Option<u32>,
 }
 
 /// Summary returned by `sync_batch_to_device` after all tracks are processed.
 #[derive(Clone, serde::Serialize)]
-pub(crate) struct SyncBatchResult {
-    pub(crate) done: u32,
-    pub(crate) skipped: u32,
-    pub(crate) failed: u32,
+pub struct SyncBatchResult {
+    pub done: u32,
+    pub skipped: u32,
+    pub failed: u32,
 }
 
 #[derive(serde::Serialize)]
-pub(crate) struct SyncTrackResult {
-    pub(crate) path: String,
-    pub(crate) skipped: bool,
+pub struct SyncTrackResult {
+    pub path: String,
+    pub skipped: bool,
 }
 
 /// Replaces characters that are invalid in file/directory names on Windows and
 /// most Unix filesystems with an underscore, and trims leading/trailing dots and
 /// spaces which cause issues on Windows. Underscore (not deletion) so that "AC/DC"
 /// and "ACDC" don't collapse into the same folder.
-pub(crate) fn sanitize_path_component(s: &str) -> String {
+pub fn sanitize_path_component(s: &str) -> String {
     const INVALID: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     let sanitized: String = s
         .chars()
@@ -289,7 +289,7 @@ pub(crate) fn sanitize_path_component(s: &str) -> String {
 
 /// Sanitize and replace empty results with a placeholder — prevents paths like
 /// `//01 - .flac` when metadata is missing.
-pub(crate) fn sanitize_or(s: &str, fallback: &str) -> String {
+pub fn sanitize_or(s: &str, fallback: &str) -> String {
     let cleaned = sanitize_path_component(s);
     if cleaned.is_empty() { fallback.to_string() } else { cleaned }
 }
@@ -299,7 +299,7 @@ pub(crate) fn sanitize_or(s: &str, fallback: &str) -> String {
 ///
 /// Album-tree:  `{AlbumArtist}/{Album}/{TrackNum:02d} - {Title}.{ext}`
 /// Playlist:    `Playlists/{PlaylistName}/{PlaylistIndex:02d} - {Artist} - {Title}.{ext}`
-pub(crate) fn build_track_path(track: &TrackSyncInfo) -> String {
+pub fn build_track_path(track: &TrackSyncInfo) -> String {
     let relative = match (&track.playlist_name, track.playlist_index) {
         (Some(name), Some(idx)) => {
             let playlist = sanitize_or(name, "Unnamed Playlist");
@@ -323,7 +323,7 @@ pub(crate) fn build_track_path(track: &TrackSyncInfo) -> String {
 /// Downloads a single track to a USB/SD device using the configured filename template.
 /// Emits `device:sync:progress` events with `{ jobId, trackId, status, path? }`.
 #[tauri::command]
-pub(crate) async fn sync_track_to_device(
+pub async fn sync_track_to_device(
     track: TrackSyncInfo,
     dest_dir: String,
     job_id: String,
@@ -375,7 +375,7 @@ pub(crate) async fn sync_track_to_device(
 /// Computes the expected file paths for a batch of tracks under the fixed schema.
 /// Used by the cleanup flow to find orphans.
 #[tauri::command]
-pub(crate) fn compute_sync_paths(tracks: Vec<TrackSyncInfo>, dest_dir: String) -> Vec<String> {
+pub fn compute_sync_paths(tracks: Vec<TrackSyncInfo>, dest_dir: String) -> Vec<String> {
     tracks.iter().map(|track| {
         let relative = build_track_path(track);
         let file_name = format!("{}.{}", relative, track.suffix);

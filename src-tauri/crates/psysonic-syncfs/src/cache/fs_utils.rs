@@ -2,7 +2,7 @@ use std::path::Path;
 
 /// Recursively sums the size of all files under `root`.
 /// Missing roots, unreadable directories, and unreadable files are silently skipped.
-pub(crate) fn dir_size_recursive(root: &Path) -> u64 {
+pub fn dir_size_recursive(root: &Path) -> u64 {
     if !root.exists() {
         return 0;
     }
@@ -31,7 +31,7 @@ pub(crate) fn dir_size_recursive(root: &Path) -> u64 {
 ///
 /// `boundary` is never removed and is treated as a hard stop. If `start_dir` is
 /// not under `boundary`, the function is a no-op.
-pub(crate) fn prune_empty_dirs_up_to(start_dir: &Path, boundary: &Path) {
+pub fn prune_empty_dirs_up_to(start_dir: &Path, boundary: &Path) {
     let mut current = Some(start_dir.to_path_buf());
     while let Some(dir) = current {
         if dir == boundary || !dir.starts_with(boundary) {

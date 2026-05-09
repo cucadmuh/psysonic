@@ -1,13 +1,13 @@
-use crate::analysis_runtime::enqueue_analysis_seed;
-use crate::audio;
-use crate::subsonic_wire_user_agent;
+use psysonic_analysis::analysis_runtime::enqueue_analysis_seed;
+use psysonic_audio as audio;
+use psysonic_core::user_agent::subsonic_wire_user_agent;
 
-use super::super::file_transfer::stream_to_file;
+use crate::file_transfer::stream_to_file;
 use super::downloads::{resolve_hot_cache_root, HotCacheDownloadResult};
 use super::offline::enqueue_analysis_seed_from_file;
 
 #[tauri::command]
-pub(crate) async fn download_track_hot_cache(
+pub async fn download_track_hot_cache(
     track_id: String,
     server_id: String,
     url: String,
@@ -103,7 +103,7 @@ pub(crate) async fn download_track_hot_cache(
 /// Promotes bytes captured by the manual streaming path into hot cache on disk.
 /// Returns `Ok(None)` when no completed stream cache is available for this URL.
 #[tauri::command]
-pub(crate) async fn promote_stream_cache_to_hot_cache(
+pub async fn promote_stream_cache_to_hot_cache(
     track_id: String,
     server_id: String,
     url: String,
@@ -177,14 +177,14 @@ pub(crate) async fn promote_stream_cache_to_hot_cache(
 }
 
 #[tauri::command]
-pub(crate) async fn get_hot_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
+pub async fn get_hot_cache_size(custom_dir: Option<String>, app: tauri::AppHandle) -> u64 {
     resolve_hot_cache_root(custom_dir, &app)
         .map(|root| super::fs_utils::dir_size_recursive(&root))
         .unwrap_or(0)
 }
 
 #[tauri::command]
-pub(crate) async fn delete_hot_cache_track(
+pub async fn delete_hot_cache_track(
     local_path: String,
     custom_dir: Option<String>,
     app: tauri::AppHandle,
@@ -215,7 +215,7 @@ pub(crate) async fn delete_hot_cache_track(
 
 /// Removes the entire hot cache root (`psysonic-hot-cache` for the active location).
 #[tauri::command]
-pub(crate) async fn purge_hot_cache(custom_dir: Option<String>, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn purge_hot_cache(custom_dir: Option<String>, app: tauri::AppHandle) -> Result<(), String> {
     let root = resolve_hot_cache_root(custom_dir, &app)?;
     if !root.exists() {
         return Ok(());
