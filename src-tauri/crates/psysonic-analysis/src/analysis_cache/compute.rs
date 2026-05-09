@@ -334,13 +334,21 @@ fn decode_scan_pcm(
     let mut fed_any_frames = false;
     let mut sample_idx: u64 = 0;
     let mut loop_i: u32 = 0;
-    // Fixed timeline from metadata when available; otherwise fall back to decoded
-    // length (full-buffer analysis only — partial byte windows still shift, but
-    // then we usually lack n_frames anyway).
-    let bin_grid_frames = timeline_hint
-        .map(|n| n.max(decoded_frames))
-        .unwrap_or(decoded_frames)
-        .max(1);
+    // Bin mapping must use the decoded mono sample count. When the container
+    // reports `n_frames` **larger** than what we actually decoded (bad VBR tags,
+    // wrong duration in headers) but the buffer is already the full file — all
+    // CPU-seed paths pass a complete artifact — using `max(n_frames, decoded)`
+    // squashes the entire waveform into the leading bins ("only the start").
+    if let Some(n) = timeline_hint {
+        if n > decoded_frames {
+            crate::app_deprintln!(
+                "[analysis][waveform] bin_grid: ignore container n_frames={} (> decoded {}) — map bins to decoded length",
+                n,
+                decoded_frames
+            );
+        }
+    }
+    let bin_grid_frames = decoded_frames.max(1);
 
     loop {
         let packet = match format.next_packet() {
