@@ -6,7 +6,7 @@ use super::client::{nd_err, nd_http_client, nd_retry};
 
 /// GET `/api/playlist` — list playlists; pass `smart=true` to filter smart playlists.
 #[tauri::command]
-pub(crate) async fn nd_list_playlists(
+pub async fn nd_list_playlists(
     server_url: String,
     token: String,
     smart: Option<bool>,
@@ -30,7 +30,7 @@ pub(crate) async fn nd_list_playlists(
 
 /// POST `/api/playlist` — create playlist (supports smart rules payload).
 #[tauri::command]
-pub(crate) async fn nd_create_playlist(
+pub async fn nd_create_playlist(
     server_url: String,
     token: String,
     body: serde_json::Value,
@@ -53,7 +53,7 @@ pub(crate) async fn nd_create_playlist(
 
 /// PUT `/api/playlist/{id}` — update playlist (supports smart rules payload).
 #[tauri::command]
-pub(crate) async fn nd_update_playlist(
+pub async fn nd_update_playlist(
     server_url: String,
     token: String,
     id: String,
@@ -77,7 +77,7 @@ pub(crate) async fn nd_update_playlist(
 
 /// GET `/api/playlist/{id}` — get a single playlist (includes smart rules if available).
 #[tauri::command]
-pub(crate) async fn nd_get_playlist(
+pub async fn nd_get_playlist(
     server_url: String,
     token: String,
     id: String,
@@ -99,7 +99,7 @@ pub(crate) async fn nd_get_playlist(
 
 /// DELETE `/api/playlist/{id}` — delete playlist.
 #[tauri::command]
-pub(crate) async fn nd_delete_playlist(
+pub async fn nd_delete_playlist(
     server_url: String,
     token: String,
     id: String,

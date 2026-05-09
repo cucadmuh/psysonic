@@ -1,10 +1,10 @@
-use crate::subsonic_wire_user_agent;
+use psysonic_core::user_agent::subsonic_wire_user_agent;
 
-pub(crate) const RADIO_PAGE_SIZE: u32 = 25;
+pub const RADIO_PAGE_SIZE: u32 = 25;
 
 /// Search the radio-browser.info directory (needs User-Agent header — CORS would block WebView).
 #[tauri::command]
-pub(crate) async fn search_radio_browser(query: String, offset: u32) -> Result<Vec<serde_json::Value>, String> {
+pub async fn search_radio_browser(query: String, offset: u32) -> Result<Vec<serde_json::Value>, String> {
     let client = reqwest::Client::new();
     let limit_s = RADIO_PAGE_SIZE.to_string();
     let offset_s = offset.to_string();
@@ -27,7 +27,7 @@ pub(crate) async fn search_radio_browser(query: String, offset: u32) -> Result<V
 
 /// Fetch top-voted stations from radio-browser.info for initial suggestions.
 #[tauri::command]
-pub(crate) async fn get_top_radio_stations(offset: u32) -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_top_radio_stations(offset: u32) -> Result<Vec<serde_json::Value>, String> {
     let client = reqwest::Client::new();
     let limit_s = RADIO_PAGE_SIZE.to_string();
     let offset_s = offset.to_string();
@@ -46,7 +46,7 @@ pub(crate) async fn get_top_radio_stations(offset: u32) -> Result<Vec<serde_json
 /// Fetch arbitrary URL bytes (e.g. radio station favicon) through Rust to bypass CORS.
 /// Returns (bytes, content_type).
 #[tauri::command]
-pub(crate) async fn fetch_url_bytes(url: String) -> Result<(Vec<u8>, String), String> {
+pub async fn fetch_url_bytes(url: String) -> Result<(Vec<u8>, String), String> {
     let client = reqwest::Client::builder()
         .user_agent(subsonic_wire_user_agent())
         .timeout(std::time::Duration::from_secs(10))
@@ -76,7 +76,7 @@ pub(crate) async fn fetch_url_bytes(url: String) -> Result<(Vec<u8>, String), St
 /// Fetch a JSON API endpoint through Rust to bypass CORS/WebView networking restrictions.
 /// Returns the response body as a UTF-8 string for parsing on the JS side.
 #[tauri::command]
-pub(crate) async fn fetch_json_url(url: String) -> Result<String, String> {
+pub async fn fetch_json_url(url: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent(subsonic_wire_user_agent())
         .timeout(std::time::Duration::from_secs(10))
@@ -96,7 +96,7 @@ pub(crate) async fn fetch_json_url(url: String) -> Result<String, String> {
 
 /// ICY metadata response returned to the frontend.
 #[derive(serde::Serialize)]
-pub(crate) struct IcyMetadata {
+pub struct IcyMetadata {
     /// The `StreamTitle` from the inline ICY metadata block in the stream (e.g. `"Artist - Title"`).
     stream_title: Option<String>,
     /// Value of the `icy-name` response header.
@@ -110,7 +110,7 @@ pub(crate) struct IcyMetadata {
 }
 
 /// Extract the first `File1=` stream URL from a PLS playlist file.
-pub(crate) fn parse_pls_stream_url(content: &str) -> Option<String> {
+pub fn parse_pls_stream_url(content: &str) -> Option<String> {
     content.lines()
         .map(str::trim)
         .find(|l| l.to_lowercase().starts_with("file1="))
@@ -122,7 +122,7 @@ pub(crate) fn parse_pls_stream_url(content: &str) -> Option<String> {
 }
 
 /// Extract the first non-comment HTTP URL from an M3U/M3U8 playlist file.
-pub(crate) fn parse_m3u_stream_url(content: &str) -> Option<String> {
+pub fn parse_m3u_stream_url(content: &str) -> Option<String> {
     content.lines()
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('#')
@@ -132,7 +132,7 @@ pub(crate) fn parse_m3u_stream_url(content: &str) -> Option<String> {
 
 /// If `url` points to a PLS or M3U playlist, fetch it and return the first
 /// stream URL it contains.  Returns `None` for direct stream URLs.
-pub(crate) async fn resolve_playlist_url(client: &reqwest::Client, url: &str) -> Option<String> {
+pub async fn resolve_playlist_url(client: &reqwest::Client, url: &str) -> Option<String> {
     let path = url.split('?').next().unwrap_or(url).to_lowercase();
     let is_pls = path.ends_with(".pls");
     let is_m3u = path.ends_with(".m3u") || path.ends_with(".m3u8");
@@ -173,7 +173,7 @@ pub(crate) async fn resolve_playlist_url(client: &reqwest::Client, url: &str) ->
 /// If `url` is a PLS or M3U playlist file it is resolved to the first direct
 /// stream URL before the ICY request is made.
 #[tauri::command]
-pub(crate) async fn fetch_icy_metadata(url: String) -> Result<IcyMetadata, String> {
+pub async fn fetch_icy_metadata(url: String) -> Result<IcyMetadata, String> {
     use futures_util::StreamExt;
 
     let client = reqwest::Client::builder()
@@ -277,7 +277,7 @@ pub(crate) async fn fetch_icy_metadata(url: String) -> Result<IcyMetadata, Strin
 /// Returns the original URL unchanged if it is not a recognised playlist format
 /// or if the playlist cannot be fetched/parsed.
 #[tauri::command]
-pub(crate) async fn resolve_stream_url(url: String) -> String {
+pub async fn resolve_stream_url(url: String) -> String {
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -291,7 +291,7 @@ pub(crate) async fn resolve_stream_url(url: String) -> String {
 /// `params` is a list of [key, value] pairs (method must be included).
 /// If `sign` is true an api_sig is computed. If `get` is true, a GET request is made.
 #[tauri::command]
-pub(crate) async fn lastfm_request(
+pub async fn lastfm_request(
     params: Vec<[String; 2]>,
     sign: bool,
     get: bool,

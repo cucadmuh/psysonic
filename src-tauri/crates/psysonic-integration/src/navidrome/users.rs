@@ -6,7 +6,7 @@ use super::client::{nd_err, nd_http_client, nd_retry, NdLoginResult};
 
 /// Log in to Navidrome's native REST API. Returns a Bearer token and whether the user is admin.
 #[tauri::command]
-pub(crate) async fn navidrome_login(
+pub async fn navidrome_login(
     server_url: String,
     username: String,
     password: String,
@@ -30,7 +30,7 @@ pub(crate) async fn navidrome_login(
 
 /// GET `/api/user` — admin only. Returns the raw JSON array verbatim so the frontend can pick fields.
 #[tauri::command]
-pub(crate) async fn nd_list_users(
+pub async fn nd_list_users(
     server_url: String,
     token: String,
 ) -> Result<serde_json::Value, String> {
@@ -48,7 +48,7 @@ pub(crate) async fn nd_list_users(
 
 /// POST `/api/user` — create a user.
 #[tauri::command]
-pub(crate) async fn nd_create_user(
+pub async fn nd_create_user(
     server_url: String,
     token: String,
     user_name: String,
@@ -81,7 +81,7 @@ pub(crate) async fn nd_create_user(
 
 /// PUT `/api/user/{id}` — update a user. Pass an empty `password` to leave it unchanged.
 #[tauri::command]
-pub(crate) async fn nd_update_user(
+pub async fn nd_update_user(
     server_url: String,
     token: String,
     id: String,
@@ -118,7 +118,7 @@ pub(crate) async fn nd_update_user(
 
 /// DELETE `/api/user/{id}`.
 #[tauri::command]
-pub(crate) async fn nd_delete_user(
+pub async fn nd_delete_user(
     server_url: String,
     token: String,
     id: String,

@@ -3611,6 +3611,7 @@ dependencies = [
  "psysonic-analysis",
  "psysonic-audio",
  "psysonic-core",
+ "psysonic-integration",
  "psysonic-syncfs",
  "reqwest",
  "ringbuf",
@@ -3693,6 +3694,22 @@ dependencies = [
  "libc",
  "serde",
  "tauri",
+]
+
+[[package]]
+name = "psysonic-integration"
+version = "1.46.0-dev"
+dependencies = [
+ "discord-rich-presence",
+ "futures-util",
+ "md5",
+ "psysonic-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "url",
 ]
 
 [[package]]

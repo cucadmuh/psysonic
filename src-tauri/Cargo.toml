@@ -34,6 +34,7 @@ psysonic-core = { path = "crates/psysonic-core" }
 psysonic-analysis = { path = "crates/psysonic-analysis" }
 psysonic-audio = { path = "crates/psysonic-audio" }
 psysonic-syncfs = { path = "crates/psysonic-syncfs" }
+psysonic-integration = { path = "crates/psysonic-integration" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-shell = "2"

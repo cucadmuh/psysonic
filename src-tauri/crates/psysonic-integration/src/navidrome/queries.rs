@@ -7,7 +7,7 @@ use super::client::{navidrome_token, nd_err, nd_http_client, nd_retry};
 /// GET `/api/song?_sort=...&_order=...&_start=...&_end=...` — paginated song list.
 /// Available to any authenticated user (no admin required). Returns raw JSON array.
 #[tauri::command]
-pub(crate) async fn nd_list_songs(
+pub async fn nd_list_songs(
     server_url: String,
     token: String,
     sort: String,
@@ -53,7 +53,7 @@ fn nd_build_filters(seed: serde_json::Map<String, serde_json::Value>, library_id
 /// Navidrome 0.55.0+ (uses `library_artist.stats` JSON aggregate). Available to any
 /// authenticated user. Returns raw JSON array.
 #[tauri::command]
-pub(crate) async fn nd_list_artists_by_role(
+pub async fn nd_list_artists_by_role(
     server_url: String,
     token: String,
     role: String,
@@ -93,7 +93,7 @@ pub(crate) async fn nd_list_artists_by_role(
 /// (or conductor-only, lyricist-only, …) credits are unreachable there. Navidrome
 /// generates `role_<role>_id` filters dynamically from `model.AllRoles`.
 #[tauri::command]
-pub(crate) async fn nd_list_albums_by_artist_role(
+pub async fn nd_list_albums_by_artist_role(
     server_url: String,
     token: String,
     artist_id: String,
@@ -131,7 +131,7 @@ pub(crate) async fn nd_list_albums_by_artist_role(
 
 /// GET `/api/library` — list all libraries (admin only). Returns the raw JSON array.
 #[tauri::command]
-pub(crate) async fn nd_list_libraries(
+pub async fn nd_list_libraries(
     server_url: String,
     token: String,
 ) -> Result<serde_json::Value, String> {
@@ -150,7 +150,7 @@ pub(crate) async fn nd_list_libraries(
 /// PUT `/api/user/{id}/library` — assign libraries to a non-admin user.
 /// Admin users auto-receive all libraries; calling this for an admin returns HTTP 400.
 #[tauri::command]
-pub(crate) async fn nd_set_user_libraries(
+pub async fn nd_set_user_libraries(
     server_url: String,
     token: String,
     id: String,
@@ -184,7 +184,7 @@ pub(crate) async fn nd_set_user_libraries(
 /// Returns `Ok(None)` when the response has no `path` field — Navidrome can omit
 /// it for non-admin users on some configurations.
 #[tauri::command]
-pub(crate) async fn nd_get_song_path(
+pub async fn nd_get_song_path(
     server_url: String,
     username: String,
     password: String,

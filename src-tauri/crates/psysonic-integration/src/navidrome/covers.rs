@@ -5,7 +5,7 @@
 use super::client::navidrome_token;
 
 #[tauri::command]
-pub(crate) async fn upload_playlist_cover(
+pub async fn upload_playlist_cover(
     server_url: String,
     playlist_id: String,
     username: String,
@@ -32,7 +32,7 @@ pub(crate) async fn upload_playlist_cover(
 }
 
 #[tauri::command]
-pub(crate) async fn upload_radio_cover(
+pub async fn upload_radio_cover(
     server_url: String,
     radio_id: String,
     username: String,
@@ -59,7 +59,7 @@ pub(crate) async fn upload_radio_cover(
 }
 
 #[tauri::command]
-pub(crate) async fn upload_artist_image(
+pub async fn upload_artist_image(
     server_url: String,
     artist_id: String,
     username: String,
@@ -86,7 +86,7 @@ pub(crate) async fn upload_artist_image(
 }
 
 #[tauri::command]
-pub(crate) async fn delete_radio_cover(
+pub async fn delete_radio_cover(
     server_url: String,
     radio_id: String,
     username: String,

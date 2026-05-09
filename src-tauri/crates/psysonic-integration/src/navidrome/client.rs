@@ -2,7 +2,7 @@
 //! Used by every other navidrome submodule for `/auth/*` and `/api/*` calls.
 
 /// Authenticate with Navidrome's own REST API and return a Bearer token.
-pub(crate) async fn navidrome_token(server_url: &str, username: &str, password: &str) -> Result<String, String> {
+pub async fn navidrome_token(server_url: &str, username: &str, password: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/auth/login", server_url))
@@ -19,7 +19,7 @@ pub(crate) async fn navidrome_token(server_url: &str, username: &str, password: 
 
 /// Payload returned by Navidrome's `/auth/login`.
 #[derive(serde::Serialize)]
-pub(crate) struct NdLoginResult {
+pub struct NdLoginResult {
     pub(super) token: String,
     #[serde(rename = "userId")]
     pub(super) user_id: String,
@@ -31,7 +31,7 @@ pub(crate) struct NdLoginResult {
 /// frontend toasts can show the actual transport cause (connection refused,
 /// tls handshake fail, cert expired, etc.) instead of reqwest's opaque
 /// "error sending request for url (…)" wrapper.
-pub(crate) fn nd_err(e: reqwest::Error) -> String {
+pub fn nd_err(e: reqwest::Error) -> String {
     let mut msg = e.to_string();
     let mut src: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(&e);
     while let Some(s) = src {
@@ -50,7 +50,7 @@ pub(crate) fn nd_err(e: reqwest::Error) -> String {
 /// turns a transient glitch into a visible outage. Status-level failures
 /// (401/403/400 with body) return immediately — we don't retry logic
 /// errors.
-pub(crate) async fn nd_retry<F, Fut>(mut build_and_send: F) -> Result<reqwest::Response, String>
+pub async fn nd_retry<F, Fut>(mut build_and_send: F) -> Result<reqwest::Response, String>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
@@ -90,7 +90,7 @@ where
 /// keep-alive connections in the pool caused intermittent "tls handshake
 /// eof" errors on the second call to an admin endpoint when a server or
 /// proxy had already closed the TCP connection between calls.
-pub(crate) fn nd_http_client() -> reqwest::Client {
+pub fn nd_http_client() -> reqwest::Client {
     // TLS 1.2 only: rustls + nginx with TLS-1.3 session resumption caches
     // produces intermittent ECONNRESET mid-handshake when the upstream
     // starts churning keep-alive connections. Pinning TLS 1.2 matches what
