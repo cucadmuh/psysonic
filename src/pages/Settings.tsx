@@ -4300,6 +4300,7 @@ export default function Settings() {
                     { value: 'nb', label: t('settings.languageNb') },
                     { value: 'ru', label: t('settings.languageRu') },
                     { value: 'zh', label: t('settings.languageZh') },
+                    { value: 'ro', label: t('settings.languageRo') },
                   ]}
                 />
               </div>

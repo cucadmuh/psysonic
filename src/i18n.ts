@@ -8,6 +8,7 @@ import { nbTranslation } from './locales/nb';
 import { ruTranslation } from './locales/ru';
 import { nlTranslation } from './locales/nl';
 import { esTranslation } from './locales/es';
+import { roTranslation } from './locales/ro';
 
 const savedLanguage = localStorage.getItem('psysonic_language') || 'en';
 
@@ -23,6 +24,7 @@ i18n
       zh: { translation: zhTranslation },
       nb: { translation: nbTranslation },
       ru: { translation: ruTranslation },
+      ro: { translation: roTranslation },
     },
     lng: savedLanguage,
     fallbackLng: 'en',
