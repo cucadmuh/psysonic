@@ -43,7 +43,6 @@ pub fn seed_from_bytes_execute(
     track_id: &str,
     bytes: &[u8],
 ) -> Result<SeedFromBytesOutcome, String> {
-    let started = Instant::now();
     let Some(cache) = app.try_state::<AnalysisCache>() else {
         crate::app_deprintln!(
             "[analysis][waveform] build skip track_id={} reason=no_analysis_cache bytes={}",
@@ -52,6 +51,19 @@ pub fn seed_from_bytes_execute(
         );
         return Ok(SeedFromBytesOutcome::SkippedNoAnalysisCache);
     };
+    seed_from_bytes_into_cache(&cache, track_id, bytes)
+}
+
+/// AppHandle-free entry point for [`seed_from_bytes_execute`]: takes the cache
+/// directly, runs the same Symphonia → waveform → EBU R128 pipeline, and
+/// upserts the rows. Called from `seed_from_bytes_execute` in production and
+/// from tests against an in-memory cache.
+pub fn seed_from_bytes_into_cache(
+    cache: &AnalysisCache,
+    track_id: &str,
+    bytes: &[u8],
+) -> Result<SeedFromBytesOutcome, String> {
+    let started = Instant::now();
     let key = TrackKey {
         track_id: track_id.to_string(),
         md5_16kb: md5_first_16kb(bytes),
@@ -172,7 +184,7 @@ fn derive_waveform_bins(bytes: &[u8], bin_count: usize) -> Vec<u8> {
         let end = ((i + 1) * bytes.len() / bin_count).max(start + 1).min(bytes.len());
         let mut peak: u8 = 0;
         for &b in &bytes[start..end] {
-            let centered = if b >= 128 { b - 128 } else { 128 - b };
+            let centered = b.abs_diff(128);
             if centered > peak {
                 peak = centered;
             }
@@ -259,11 +271,7 @@ fn count_mono_frames_from_audio_bytes(bytes: &[u8]) -> Option<(u64, Option<u64>)
 
     let mut total: u64 = 0;
     let mut loop_i: u32 = 0;
-    loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => break,
-        };
+    while let Ok(packet) = format.next_packet() {
         if packet.track_id() != track_id {
             continue;
         }
@@ -281,12 +289,12 @@ fn count_mono_frames_from_audio_bytes(bytes: &[u8]) -> Option<(u64, Option<u64>)
         let mut samples = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
         samples.copy_interleaved_ref(decoded);
         let n = samples.samples().len();
-        if n < n_ch || n % n_ch != 0 {
+        if n < n_ch || !n.is_multiple_of(n_ch) {
             continue;
         }
         total += (n / n_ch) as u64;
         loop_i = loop_i.wrapping_add(1);
-        if loop_i % 128 == 0 {
+        if loop_i.is_multiple_of(128) {
             std::thread::yield_now();
         }
     }
@@ -350,11 +358,7 @@ fn decode_scan_pcm(
     }
     let bin_grid_frames = decoded_frames.max(1);
 
-    loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => break,
-        };
+    while let Ok(packet) = format.next_packet() {
         if packet.track_id() != track_id {
             continue;
         }
@@ -394,7 +398,7 @@ fn decode_scan_pcm(
         let mut samples = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
         samples.copy_interleaved_ref(decoded);
         let slice = samples.samples();
-        if slice.len() < n_ch || slice.len() % n_ch != 0 {
+        if slice.len() < n_ch || !slice.len().is_multiple_of(n_ch) {
             continue;
         }
         let frames = slice.len() / n_ch;
@@ -436,7 +440,7 @@ fn decode_scan_pcm(
         }
 
         loop_i = loop_i.wrapping_add(1);
-        if loop_i % 128 == 0 {
+        if loop_i.is_multiple_of(128) {
             std::thread::yield_now();
         }
     }
@@ -497,4 +501,292 @@ fn decode_scan_pcm(
     };
 
     Some(PcmScanResult { bins, loudness })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx_f64(a: f64, b: f64, eps: f64) {
+        assert!((a - b).abs() < eps, "expected {b}, got {a}");
+    }
+
+    // ── recommended_gain_for_target ───────────────────────────────────────────
+
+    #[test]
+    fn recommended_gain_is_target_minus_integrated_when_no_peak() {
+        approx_f64(recommended_gain_for_target(-14.0, 0.0, -10.0), 4.0, 1e-9);
+        approx_f64(recommended_gain_for_target(-23.0, 0.0, -14.0), 9.0, 1e-9);
+    }
+
+    #[test]
+    fn recommended_gain_caps_to_avoid_clipping_when_true_peak_is_high() {
+        // true_peak = 1.0 (0 dBTP) → max_gain_db = -1.0 - 0 = -1.0
+        // target - integrated = -10 - (-14) = 4.0, but capped to -1.0.
+        let g = recommended_gain_for_target(-14.0, 1.0, -10.0);
+        approx_f64(g, -1.0, 1e-6);
+    }
+
+    #[test]
+    fn recommended_gain_clamps_to_plus_minus_24() {
+        let huge_up = recommended_gain_for_target(-100.0, 0.0, 100.0);
+        let huge_down = recommended_gain_for_target(100.0, 0.0, -100.0);
+        assert_eq!(huge_up, 24.0);
+        assert_eq!(huge_down, -24.0);
+    }
+
+    // ── md5_first_16kb ────────────────────────────────────────────────────────
+
+    #[test]
+    fn md5_of_empty_bytes_matches_md5_empty() {
+        // md5 of "" = d41d8cd98f00b204e9800998ecf8427e
+        assert_eq!(md5_first_16kb(&[]), "d41d8cd98f00b204e9800998ecf8427e");
+    }
+
+    #[test]
+    fn md5_uses_full_data_when_under_16kb() {
+        let data = b"hello world";
+        let direct = format!("{:x}", md5::compute(data));
+        assert_eq!(md5_first_16kb(data), direct);
+    }
+
+    #[test]
+    fn md5_truncates_to_first_16kb() {
+        let mut data = vec![0xAAu8; 16 * 1024];
+        let prefix_only = format!("{:x}", md5::compute(&data));
+        // Append distinguishing bytes past 16 KB; the digest must not change.
+        data.extend_from_slice(b"---should be ignored by md5_first_16kb---");
+        assert_eq!(md5_first_16kb(&data), prefix_only);
+    }
+
+    // ── derive_waveform_bins ──────────────────────────────────────────────────
+
+    #[test]
+    fn derive_waveform_returns_empty_for_zero_bin_count() {
+        assert_eq!(derive_waveform_bins(&[1u8, 2, 3, 4], 0), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn derive_waveform_returns_empty_for_empty_bytes() {
+        assert_eq!(derive_waveform_bins(&[], 4), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn derive_waveform_silence_at_midpoint_yields_zero_bins() {
+        // 128 is the unsigned-PCM midpoint: abs_diff(128) == 0 for every sample.
+        let silence = vec![128u8; 64];
+        let out = derive_waveform_bins(&silence, 8);
+        assert!(out.iter().all(|&b| b == 0), "silence must produce all-zero bins, got {out:?}");
+    }
+
+    #[test]
+    fn derive_waveform_doubles_the_bin_buffer() {
+        // The function returns peak_half twice (peak followed by mean-abs placeholder).
+        let bytes = vec![0u8; 32];
+        let out = derive_waveform_bins(&bytes, 4);
+        assert_eq!(out.len(), 8, "output must be 2 * bin_count");
+        assert_eq!(&out[..4], &out[4..]);
+    }
+
+    #[test]
+    fn derive_waveform_reaches_max_for_extreme_amplitude() {
+        // Extreme deviation from 128 → centered = 127 (when input is 0 or 255).
+        // (127/127)^0.5 = 1.0 → 255 in u8.
+        let bytes = vec![0u8; 16];
+        let out = derive_waveform_bins(&bytes, 4);
+        assert!(out.iter().all(|&b| b == 255), "max amplitude must yield 255 bins");
+    }
+
+    // ── normalize_peak_bins ───────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_peak_returns_empty_for_empty_input() {
+        assert_eq!(normalize_peak_bins(&[]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn normalize_peak_uniform_input_collapses_to_base_offset() {
+        // p5 == p99 → range collapses to 1e-8 floor; t = (x - p5)/range = 0 for all.
+        // shaped = 0; out = 8 (base offset).
+        let bins = vec![0.5f32; 16];
+        let out = normalize_peak_bins(&bins);
+        assert_eq!(out.len(), 16);
+        assert!(out.iter().all(|&b| b == 8), "got {out:?}");
+    }
+
+    #[test]
+    fn normalize_peak_monotonic_input_yields_increasing_output() {
+        // Strictly increasing input must produce non-decreasing output.
+        let bins: Vec<f32> = (0..100).map(|i| i as f32 / 100.0).collect();
+        let out = normalize_peak_bins(&bins);
+        for win in out.windows(2) {
+            assert!(win[0] <= win[1], "non-monotonic output around {:?}", win);
+        }
+        // Output range ⊆ [8, 255].
+        assert!(out.iter().all(|&b| (8..=255).contains(&b)));
+    }
+
+    // ── End-to-end: WAV decode → waveform + loudness pipeline ────────────────
+    //
+    // Symphonia's PCM/WAV decoder is the cheapest format we can feed end-to-end
+    // without committing a binary fixture. Every test here generates a tiny
+    // mono 16-bit-PCM WAV (~150 KB for 1.5 s @ 44.1 kHz) at runtime, hands the
+    // bytes to the real seed pipeline, and asserts on the cached rows.
+
+    /// Build a mono signed-16-bit-PCM WAV from a sample buffer at `sample_rate`.
+    /// Produces a buffer ready to be probed by Symphonia's WAV format reader.
+    fn build_mono_pcm16_wav(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+        let num_channels: u16 = 1;
+        let bits_per_sample: u16 = 16;
+        let byte_rate = sample_rate * (bits_per_sample as u32 / 8) * num_channels as u32;
+        let block_align = num_channels * (bits_per_sample / 8);
+        let data_size = (samples.len() * 2) as u32;
+        let riff_size = 36 + data_size;
+
+        let mut out = Vec::with_capacity(44 + data_size as usize);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&riff_size.to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        // fmt chunk
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes()); // sub-chunk size
+        out.extend_from_slice(&1u16.to_le_bytes()); // PCM format tag
+        out.extend_from_slice(&num_channels.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&block_align.to_le_bytes());
+        out.extend_from_slice(&bits_per_sample.to_le_bytes());
+        // data chunk
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_size.to_le_bytes());
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+
+    /// Generate a 1-second 440 Hz sine wave at -6 dBFS as a Vec<i16>.
+    fn sine_440_at_minus_6db(sample_rate: u32, secs: f32) -> Vec<i16> {
+        let n = (sample_rate as f32 * secs) as usize;
+        let amplitude: f32 = 0.5 * i16::MAX as f32; // -6 dBFS
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                let v = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * amplitude;
+                v as i16
+            })
+            .collect()
+    }
+
+    #[test]
+    fn count_mono_frames_returns_decoded_length_for_synthetic_wav() {
+        let wav = build_mono_pcm16_wav(&sine_440_at_minus_6db(44_100, 1.0), 44_100);
+        let (frames, _hint) = count_mono_frames_from_audio_bytes(&wav)
+            .expect("WAV decode must succeed");
+        // 1 second × 44.1 kHz mono = 44 100 frames; allow ±1 packet tolerance.
+        assert!(
+            (43_900..=44_300).contains(&frames),
+            "expected ~44100 frames, got {frames}"
+        );
+    }
+
+    #[test]
+    fn count_mono_frames_returns_none_for_garbage_bytes() {
+        assert!(count_mono_frames_from_audio_bytes(b"not an audio file").is_none());
+    }
+
+    #[test]
+    fn count_mono_frames_returns_none_for_empty_bytes() {
+        assert!(count_mono_frames_from_audio_bytes(&[]).is_none());
+    }
+
+    #[test]
+    fn analyze_loudness_and_waveform_returns_loudness_for_synthetic_sine() {
+        let wav = build_mono_pcm16_wav(&sine_440_at_minus_6db(44_100, 1.5), 44_100);
+        let result = analyze_loudness_and_waveform(&wav, -14.0, 100)
+            .expect("WAV decode must succeed");
+        let (integrated_lufs, true_peak, recommended_gain_db, target_lufs, bins) = result;
+        assert_eq!(bins.len(), 200, "bins layout is peak_u8 + mean_u8 = 2 * bin_count");
+        assert_eq!(target_lufs, -14.0);
+        // -6 dBFS sine ≈ -9 LUFS integrated for 1.5 s. EBU R128 needs >=400 ms
+        // of audio; we have 1.5 s so the measurement is valid.
+        assert!(
+            (-30.0..0.0).contains(&integrated_lufs),
+            "integrated LUFS must be in a sane range, got {integrated_lufs}"
+        );
+        // True peak for -6 dBFS sine ≈ 0.5 linear amplitude.
+        assert!(
+            (0.4..=0.6).contains(&true_peak),
+            "true peak must reflect -6 dBFS amplitude, got {true_peak}"
+        );
+        // Recommended gain pushes the track toward the target LUFS,
+        // capped per `recommended_gain_for_target`.
+        assert!(recommended_gain_db.is_finite());
+        assert!((-24.0..=24.0).contains(&recommended_gain_db));
+    }
+
+    #[test]
+    fn analyze_loudness_returns_none_for_zero_bin_count() {
+        let wav = build_mono_pcm16_wav(&sine_440_at_minus_6db(44_100, 0.5), 44_100);
+        assert!(analyze_loudness_and_waveform(&wav, -14.0, 0).is_none());
+    }
+
+    #[test]
+    fn analyze_loudness_returns_none_for_empty_bytes() {
+        assert!(analyze_loudness_and_waveform(&[], -14.0, 100).is_none());
+    }
+
+    #[test]
+    fn seed_from_bytes_into_cache_upserts_waveform_and_loudness_for_wav() {
+        let cache = AnalysisCache::open_in_memory();
+        let wav = build_mono_pcm16_wav(&sine_440_at_minus_6db(44_100, 1.5), 44_100);
+        let outcome = seed_from_bytes_into_cache(&cache, "wav-track", &wav).unwrap();
+        assert_eq!(outcome, SeedFromBytesOutcome::Upserted);
+
+        // Both a waveform AND a loudness row must exist after a successful
+        // PCM decode + EBU R128 analysis.
+        let key = TrackKey {
+            track_id: "wav-track".to_string(),
+            md5_16kb: md5_first_16kb(&wav),
+        };
+        let waveform = cache.get_waveform(&key).unwrap().expect("waveform cached");
+        assert_eq!(waveform.bin_count, 500);
+        assert_eq!(waveform.bins.len(), 1000, "bins are 2 * bin_count");
+        assert!(cache.loudness_row_exists_for_key(&key).unwrap());
+    }
+
+    #[test]
+    fn seed_from_bytes_into_cache_returns_skipped_on_second_call() {
+        let cache = AnalysisCache::open_in_memory();
+        let wav = build_mono_pcm16_wav(&sine_440_at_minus_6db(44_100, 1.0), 44_100);
+        let first = seed_from_bytes_into_cache(&cache, "wav-track-2", &wav).unwrap();
+        assert_eq!(first, SeedFromBytesOutcome::Upserted);
+        let second = seed_from_bytes_into_cache(&cache, "wav-track-2", &wav).unwrap();
+        assert_eq!(
+            second,
+            SeedFromBytesOutcome::SkippedWaveformCacheHit,
+            "second seed sees cache + loudness rows and short-circuits"
+        );
+    }
+
+    #[test]
+    fn seed_from_bytes_into_cache_falls_back_to_byte_envelope_for_undecodable_input() {
+        let cache = AnalysisCache::open_in_memory();
+        // Garbage bytes — Symphonia probe fails, the pipeline falls back to
+        // `derive_waveform_bins` (no loudness row gets cached).
+        let bytes = vec![0xAAu8; 8 * 1024];
+        let outcome = seed_from_bytes_into_cache(&cache, "garbage", &bytes).unwrap();
+        assert_eq!(outcome, SeedFromBytesOutcome::Upserted);
+
+        let key = TrackKey {
+            track_id: "garbage".to_string(),
+            md5_16kb: md5_first_16kb(&bytes),
+        };
+        let waveform = cache.get_waveform(&key).unwrap().expect("byte-envelope waveform cached");
+        assert_eq!(waveform.bin_count, 500);
+        assert!(
+            !cache.loudness_row_exists_for_key(&key).unwrap(),
+            "byte-envelope fallback must not cache loudness"
+        );
+    }
 }

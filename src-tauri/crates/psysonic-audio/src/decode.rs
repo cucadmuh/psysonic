@@ -363,7 +363,7 @@ impl Iterator for SizedDecoder {
                         self.consecutive_decode_errors += 1;
                         // Log sparingly: first drop, then every 10th to avoid spam.
                         if self.consecutive_decode_errors == 1
-                            || self.consecutive_decode_errors % 10 == 0
+                            || self.consecutive_decode_errors.is_multiple_of(10)
                         {
                             crate::app_deprintln!(
                                 "[psysonic] dropped corrupt frame #{}: {msg}",
@@ -462,15 +462,10 @@ impl Source for SizedDecoder {
 // Parsing strategy: scan raw bytes for the ASCII marker, then extract the
 // first whitespace-separated hex tokens after it.
 
+#[derive(Default)]
 pub(crate) struct GaplessInfo {
     delay_samples: u64,
     total_valid_samples: Option<u64>,
-}
-
-impl Default for GaplessInfo {
-    fn default() -> Self {
-        Self { delay_samples: 0, total_valid_samples: None }
-    }
 }
 
 pub(crate) fn find_subsequence(data: &[u8], needle: &[u8]) -> Option<usize> {
@@ -508,7 +503,7 @@ pub(crate) fn parse_gapless_info(data: &[u8]) -> GaplessInfo {
     let padding = u64::from_str_radix(parts.get(2).unwrap_or(&"0"), 16).unwrap_or(0);
     let total_raw = parts.get(3).and_then(|s| u64::from_str_radix(s, 16).ok());
 
-    let total_valid = total_raw.map(|t| t).filter(|&t| t > 0).or_else(|| {
+    let total_valid = total_raw.filter(|&t| t > 0).or_else(|| {
         // Derive from delay + padding if total not available:
         // Not possible without knowing total encoded samples, so just use None.
         let _ = padding;
@@ -518,9 +513,12 @@ pub(crate) fn parse_gapless_info(data: &[u8]) -> GaplessInfo {
     GaplessInfo { delay_samples: delay, total_valid_samples: total_valid }
 }
 
+pub(crate) type BuiltSourceStack =
+    PriorityBoostSource<CountingSource<NotifyingSource<TriggeredFadeOut<EqualPowerFadeIn<EqSource<DynSource>>>>>>;
+
 /// Result of build_source: the fully-wrapped source plus metadata and control Arcs.
 pub(crate) struct BuiltSource {
-    pub(crate) source: PriorityBoostSource<CountingSource<NotifyingSource<TriggeredFadeOut<EqualPowerFadeIn<EqSource<DynSource>>>>>>,
+    pub(crate) source: BuiltSourceStack,
     pub(crate) duration_secs: f64,
     pub(crate) output_rate: u32,
     pub(crate) output_channels: u16,
@@ -541,6 +539,7 @@ pub(crate) struct BuiltSource {
 /// `sample_counter`: atomic counter incremented per sample for drift-free position.
 /// `target_rate`: canonical output sample rate for resampling (0 = no resampling).
 /// `format_hint`: optional file extension (e.g. "flac", "mp3") to help symphonia probe.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_source(
     data: Vec<u8>,
     duration_hint: f64,
@@ -590,16 +589,14 @@ pub(crate) fn build_source(
             } else {
                 DynSource::new(trimmed)
             }
+        } else if target_rate > 0 && sample_rate.get() != target_rate {
+            DynSource::new(UniformSourceIterator::new(
+                base,
+                channels,
+                std::num::NonZeroU32::new(target_rate).unwrap_or(std::num::NonZeroU32::MIN),
+            ))
         } else {
-            if target_rate > 0 && sample_rate.get() != target_rate {
-                DynSource::new(UniformSourceIterator::new(
-                    base,
-                    channels,
-                    std::num::NonZeroU32::new(target_rate).unwrap_or(std::num::NonZeroU32::MIN),
-                ))
-            } else {
-                DynSource::new(base)
-            }
+            DynSource::new(base)
         }
     } else {
         let converted = decoder;
@@ -639,6 +636,7 @@ pub(crate) fn build_source(
 /// Streaming variant of `build_source`: uses a live `SizedDecoder` source
 /// (non-seekable) and skips iTunSMPB parsing, but preserves the same EQ/fade/
 /// counting wrappers and output metadata.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_streaming_source(
     decoder: SizedDecoder,
     duration_hint: f64,
@@ -698,4 +696,314 @@ pub(crate) fn build_streaming_source(
         fadeout_trigger,
         fadeout_samples,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── find_subsequence ─────────────────────────────────────────────────────
+
+    #[test]
+    fn find_subsequence_locates_needle_at_start() {
+        assert_eq!(find_subsequence(b"abcdef", b"abc"), Some(0));
+    }
+
+    #[test]
+    fn find_subsequence_locates_needle_in_middle() {
+        assert_eq!(find_subsequence(b"abcdef", b"cd"), Some(2));
+    }
+
+    #[test]
+    fn find_subsequence_returns_none_when_absent() {
+        assert!(find_subsequence(b"abcdef", b"xyz").is_none());
+    }
+
+    #[test]
+    fn find_subsequence_returns_none_for_needle_longer_than_haystack() {
+        assert!(find_subsequence(b"ab", b"abcd").is_none());
+    }
+
+    #[test]
+    fn find_subsequence_finds_first_occurrence_of_repeated_pattern() {
+        assert_eq!(find_subsequence(b"abab", b"ab"), Some(0));
+    }
+
+    // ── parse_gapless_info ───────────────────────────────────────────────────
+
+    #[test]
+    fn parse_gapless_returns_default_when_itunsmpb_absent() {
+        let info = parse_gapless_info(b"no marker here");
+        assert_eq!(info.delay_samples, 0);
+        assert!(info.total_valid_samples.is_none());
+    }
+
+    fn synth_itunsmpb_blob(delay_hex: &str, padding_hex: &str, total_hex: &str) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"random preamble bytes ");
+        v.extend_from_slice(b"iTunSMPB");
+        v.extend_from_slice(&[0u8; 16]);
+        v.push(b' ');
+        v.extend_from_slice(b"00000000");
+        v.push(b' ');
+        v.extend_from_slice(delay_hex.as_bytes());
+        v.push(b' ');
+        v.extend_from_slice(padding_hex.as_bytes());
+        v.push(b' ');
+        v.extend_from_slice(total_hex.as_bytes());
+        v.push(b' ');
+        v
+    }
+
+    #[test]
+    fn parse_gapless_extracts_delay_from_itunsmpb_blob() {
+        let blob = synth_itunsmpb_blob("00000840", "00000000", "00ABCDEF");
+        let info = parse_gapless_info(&blob);
+        assert_eq!(info.delay_samples, 0x840, "delay decoded as hex");
+        assert_eq!(info.total_valid_samples, Some(0x00AB_CDEF));
+    }
+
+    #[test]
+    fn parse_gapless_returns_none_total_when_total_field_is_zero() {
+        let blob = synth_itunsmpb_blob("00000840", "00000000", "00000000");
+        let info = parse_gapless_info(&blob);
+        assert_eq!(info.delay_samples, 0x840);
+        assert!(
+            info.total_valid_samples.is_none(),
+            "zero-total filters out per the implementation"
+        );
+    }
+
+    #[test]
+    fn parse_gapless_handles_itunsmpb_without_value_string() {
+        let mut v = b"iTunSMPB".to_vec();
+        v.extend_from_slice(&[0u8; 16]);
+        let info = parse_gapless_info(&v);
+        assert_eq!(info.delay_samples, 0);
+        assert!(info.total_valid_samples.is_none());
+    }
+
+    // ── SizedDecoder::new with a synthetic WAV ───────────────────────────────
+
+    fn build_mono_pcm16_wav(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+        let num_channels: u16 = 1;
+        let bits_per_sample: u16 = 16;
+        let byte_rate = sample_rate * (bits_per_sample as u32 / 8) * num_channels as u32;
+        let block_align = num_channels * (bits_per_sample / 8);
+        let data_size = (samples.len() * 2) as u32;
+        let riff_size = 36 + data_size;
+
+        let mut out = Vec::with_capacity(44 + data_size as usize);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&riff_size.to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&num_channels.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&block_align.to_le_bytes());
+        out.extend_from_slice(&bits_per_sample.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_size.to_le_bytes());
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+
+    fn synthetic_wav_bytes(secs: f32) -> Vec<u8> {
+        let sample_rate = 44_100u32;
+        let n = (sample_rate as f32 * secs) as usize;
+        let amp: f32 = 0.5 * i16::MAX as f32;
+        let samples: Vec<i16> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                ((2.0 * std::f32::consts::PI * 440.0 * t).sin() * amp) as i16
+            })
+            .collect();
+        build_mono_pcm16_wav(&samples, sample_rate)
+    }
+
+    #[test]
+    fn sized_decoder_constructs_from_synthetic_wav() {
+        let wav = synthetic_wav_bytes(0.5);
+        let decoder = SizedDecoder::new(wav, Some("wav"), false).expect("WAV decode setup");
+        assert_eq!(decoder.spec.rate, 44_100);
+        assert_eq!(decoder.spec.channels.count(), 1);
+    }
+
+    #[test]
+    fn sized_decoder_returns_err_for_garbage_input() {
+        let result = SizedDecoder::new(vec![0x00u8; 64], None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sized_decoder_uses_format_hint_when_provided() {
+        let wav = synthetic_wav_bytes(0.3);
+        let _decoder = SizedDecoder::new(wav, Some("wav"), true).expect("WAV decode with hi-res");
+    }
+
+    // ── log_codec_resolution ─────────────────────────────────────────────────
+
+    #[test]
+    fn log_codec_resolution_does_not_panic_for_valid_params() {
+        let mut params = symphonia::core::codecs::CodecParameters::new();
+        params.codec = symphonia::core::codecs::CODEC_TYPE_PCM_S16LE;
+        params.sample_rate = Some(44_100);
+        params.bits_per_sample = Some(16);
+        params.channels = Some(symphonia::core::audio::Channels::FRONT_LEFT);
+        log_codec_resolution("test-tag", &params, Some("wav"));
+    }
+
+    #[test]
+    fn log_codec_resolution_handles_unknown_codec_gracefully() {
+        let params = symphonia::core::codecs::CodecParameters::new();
+        log_codec_resolution("unknown", &params, None);
+    }
+}
+
+#[cfg(test)]
+mod build_source_tests {
+    use super::*;
+
+    fn build_mono_pcm16_wav_local(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+        let num_channels: u16 = 1;
+        let bits_per_sample: u16 = 16;
+        let byte_rate = sample_rate * (bits_per_sample as u32 / 8) * num_channels as u32;
+        let block_align = num_channels * (bits_per_sample / 8);
+        let data_size = (samples.len() * 2) as u32;
+        let riff_size = 36 + data_size;
+
+        let mut out = Vec::with_capacity(44 + data_size as usize);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&riff_size.to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&num_channels.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&block_align.to_le_bytes());
+        out.extend_from_slice(&bits_per_sample.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_size.to_le_bytes());
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+
+    fn synthetic_wav_bytes_local(secs: f32) -> Vec<u8> {
+        let sample_rate = 44_100u32;
+        let n = (sample_rate as f32 * secs) as usize;
+        let amp: f32 = 0.5 * i16::MAX as f32;
+        let samples: Vec<i16> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                ((2.0 * std::f32::consts::PI * 440.0 * t).sin() * amp) as i16
+            })
+            .collect();
+        build_mono_pcm16_wav_local(&samples, sample_rate)
+    }
+
+    type EqGains = Arc<[AtomicU32; 10]>;
+    type SourceArgs = (EqGains, Arc<AtomicBool>, Arc<AtomicU32>, Arc<AtomicBool>, Arc<AtomicU64>);
+
+    fn default_source_args() -> SourceArgs {
+        let eq_gains: Arc<[AtomicU32; 10]> =
+            Arc::new(std::array::from_fn(|_| AtomicU32::new(0f32.to_bits())));
+        let eq_enabled = Arc::new(AtomicBool::new(false));
+        let eq_pre_gain = Arc::new(AtomicU32::new(0f32.to_bits()));
+        let done_flag = Arc::new(AtomicBool::new(false));
+        let sample_counter = Arc::new(AtomicU64::new(0));
+        (eq_gains, eq_enabled, eq_pre_gain, done_flag, sample_counter)
+    }
+
+    #[test]
+    fn build_source_succeeds_for_synthetic_wav() {
+        let (eq_gains, eq_enabled, eq_pre_gain, done_flag, sample_counter) = default_source_args();
+        let wav = synthetic_wav_bytes_local(0.4);
+        let built = build_source(
+            wav,
+            0.4,
+            eq_gains,
+            eq_enabled,
+            eq_pre_gain,
+            done_flag,
+            Duration::ZERO,
+            sample_counter,
+            0,
+            Some("wav"),
+            false,
+        )
+        .expect("build_source must succeed for a valid WAV");
+        assert_eq!(built.output_channels, 1);
+        assert!(built.duration_secs > 0.0);
+        assert!(built.output_rate > 0);
+    }
+
+    #[test]
+    fn build_source_returns_err_for_garbage_bytes() {
+        let (eq_gains, eq_enabled, eq_pre_gain, done_flag, sample_counter) = default_source_args();
+        let result = build_source(
+            vec![0u8; 32],
+            0.0,
+            eq_gains,
+            eq_enabled,
+            eq_pre_gain,
+            done_flag,
+            Duration::ZERO,
+            sample_counter,
+            0,
+            None,
+            false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_streaming_source_succeeds_for_synthetic_wav() {
+        let (eq_gains, eq_enabled, eq_pre_gain, done_flag, sample_counter) = default_source_args();
+        let wav = synthetic_wav_bytes_local(0.4);
+        let decoder = SizedDecoder::new(wav, Some("wav"), false).unwrap();
+        let built = build_streaming_source(
+            decoder,
+            0.4,
+            eq_gains,
+            eq_enabled,
+            eq_pre_gain,
+            done_flag,
+            Duration::ZERO,
+            sample_counter,
+            0,
+        )
+        .expect("build_streaming_source must succeed for a valid WAV decoder");
+        assert_eq!(built.output_channels, 1);
+        assert!(built.output_rate > 0);
+    }
+
+    #[test]
+    fn build_source_with_target_rate_resamples() {
+        let (eq_gains, eq_enabled, eq_pre_gain, done_flag, sample_counter) = default_source_args();
+        let wav = synthetic_wav_bytes_local(0.3);
+        let built = build_source(
+            wav,
+            0.3,
+            eq_gains,
+            eq_enabled,
+            eq_pre_gain,
+            done_flag,
+            Duration::from_millis(5),
+            sample_counter,
+            48_000,
+            Some("wav"),
+            false,
+        )
+        .expect("resampled build_source must succeed");
+        assert_eq!(built.output_rate, 48_000);
+    }
 }

@@ -1,6 +1,4 @@
 //! `AudioEngine` / `AudioCurrent`, stream thread, and HTTP client refresh.
-#[cfg(unix)]
-use libc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -9,6 +7,11 @@ use rodio::Player;
 use tauri::{AppHandle, Manager};
 
 use super::state::{ChainedInfo, PreloadedTrack};
+
+/// Reply channel handed back to the audio-stream thread once a re-open finishes.
+pub type StreamReopenReply = std::sync::mpsc::SyncSender<Arc<rodio::MixerDeviceSink>>;
+/// Stream-thread re-open request: `(desired_rate, is_hi_res, device_name, reply_tx)`.
+pub type StreamReopenRequest = (u32, bool, Option<String>, StreamReopenReply);
 
 pub struct AudioEngine {
     pub stream_handle: Arc<std::sync::Mutex<Arc<rodio::MixerDeviceSink>>>,
@@ -19,7 +22,7 @@ pub struct AudioEngine {
     pub device_default_rate: u32,
     /// Sends `(desired_rate, is_hi_res, device_name, reply_tx)` to the audio-stream
     /// thread to re-open the output device. `device_name = None` → system default.
-    pub stream_reopen_tx: std::sync::mpsc::SyncSender<(u32, bool, Option<String>, std::sync::mpsc::SyncSender<Arc<rodio::MixerDeviceSink>>)>,
+    pub stream_reopen_tx: std::sync::mpsc::SyncSender<StreamReopenRequest>,
     /// User-selected output device name (None = follow system default).
     pub selected_device: Arc<Mutex<Option<String>>>,
     pub current: Arc<Mutex<AudioCurrent>>,
@@ -145,7 +148,7 @@ fn open_stream_for_device_and_rate(device_name: Option<&str>, desired_rate: u32)
             fn drop(&mut self) { unsafe { libc::dup2(self.0, 2); libc::close(self.0); } }
         }
         let saved = libc::dup(2);
-        let devnull = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
         libc::dup2(devnull, 2);
         libc::close(devnull);
         StderrGuard(saved)

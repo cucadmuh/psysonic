@@ -43,7 +43,7 @@ pub(crate) fn emit_partial_loudness_from_bytes(
     };
     let gain_db = (-(mb * 0.7)).max(floor_db).min(0.0);
     let track_key = playback_identity(url).unwrap_or_else(|| url.to_string());
-    if !partial_loudness_should_emit(&track_key, gain_db as f32) {
+    if !partial_loudness_should_emit(&track_key, gain_db) {
         crate::app_deprintln!(
             "[normalization] partial-loudness skip reason=delta-below-threshold gain_db={:.2} threshold_db={:.2} track_id={:?}",
             gain_db,
@@ -63,7 +63,7 @@ pub(crate) fn emit_partial_loudness_from_bytes(
         "analysis:loudness-partial",
         PartialLoudnessPayload {
             track_id: playback_identity(url),
-            gain_db: gain_db as f32,
+            gain_db,
             target_lufs,
             is_partial: true,
         },
@@ -345,11 +345,28 @@ pub(crate) fn resolve_loudness_gain_from_cache_impl(
         }
         return None;
     };
+    resolve_loudness_gain_with_cache(cache.inner(), &track_id, target_lufs, opts)
+}
+
+/// AppHandle-free core of [`resolve_loudness_gain_from_cache_impl`]. Looks up
+/// the latest loudness row for `track_id` in `cache` and returns the
+/// recommended gain in dB, or `None` for any miss / non-finite / error case.
+/// Pulled out so tests can drive every branch via `AnalysisCache::open_in_memory()`.
+///
+/// `opts.touch_waveform` keeps parity with production behaviour: when binding
+/// a track, we also touch `get_latest_waveform_for_track` so the SQLite
+/// connection's row cache is warm for the next IPC tick.
+pub(crate) fn resolve_loudness_gain_with_cache(
+    cache: &psysonic_analysis::analysis_cache::AnalysisCache,
+    track_id: &str,
+    target_lufs: f32,
+    opts: ResolveLoudnessCacheOpts,
+) -> Option<f32> {
     if opts.touch_waveform {
         // Bind / preload: verify waveform context exists alongside loudness lookup.
-        let _ = cache.get_latest_waveform_for_track(&track_id);
+        let _ = cache.get_latest_waveform_for_track(track_id);
     }
-    match cache.get_latest_loudness_for_track(&track_id) {
+    match cache.get_latest_loudness_for_track(track_id) {
         Ok(Some(row)) if row.integrated_lufs.is_finite() => {
             let recommended = psysonic_analysis::analysis_cache::recommended_gain_for_target(
                 row.integrated_lufs,
@@ -551,7 +568,7 @@ pub(crate) async fn fetch_data(
         return Ok(Some(data));
     }
 
-    let response = crate::engine::audio_http_client(&state).get(url).send().await.map_err(|e| e.to_string())?;
+    let response = crate::engine::audio_http_client(state).get(url).send().await.map_err(|e| e.to_string())?;
     let status = response.status();
     let ct = response.headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -720,4 +737,564 @@ pub(crate) fn ramp_sink_volume(sink: Arc<Player>, from: f32, to: f32) {
             std::thread::sleep(Duration::from_millis(step_ms));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx(a: f32, b: f32, eps: f32) {
+        assert!((a - b).abs() < eps, "expected {b}, got {a}");
+    }
+
+    // ── provisional_loudness_gain_from_progress ───────────────────────────────
+
+    #[test]
+    fn provisional_returns_none_for_zero_total() {
+        assert!(provisional_loudness_gain_from_progress(100, 0, -14.0, -2.0).is_none());
+    }
+
+    #[test]
+    fn provisional_returns_none_for_zero_downloaded() {
+        assert!(provisional_loudness_gain_from_progress(0, 1000, -14.0, -2.0).is_none());
+    }
+
+    #[test]
+    fn provisional_clamps_start_db_into_range() {
+        // start_db_in is clamped to [-24, 0] then min(0). +5 dB is invalid → 0.
+        let g = provisional_loudness_gain_from_progress(1, 100, -14.0, 5.0).unwrap();
+        // At progress ≈ 0, gain ≈ start_db; clamp pushed start_db to 0.
+        // shaped(0.01) = 0.01.powf(0.75) ≈ 0.0316; gain ≈ 0 + (end_db - 0)*0.0316.
+        // end_db = (-14 + 6).clamp(-10, -3) = -8 → gain ≈ -0.253
+        approx(g, -0.253, 0.05);
+    }
+
+    #[test]
+    fn provisional_at_full_progress_reaches_end_db() {
+        // end_db = (target_lufs + 6).clamp(-10, -3).min(0)
+        // target_lufs = -14 → -8
+        let g = provisional_loudness_gain_from_progress(100, 100, -14.0, -2.0).unwrap();
+        approx(g, -8.0, 0.001);
+    }
+
+    #[test]
+    fn provisional_clamps_end_db_to_minus_three_floor() {
+        // target_lufs = 0 → end_db = (0 + 6).clamp(-10, -3) = -3
+        let g = provisional_loudness_gain_from_progress(100, 100, 0.0, 0.0).unwrap();
+        approx(g, -3.0, 0.001);
+    }
+
+    // ── content_type_to_hint ──────────────────────────────────────────────────
+
+    #[test]
+    fn content_type_recognises_common_audio_mimes() {
+        assert_eq!(content_type_to_hint("audio/mpeg"), Some("mp3".into()));
+        assert_eq!(content_type_to_hint("audio/aac"), Some("aac".into()));
+        assert_eq!(content_type_to_hint("audio/aacp"), Some("aac".into()));
+        assert_eq!(content_type_to_hint("audio/ogg"), Some("ogg".into()));
+        assert_eq!(content_type_to_hint("audio/flac"), Some("flac".into()));
+        assert_eq!(content_type_to_hint("audio/wav"), Some("wav".into()));
+        assert_eq!(content_type_to_hint("audio/wave"), Some("wav".into()));
+        assert_eq!(content_type_to_hint("audio/opus"), Some("opus".into()));
+        assert_eq!(content_type_to_hint("audio/mp4"), Some("m4a".into()));
+        assert_eq!(content_type_to_hint("audio/x-m4a"), Some("m4a".into()));
+    }
+
+    #[test]
+    fn content_type_is_case_insensitive() {
+        assert_eq!(content_type_to_hint("AUDIO/MPEG"), Some("mp3".into()));
+        assert_eq!(content_type_to_hint("Audio/FLAC"), Some("flac".into()));
+    }
+
+    #[test]
+    fn content_type_returns_none_for_unknown() {
+        assert_eq!(content_type_to_hint("text/html"), None);
+        assert_eq!(content_type_to_hint("application/octet-stream"), None);
+        assert_eq!(content_type_to_hint(""), None);
+    }
+
+    // ── format_hint_from_content_disposition ──────────────────────────────────
+
+    #[test]
+    fn cd_extracts_extension_from_quoted_filename() {
+        assert_eq!(
+            format_hint_from_content_disposition("attachment; filename=\"track.flac\""),
+            Some("flac".into()),
+        );
+    }
+
+    #[test]
+    fn cd_extracts_extension_from_rfc5987_filename_star() {
+        assert_eq!(
+            format_hint_from_content_disposition("filename*=UTF-8''track.opus"),
+            Some("opus".into()),
+        );
+    }
+
+    #[test]
+    fn cd_returns_none_for_unknown_extension() {
+        assert_eq!(
+            format_hint_from_content_disposition("attachment; filename=\"track.xyz\""),
+            None,
+        );
+    }
+
+    #[test]
+    fn cd_returns_none_when_filename_has_no_extension() {
+        assert_eq!(
+            format_hint_from_content_disposition("attachment; filename=\"trackname\""),
+            None,
+        );
+    }
+
+    #[test]
+    fn cd_returns_none_when_no_filename_present() {
+        assert_eq!(format_hint_from_content_disposition("inline"), None);
+    }
+
+    // ── normalize_stream_suffix_for_hint ──────────────────────────────────────
+
+    #[test]
+    fn suffix_normalises_known_extensions_lowercase() {
+        assert_eq!(normalize_stream_suffix_for_hint(Some("MP3")), Some("mp3".into()));
+        assert_eq!(normalize_stream_suffix_for_hint(Some("Flac")), Some("flac".into()));
+    }
+
+    #[test]
+    fn suffix_returns_none_for_empty_or_whitespace() {
+        assert_eq!(normalize_stream_suffix_for_hint(None), None);
+        assert_eq!(normalize_stream_suffix_for_hint(Some("")), None);
+        assert_eq!(normalize_stream_suffix_for_hint(Some("   ")), None);
+    }
+
+    #[test]
+    fn suffix_returns_none_for_unknown_extension() {
+        assert_eq!(normalize_stream_suffix_for_hint(Some("xyz")), None);
+        assert_eq!(normalize_stream_suffix_for_hint(Some("psy")), None);
+    }
+
+    // ── sniff_stream_format_extension ─────────────────────────────────────────
+
+    #[test]
+    fn sniff_detects_flac_magic() {
+        assert_eq!(sniff_stream_format_extension(b"fLaC\x00\x00"), Some("flac".into()));
+    }
+
+    #[test]
+    fn sniff_detects_ogg_magic() {
+        assert_eq!(sniff_stream_format_extension(b"OggS......"), Some("ogg".into()));
+    }
+
+    #[test]
+    fn sniff_detects_riff_wave() {
+        let mut buf = b"RIFF".to_vec();
+        buf.extend_from_slice(&[0u8; 4]);
+        buf.extend_from_slice(b"WAVE");
+        assert_eq!(sniff_stream_format_extension(&buf), Some("wav".into()));
+    }
+
+    #[test]
+    fn sniff_detects_mp4_ftyp_box() {
+        // 4 leading size bytes, then "ftyp" — common MP4 layout.
+        let mut buf = vec![0u8; 4];
+        buf.extend_from_slice(b"ftyp");
+        buf.extend_from_slice(b"M4A \x00\x00\x02\x00");
+        assert_eq!(sniff_stream_format_extension(&buf), Some("m4a".into()));
+    }
+
+    #[test]
+    fn sniff_detects_ebml_matroska() {
+        assert_eq!(
+            sniff_stream_format_extension(&[0x1a, 0x45, 0xdf, 0xa3, 0x00]),
+            Some("mka".into()),
+        );
+    }
+
+    #[test]
+    fn sniff_detects_adts_aac_with_no_id3() {
+        assert_eq!(sniff_stream_format_extension(&[0xff, 0xf1, 0x00, 0x00]), Some("aac".into()));
+    }
+
+    #[test]
+    fn sniff_detects_mp3_frame_sync_with_no_id3() {
+        assert_eq!(sniff_stream_format_extension(&[0xff, 0xfb, 0x00, 0x00]), Some("mp3".into()));
+    }
+
+    #[test]
+    fn sniff_detects_mp3_after_id3v2_tag() {
+        // ID3v2 header (10 bytes): "ID3" + 2 version bytes + flags byte + 4 size bytes (synchsafe).
+        // Use size = 0 so the MP3 frame sync starts immediately at offset 10.
+        let mut buf = vec![b'I', b'D', b'3', 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        buf.extend_from_slice(&[0xff, 0xfb]);
+        assert_eq!(sniff_stream_format_extension(&buf), Some("mp3".into()));
+    }
+
+    #[test]
+    fn sniff_returns_none_for_empty_or_random_bytes() {
+        assert_eq!(sniff_stream_format_extension(&[]), None);
+        assert_eq!(sniff_stream_format_extension(&[0x00, 0x01, 0x02, 0x03]), None);
+    }
+
+    // ── playback_identity ─────────────────────────────────────────────────────
+
+    #[test]
+    fn playback_identity_for_local_path() {
+        assert_eq!(
+            playback_identity("psysonic-local:///cache/track.flac"),
+            Some("local:/cache/track.flac".into()),
+        );
+    }
+
+    #[test]
+    fn playback_identity_for_subsonic_stream_url() {
+        assert_eq!(
+            playback_identity("https://server/rest/stream.view?u=user&t=abc&id=42"),
+            Some("stream:42".into()),
+        );
+    }
+
+    #[test]
+    fn playback_identity_returns_none_for_url_without_stream_view() {
+        assert!(playback_identity("https://server/something").is_none());
+    }
+
+    #[test]
+    fn playback_identity_returns_none_when_no_id_param_present() {
+        assert!(
+            playback_identity("https://server/rest/stream.view?u=user&t=abc").is_none(),
+            "stream.view URL without an id= param has no stable identity"
+        );
+    }
+
+    // ── analysis_cache_track_id ───────────────────────────────────────────────
+
+    #[test]
+    fn analysis_cache_id_prefers_logical_track_id() {
+        assert_eq!(
+            analysis_cache_track_id(Some("abc"), "https://server/rest/stream.view?id=42"),
+            Some("abc".into()),
+        );
+    }
+
+    #[test]
+    fn analysis_cache_id_falls_back_to_playback_identity() {
+        assert_eq!(
+            analysis_cache_track_id(None, "https://server/rest/stream.view?id=42"),
+            Some("stream:42".into()),
+        );
+    }
+
+    #[test]
+    fn analysis_cache_id_treats_whitespace_logical_id_as_missing() {
+        assert_eq!(
+            analysis_cache_track_id(Some("   "), "https://server/rest/stream.view?id=42"),
+            Some("stream:42".into()),
+        );
+    }
+
+    #[test]
+    fn analysis_cache_id_returns_none_when_neither_source_resolves() {
+        assert!(analysis_cache_track_id(None, "https://server/other").is_none());
+    }
+
+    // ── same_playback_target ──────────────────────────────────────────────────
+
+    #[test]
+    fn same_target_treats_different_salts_as_same_track() {
+        let a = "https://server/rest/stream.view?id=42&u=user&t=AAA&s=salt1";
+        let b = "https://server/rest/stream.view?id=42&u=user&t=BBB&s=salt2";
+        assert!(same_playback_target(a, b));
+    }
+
+    #[test]
+    fn same_target_treats_different_ids_as_different_tracks() {
+        let a = "https://server/rest/stream.view?id=42&u=user&t=AAA";
+        let b = "https://server/rest/stream.view?id=99&u=user&t=AAA";
+        assert!(!same_playback_target(a, b));
+    }
+
+    #[test]
+    fn same_target_falls_back_to_string_compare_for_unknown_urls() {
+        assert!(same_playback_target("foo://x", "foo://x"));
+        assert!(!same_playback_target("foo://x", "foo://y"));
+    }
+
+    // ── loudness_gain_placeholder_until_cache ─────────────────────────────────
+
+    #[test]
+    fn placeholder_clamps_pre_analysis_into_negative_range() {
+        // Pre = +5 → clamped to 0; pivot is just recommended_gain_for_target value.
+        let g_pos = loudness_gain_placeholder_until_cache(-14.0, 5.0);
+        let g_zero = loudness_gain_placeholder_until_cache(-14.0, 0.0);
+        assert_eq!(g_pos, g_zero, "positive pre-analysis must be clamped to 0");
+    }
+
+    #[test]
+    fn placeholder_lifts_when_target_above_pivot() {
+        // Pivot integrated LUFS = -14. Higher target (e.g. -10) means more gain.
+        let lower = loudness_gain_placeholder_until_cache(-23.0, 0.0);
+        let higher = loudness_gain_placeholder_until_cache(-10.0, 0.0);
+        assert!(higher > lower, "higher target_lufs must yield higher gain");
+    }
+
+    #[test]
+    fn placeholder_clamps_result_into_plus_minus_24() {
+        let g = loudness_gain_placeholder_until_cache(-14.0, -50.0);
+        assert!((-24.0..=24.0).contains(&g));
+    }
+
+    // ── loudness_gain_db_after_resolve ────────────────────────────────────────
+
+    #[test]
+    fn after_resolve_returns_cache_value_when_present() {
+        assert_eq!(
+            loudness_gain_db_after_resolve(Some(-3.5), -14.0, 0.0, true, Some(-9.9)),
+            Some(-3.5),
+            "cache hit must win over JS hint"
+        );
+    }
+
+    #[test]
+    fn after_resolve_uses_js_hint_when_uncached_and_allowed() {
+        assert_eq!(
+            loudness_gain_db_after_resolve(None, -14.0, 0.0, true, Some(-7.0)),
+            Some(-7.0),
+        );
+    }
+
+    #[test]
+    fn after_resolve_ignores_non_finite_js_hint() {
+        let g = loudness_gain_db_after_resolve(None, -14.0, 0.0, true, Some(f32::INFINITY))
+            .expect("uncached fallback always returns Some");
+        // Falls through to placeholder; just verify it's a valid finite gain.
+        assert!(g.is_finite());
+    }
+
+    #[test]
+    fn after_resolve_uses_placeholder_when_js_disabled() {
+        let with_js = loudness_gain_db_after_resolve(None, -14.0, 0.0, true, Some(-2.0));
+        let without_js = loudness_gain_db_after_resolve(None, -14.0, 0.0, false, Some(-2.0));
+        assert_eq!(with_js, Some(-2.0));
+        assert_ne!(with_js, without_js, "allow_js_when_uncached=false ignores js hint");
+    }
+
+    // ── compute_gain ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn compute_gain_off_mode_returns_unity_linear() {
+        let (lin, eff) = compute_gain(0, Some(-3.0), Some(1.0), Some(-3.0), 0.0, 0.0, 1.0);
+        assert_eq!(lin, 1.0, "off mode ignores all gain inputs");
+        approx(eff, MASTER_HEADROOM, 0.001);
+    }
+
+    #[test]
+    fn compute_gain_clamps_volume_into_zero_one() {
+        let (_, eff_low) = compute_gain(0, None, None, None, 0.0, 0.0, -1.0);
+        let (_, eff_high) = compute_gain(0, None, None, None, 0.0, 0.0, 5.0);
+        assert_eq!(eff_low, 0.0, "negative volume clamps to 0");
+        approx(eff_high, MASTER_HEADROOM, 0.001);
+    }
+
+    #[test]
+    fn compute_gain_replaygain_mode_uses_replay_gain_db_with_pre_gain() {
+        // replay_gain_db = -6, pre_gain_db = +3 → effective dB = -3 → linear ≈ 0.7079
+        let (lin, _) = compute_gain(1, Some(-6.0), Some(1.0), None, 3.0, 0.0, 1.0);
+        approx(lin, 10f32.powf(-3.0 / 20.0), 0.001);
+    }
+
+    #[test]
+    fn compute_gain_replaygain_falls_back_when_replay_gain_db_missing() {
+        // No replay_gain_db → uses fallback_db (-6 → linear ≈ 0.5)
+        let (lin, _) = compute_gain(1, None, Some(1.0), None, 0.0, -6.0, 1.0);
+        approx(lin, 10f32.powf(-6.0 / 20.0), 0.001);
+    }
+
+    #[test]
+    fn compute_gain_replaygain_caps_by_inverse_peak() {
+        // replay_gain_db = +12 → linear ≈ 3.98, but peak = 2 caps it to 1/2 = 0.5.
+        let (lin, _) = compute_gain(1, Some(12.0), Some(2.0), None, 0.0, 0.0, 1.0);
+        approx(lin, 0.5, 0.001);
+    }
+
+    #[test]
+    fn compute_gain_loudness_mode_applies_attenuation_db() {
+        // loudness_gain_db = -6 → linear ≈ 0.501. Negative gain passes through
+        // the implicit unity cap.
+        let (lin, _) = compute_gain(2, None, None, Some(-6.0), 0.0, 0.0, 1.0);
+        approx(lin, 10f32.powf(-6.0 / 20.0), 0.001);
+    }
+
+    #[test]
+    fn compute_gain_loudness_mode_caps_positive_gain_at_unity() {
+        // Loudness normalisation must not boost above 0 dBFS — it would clip.
+        // The implementation forces peak = 1.0 in mode 2, so any positive gain
+        // is capped at unity by the `gain_linear.min(1.0 / peak)` step.
+        let (lin, _) = compute_gain(2, None, None, Some(6.0), 0.0, 0.0, 1.0);
+        assert_eq!(lin, 1.0, "+6 dB loudness gain must cap at unity");
+    }
+
+    #[test]
+    fn compute_gain_loudness_mode_ignores_replay_gain_peak() {
+        // The replay_gain_peak field is irrelevant in loudness mode — different
+        // peaks must yield identical gain_linear for the same loudness_gain_db.
+        let (lin_low_peak, _) = compute_gain(2, None, Some(0.5), Some(-6.0), 0.0, 0.0, 1.0);
+        let (lin_high_peak, _) = compute_gain(2, None, Some(2.0), Some(-6.0), 0.0, 0.0, 1.0);
+        assert_eq!(lin_low_peak, lin_high_peak);
+    }
+
+    #[test]
+    fn compute_gain_loudness_mode_returns_unity_when_no_db_supplied() {
+        let (lin, _) = compute_gain(2, None, None, None, 0.0, 0.0, 1.0);
+        assert_eq!(lin, 1.0);
+    }
+
+    // ── normalization_engine_name ─────────────────────────────────────────────
+
+    #[test]
+    fn engine_name_maps_known_modes() {
+        assert_eq!(normalization_engine_name(0), "off");
+        assert_eq!(normalization_engine_name(1), "replaygain");
+        assert_eq!(normalization_engine_name(2), "loudness");
+    }
+
+    #[test]
+    fn engine_name_falls_back_to_off_for_unknown_modes() {
+        assert_eq!(normalization_engine_name(3), "off");
+        assert_eq!(normalization_engine_name(99), "off");
+    }
+
+    // ── gain_linear_to_db ─────────────────────────────────────────────────────
+
+    #[test]
+    fn linear_to_db_for_unity_is_zero() {
+        approx(gain_linear_to_db(1.0).unwrap(), 0.0, 0.001);
+    }
+
+    #[test]
+    fn linear_to_db_for_half_is_minus_six() {
+        approx(gain_linear_to_db(0.5).unwrap(), -6.020_6, 0.01);
+    }
+
+    #[test]
+    fn linear_to_db_rejects_zero_and_negative() {
+        assert!(gain_linear_to_db(0.0).is_none());
+        assert!(gain_linear_to_db(-1.0).is_none());
+    }
+
+    #[test]
+    fn linear_to_db_rejects_non_finite() {
+        assert!(gain_linear_to_db(f32::NAN).is_none());
+        assert!(gain_linear_to_db(f32::INFINITY).is_none());
+    }
+
+    // ── resolve_loudness_gain_with_cache (AppHandle-free) ────────────────────
+
+    use psysonic_analysis::analysis_cache::{AnalysisCache, LoudnessEntry, TrackKey};
+
+    fn upsert_loudness_row(cache: &AnalysisCache, track_id: &str, integrated: f64, target: f64) {
+        let k = TrackKey {
+            track_id: track_id.to_string(),
+            md5_16kb: "deadbeef".to_string(),
+        };
+        cache.touch_track_status(&k, "ready").unwrap();
+        cache
+            .upsert_loudness(
+                &k,
+                &LoudnessEntry {
+                    integrated_lufs: integrated,
+                    true_peak: 0.5,
+                    recommended_gain_db: 0.0,
+                    target_lufs: target,
+                    updated_at: 1_700_000_000,
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn resolve_with_cache_returns_none_for_missing_loudness() {
+        let cache = AnalysisCache::open_in_memory();
+        let g = resolve_loudness_gain_with_cache(
+            &cache,
+            "no-such-track",
+            -14.0,
+            ResolveLoudnessCacheOpts::default(),
+        );
+        assert!(g.is_none());
+    }
+
+    #[test]
+    fn resolve_with_cache_returns_recommended_gain_for_existing_row() {
+        let cache = AnalysisCache::open_in_memory();
+        // Track at -23 LUFS, target -14 → recommended gain capped by true-peak (0.5 ≈ -6 dB).
+        upsert_loudness_row(&cache, "abc", -23.0, -14.0);
+        let g = resolve_loudness_gain_with_cache(
+            &cache,
+            "abc",
+            -14.0,
+            ResolveLoudnessCacheOpts::default(),
+        )
+        .expect("loudness row → Some(gain_db)");
+        assert!(g.is_finite());
+        // Target - integrated = +9, but true-peak guard caps it: max = -1 - 20*log10(0.5) ≈ +5.
+        assert!((-1.0..=10.0).contains(&g), "gain_db = {g}");
+    }
+
+    // (NaN-roundtrip through SQLite is platform-dependent — rusqlite often
+    // serialises f64::NAN as NULL, which fails column-decode rather than
+    // round-tripping a non-finite value. The `.is_finite()` guard inside
+    // `resolve_loudness_gain_with_cache` is defensive code that protects
+    // against in-memory corruption; not directly testable via the cache API.)
+
+    #[test]
+    fn resolve_with_cache_finds_row_under_other_id_variant() {
+        let cache = AnalysisCache::open_in_memory();
+        // Insert under stream:abc, look up with bare abc — get_latest_*_for_track
+        // walks both id variants.
+        upsert_loudness_row(&cache, "stream:abc", -16.0, -14.0);
+        let g = resolve_loudness_gain_with_cache(
+            &cache,
+            "abc",
+            -14.0,
+            ResolveLoudnessCacheOpts::default(),
+        );
+        assert!(g.is_some(), "bare-id lookup must find stream-prefixed row");
+    }
+
+    #[test]
+    fn resolve_with_cache_respects_target_lufs_for_recommended_gain() {
+        let cache = AnalysisCache::open_in_memory();
+        upsert_loudness_row(&cache, "abc", -20.0, -14.0);
+        let g_quiet = resolve_loudness_gain_with_cache(
+            &cache,
+            "abc",
+            -20.0,
+            ResolveLoudnessCacheOpts::default(),
+        )
+        .unwrap();
+        let g_loud = resolve_loudness_gain_with_cache(
+            &cache,
+            "abc",
+            -10.0,
+            ResolveLoudnessCacheOpts::default(),
+        )
+        .unwrap();
+        assert!(
+            g_loud > g_quiet,
+            "higher target_lufs must yield higher recommended gain (quiet={g_quiet}, loud={g_loud})"
+        );
+    }
+
+    #[test]
+    fn resolve_with_cache_touch_waveform_false_does_not_panic() {
+        // Smoke: opts.touch_waveform=false must not cause an SQL error or panic.
+        let cache = AnalysisCache::open_in_memory();
+        upsert_loudness_row(&cache, "abc", -20.0, -14.0);
+        let opts = ResolveLoudnessCacheOpts {
+            touch_waveform: false,
+            log_soft_misses: false,
+        };
+        let g = resolve_loudness_gain_with_cache(&cache, "abc", -14.0, opts);
+        assert!(g.is_some());
+    }
 }

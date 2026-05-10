@@ -123,8 +123,100 @@ pub async fn fetch_subsonic_songs(
     ];
     let res = client.get(&url).query(&query).send().await.map_err(|e| e.to_string())?;
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    
-    let root = json.get("subsonic-response").ok_or("No subsonic-response".to_string())?;
+    parse_subsonic_songs(&json, endpoint)
+}
+
+/// Estimate the byte size of a Subsonic song JSON. Prefer the explicit `size`
+/// field; fall back to `duration * 320 kbps / 8` when missing. Returns 0 when
+/// neither is present.
+pub(crate) fn estimate_track_size_bytes(track: &serde_json::Value) -> u64 {
+    track.get("size").and_then(|s| s.as_u64()).unwrap_or_else(|| {
+        track
+            .get("duration")
+            .and_then(|d| d.as_u64())
+            .unwrap_or(0)
+            * 320_000
+            / 8
+    })
+}
+
+/// Build a [`TrackSyncInfo`] from a Subsonic song JSON object. Optional
+/// playlist context attaches `playlist_name` + `playlist_index` so playlist
+/// tracks land under the `Playlists/<name>/` tree on the device. The
+/// `albumArtist` field falls back to `artist` when missing or whitespace-only.
+pub(crate) fn track_sync_info_from_subsonic_json(
+    track: &serde_json::Value,
+    track_id: &str,
+    playlist_name: Option<&str>,
+    playlist_index: Option<u32>,
+) -> TrackSyncInfo {
+    let suffix = track.get("suffix").and_then(|s| s.as_str()).unwrap_or("mp3");
+    let artist_raw = track.get("artist").and_then(|v| v.as_str()).unwrap_or("");
+    let album_artist = track
+        .get("albumArtist")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(artist_raw);
+    TrackSyncInfo {
+        id: track_id.to_string(),
+        url: String::new(),
+        suffix: suffix.to_string(),
+        artist: artist_raw.to_string(),
+        album_artist: album_artist.to_string(),
+        album: track
+            .get("album")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        title: track
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        track_number: track.get("track").and_then(|v| v.as_u64()).map(|n| n as u32),
+        duration: track.get("duration").and_then(|v| v.as_u64()).map(|n| n as u32),
+        playlist_name: playlist_name.map(|s| s.to_string()),
+        playlist_index,
+    }
+}
+
+/// Attach `_playlistName` / `_playlistIndex` keys to a Subsonic-track JSON so
+/// the frontend can re-send the track to `sync_batch_to_device` without
+/// re-deriving the playlist context. No-op when both args are `None`.
+pub(crate) fn inject_playlist_context(
+    track: &mut serde_json::Value,
+    playlist_name: Option<&str>,
+    playlist_index: Option<u32>,
+) {
+    if let Some(obj) = track.as_object_mut() {
+        if let Some(name) = playlist_name {
+            obj.insert(
+                "_playlistName".to_string(),
+                serde_json::Value::String(name.to_string()),
+            );
+        }
+        if let Some(idx) = playlist_index {
+            obj.insert(
+                "_playlistIndex".to_string(),
+                serde_json::Value::Number(idx.into()),
+            );
+        }
+    }
+}
+
+/// Pure response-shape extraction for `getAlbum.view` / `getPlaylist.view` —
+/// pulled out of [`fetch_subsonic_songs`] so it can be tested without an HTTP
+/// roundtrip. Subsonic returns the song list either as an array (multiple
+/// tracks) or as a single object (one track); both shapes are normalised to a
+/// `Vec`. Other endpoints return an empty `Vec` rather than an error so the
+/// caller can fan out across endpoint types without special-casing.
+pub fn parse_subsonic_songs(
+    json: &serde_json::Value,
+    endpoint: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let root = json
+        .get("subsonic-response")
+        .ok_or_else(|| "No subsonic-response".to_string())?;
     let songs = if endpoint == "getAlbum.view" {
         root.get("album").and_then(|a| a.get("song"))
     } else if endpoint == "getPlaylist.view" {
@@ -185,8 +277,8 @@ pub async fn calculate_sync_payload(
                 if let Ok(re) = cli.get(&url).query(&query).send().await {
                    if let Ok(js) = re.json::<serde_json::Value>().await {
                        if let Some(root) = js.get("subsonic-response").and_then(|r| r.get("artist")).and_then(|a| a.get("album")) {
-                          let arr = root.as_array().map(|a| a.clone()).unwrap_or_else(|| {
-                              root.as_object().map(|o| vec![serde_json::Value::Object(o.clone())]).unwrap_or_else(|| vec![])
+                          let arr = root.as_array().cloned().unwrap_or_else(|| {
+                              root.as_object().map(|o| vec![serde_json::Value::Object(o.clone())]).unwrap_or_default()
                           });
                           for al in arr {
                               if let Some(aid) = al.get("id").and_then(|i| i.as_str()) {
@@ -239,47 +331,22 @@ pub async fn calculate_sync_payload(
                     let pl_name = if is_playlist { source.name.clone() } else { None };
                     let pl_idx  = if is_playlist { Some(playlist_position) } else { None };
 
+                    let sync_info = track_sync_info_from_subsonic_json(
+                        &track,
+                        tid,
+                        pl_name.as_deref(),
+                        pl_idx,
+                    );
                     let already_exists = {
-                        let suffix = track.get("suffix").and_then(|s| s.as_str()).unwrap_or("mp3");
-                        let artist_raw = track.get("artist").and_then(|v| v.as_str()).unwrap_or("");
-                        let album_artist = track.get("albumArtist")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.trim().is_empty())
-                            .unwrap_or(artist_raw);
-                        let sync_info = TrackSyncInfo {
-                            id: tid.to_string(),
-                            url: String::new(),
-                            suffix: suffix.to_string(),
-                            artist: artist_raw.to_string(),
-                            album_artist: album_artist.to_string(),
-                            album: track.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            title: track.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            track_number: track.get("track").and_then(|v| v.as_u64()).map(|n| n as u32),
-                            duration: track.get("duration").and_then(|v| v.as_u64()).map(|n| n as u32),
-                            playlist_name: pl_name.clone(),
-                            playlist_index: pl_idx,
-                        };
                         let relative = build_track_path(&sync_info);
-                        let file_name = format!("{}.{}", relative, suffix);
+                        let file_name = format!("{}.{}", relative, sync_info.suffix);
                         std::path::Path::new(&target_dir).join(&file_name).exists()
                     };
                     if !already_exists {
                         add_count += 1;
-                        let size = track.get("size").and_then(|s| s.as_u64()).unwrap_or_else(|| {
-                            track.get("duration").and_then(|d| d.as_u64()).unwrap_or(0) * 320_000 / 8
-                        });
-                        add_bytes += size;
-                        // Embed playlist context in the track JSON so the frontend
-                        // can pass it back to sync_batch_to_device without re-computing it.
+                        add_bytes += estimate_track_size_bytes(&track);
                         let mut track_with_ctx = track.clone();
-                        if let Some(obj) = track_with_ctx.as_object_mut() {
-                            if let Some(name) = &pl_name {
-                                obj.insert("_playlistName".to_string(), serde_json::Value::String(name.clone()));
-                            }
-                            if let Some(idx) = pl_idx {
-                                obj.insert("_playlistIndex".to_string(), serde_json::Value::Number(idx.into()));
-                            }
-                        }
+                        inject_playlist_context(&mut track_with_ctx, pl_name.as_deref(), pl_idx);
                         sync_tracks.push(track_with_ctx);
                     }
                 }
@@ -291,10 +358,7 @@ pub async fn calculate_sync_payload(
         if let Ok(ts) = handle.await {
             for track in ts {
                 del_count += 1;
-                let size = track.get("size").and_then(|s| s.as_u64()).unwrap_or_else(|| {
-                    track.get("duration").and_then(|d| d.as_u64()).unwrap_or(0) * 320_000 / 8
-                });
-                del_bytes += size;
+                del_bytes += estimate_track_size_bytes(&track);
             }
         }
     }
@@ -359,7 +423,7 @@ pub async fn sync_batch_to_device(
         if dest_str.starts_with(&drive.mount_point) {
             // Buffer of ~10 MB padding boundary natively mapped
             if expected_bytes > drive.available_space.saturating_sub(10_000_000) {
-                return Err(format!("NOT_ENOUGH_SPACE"));
+                return Err("NOT_ENOUGH_SPACE".to_string());
             }
             break;
         }
@@ -521,12 +585,414 @@ pub async fn delete_device_files(paths: Vec<String>) -> Result<u32, String> {
     let mut deleted: u32 = 0;
     for path in &paths {
         let p = std::path::PathBuf::from(path);
-        if p.exists() {
-            if tokio::fs::remove_file(&p).await.is_ok() {
-                deleted += 1;
-                prune_empty_parents(&p, 2).await;
-            }
+        if p.exists() && tokio::fs::remove_file(&p).await.is_ok() {
+            deleted += 1;
+            prune_empty_parents(&p, 2).await;
         }
     }
     Ok(deleted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn write_file(path: &std::path::Path, contents: &[u8]) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+
+    fn fake_auth(base_url: String) -> SubsonicAuthPayload {
+        SubsonicAuthPayload {
+            base_url,
+            u: "user".into(),
+            t: "abc".into(),
+            s: "salt".into(),
+            v: "1.16.1".into(),
+            c: "psysonic".into(),
+            f: "json".into(),
+        }
+    }
+
+    // ── prune_empty_parents ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn prune_removes_one_empty_parent_when_levels_is_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let leaf_dir = dir.path().join("a");
+        std::fs::create_dir(&leaf_dir).unwrap();
+        let file = leaf_dir.join("track.mp3");
+        write_file(&file, b"x");
+        std::fs::remove_file(&file).unwrap();
+        prune_empty_parents(&file, 1).await;
+        assert!(!leaf_dir.exists(), "level 1 prune must remove the empty parent");
+    }
+
+    #[tokio::test]
+    async fn prune_walks_up_multiple_levels() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("a").join("b").join("c");
+        std::fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("track.mp3");
+        write_file(&file, b"x");
+        std::fs::remove_file(&file).unwrap();
+        prune_empty_parents(&file, 3).await;
+        assert!(!dir.path().join("a").join("b").join("c").exists());
+        assert!(!dir.path().join("a").join("b").exists());
+        assert!(!dir.path().join("a").exists());
+        assert!(dir.path().exists(), "tempdir root must survive");
+    }
+
+    #[tokio::test]
+    async fn prune_stops_at_non_empty_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("artist");
+        let inner = parent.join("album");
+        std::fs::create_dir_all(&inner).unwrap();
+        let target = inner.join("track.mp3");
+        let sibling = parent.join("notes.txt");
+        write_file(&target, b"x");
+        write_file(&sibling, b"y");
+        std::fs::remove_file(&target).unwrap();
+        prune_empty_parents(&target, 5).await;
+        assert!(!inner.exists(), "empty leaf is pruned");
+        assert!(parent.exists(), "non-empty parent must stay");
+        assert!(sibling.exists(), "sibling file must stay");
+    }
+
+    #[tokio::test]
+    async fn prune_with_zero_levels_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let leaf = dir.path().join("a");
+        std::fs::create_dir(&leaf).unwrap();
+        let file = leaf.join("track.mp3");
+        write_file(&file, b"x");
+        std::fs::remove_file(&file).unwrap();
+        prune_empty_parents(&file, 0).await;
+        assert!(leaf.exists(), "levels=0 must not remove anything");
+    }
+
+    // ── delete_device_files ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn delete_device_files_returns_count_of_existing_paths_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.mp3");
+        let b = dir.path().join("b.mp3");
+        write_file(&a, b"a");
+        write_file(&b, b"b");
+        let missing = dir.path().join("missing.mp3").to_string_lossy().to_string();
+        let result = delete_device_files(vec![
+            a.to_string_lossy().to_string(),
+            b.to_string_lossy().to_string(),
+            missing,
+        ])
+        .await
+        .unwrap();
+        assert_eq!(result, 2, "missing paths are silently skipped");
+        assert!(!a.exists());
+        assert!(!b.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_device_files_prunes_two_levels_of_empty_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("artist").join("album");
+        std::fs::create_dir_all(&nested).unwrap();
+        let track = nested.join("01 - track.mp3");
+        write_file(&track, b"audio");
+        let _ = delete_device_files(vec![track.to_string_lossy().to_string()])
+            .await
+            .unwrap();
+        assert!(!track.exists());
+        assert!(!nested.exists(), "level 1 (album) pruned");
+        assert!(
+            !dir.path().join("artist").exists(),
+            "level 2 (artist) pruned",
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_device_files_returns_zero_for_empty_input() {
+        let result = delete_device_files(vec![]).await.unwrap();
+        assert_eq!(result, 0);
+    }
+
+    // ── parse_subsonic_songs (pure) ───────────────────────────────────────────
+
+    #[test]
+    fn parse_returns_err_when_subsonic_response_missing() {
+        let json = serde_json::json!({});
+        let err = parse_subsonic_songs(&json, "getAlbum.view").unwrap_err();
+        assert!(err.contains("No subsonic-response"));
+    }
+
+    #[test]
+    fn parse_returns_empty_for_unknown_endpoint() {
+        let json = serde_json::json!({
+            "subsonic-response": { "status": "ok" }
+        });
+        let songs = parse_subsonic_songs(&json, "getOther.view").unwrap();
+        assert!(songs.is_empty());
+    }
+
+    #[test]
+    fn parse_album_extracts_song_array() {
+        let json = serde_json::json!({
+            "subsonic-response": {
+                "album": {
+                    "song": [
+                        { "id": "1", "title": "First" },
+                        { "id": "2", "title": "Second" }
+                    ]
+                }
+            }
+        });
+        let songs = parse_subsonic_songs(&json, "getAlbum.view").unwrap();
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[0].get("id").unwrap(), "1");
+    }
+
+    #[test]
+    fn parse_album_normalises_single_song_object_to_vec() {
+        // Some Subsonic servers return a single song as an object instead of a 1-element array.
+        let json = serde_json::json!({
+            "subsonic-response": {
+                "album": { "song": { "id": "only", "title": "Solo" } }
+            }
+        });
+        let songs = parse_subsonic_songs(&json, "getAlbum.view").unwrap();
+        assert_eq!(songs.len(), 1);
+        assert_eq!(songs[0].get("id").unwrap(), "only");
+    }
+
+    #[test]
+    fn parse_playlist_extracts_entry_array() {
+        let json = serde_json::json!({
+            "subsonic-response": {
+                "playlist": {
+                    "entry": [{ "id": "p1" }, { "id": "p2" }, { "id": "p3" }]
+                }
+            }
+        });
+        let songs = parse_subsonic_songs(&json, "getPlaylist.view").unwrap();
+        assert_eq!(songs.len(), 3);
+    }
+
+    #[test]
+    fn parse_returns_empty_when_album_has_no_songs() {
+        let json = serde_json::json!({
+            "subsonic-response": {
+                "album": { "id": "empty-album" }
+            }
+        });
+        let songs = parse_subsonic_songs(&json, "getAlbum.view").unwrap();
+        assert!(songs.is_empty());
+    }
+
+    // ── fetch_subsonic_songs against wiremock ─────────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fetch_subsonic_songs_roundtrips_album_via_wiremock() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/getAlbum.view"))
+            .and(query_param("u", "user"))
+            .and(query_param("id", "album-42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subsonic-response": {
+                    "album": {
+                        "song": [
+                            { "id": "t1", "title": "Track 1" },
+                            { "id": "t2", "title": "Track 2" }
+                        ]
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = crate::file_transfer::subsonic_http_client(std::time::Duration::from_secs(5))
+            .unwrap();
+        let auth = fake_auth(server.uri());
+        let songs = fetch_subsonic_songs(&client, &auth, "getAlbum.view", "album-42")
+            .await
+            .unwrap();
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[0].get("id").unwrap(), "t1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fetch_subsonic_songs_returns_empty_on_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/getAlbum.view"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = crate::file_transfer::subsonic_http_client(std::time::Duration::from_secs(5))
+            .unwrap();
+        let auth = fake_auth(server.uri());
+        let result = fetch_subsonic_songs(&client, &auth, "getAlbum.view", "missing").await;
+        // 404 with HTML/empty body fails the JSON parse, surfacing as an Err — we
+        // just assert the function does not panic and propagates an error string.
+        assert!(result.is_err());
+    }
+
+    // ── estimate_track_size_bytes ────────────────────────────────────────────
+
+    #[test]
+    fn estimate_track_size_prefers_explicit_size_field() {
+        let track = serde_json::json!({ "size": 12_345_u64, "duration": 200_u64 });
+        assert_eq!(estimate_track_size_bytes(&track), 12_345);
+    }
+
+    #[test]
+    fn estimate_track_size_falls_back_to_duration_at_320kbps() {
+        // Duration in seconds → bytes at 320 kbps:
+        //   bytes = duration * 320_000 / 8 = duration * 40_000
+        let track = serde_json::json!({ "duration": 240_u64 });
+        assert_eq!(estimate_track_size_bytes(&track), 240 * 40_000);
+    }
+
+    #[test]
+    fn estimate_track_size_returns_zero_when_neither_size_nor_duration_present() {
+        let track = serde_json::json!({ "title": "no metadata at all" });
+        assert_eq!(estimate_track_size_bytes(&track), 0);
+    }
+
+    #[test]
+    fn estimate_track_size_explicit_size_wins_even_when_duration_present() {
+        // explicit size of 1 byte must NOT be replaced by duration-derived 8 MB.
+        let track = serde_json::json!({ "size": 1_u64, "duration": 200_u64 });
+        assert_eq!(estimate_track_size_bytes(&track), 1);
+    }
+
+    // ── track_sync_info_from_subsonic_json ───────────────────────────────────
+
+    #[test]
+    fn track_sync_info_from_json_uses_album_artist_when_present() {
+        let track = serde_json::json!({
+            "suffix": "flac",
+            "artist": "Roger Waters",
+            "albumArtist": "Pink Floyd",
+            "album": "The Wall",
+            "title": "Comfortably Numb",
+            "track": 7,
+            "duration": 380,
+        });
+        let info = track_sync_info_from_subsonic_json(&track, "abc", None, None);
+        assert_eq!(info.id, "abc");
+        assert_eq!(info.suffix, "flac");
+        assert_eq!(info.artist, "Roger Waters");
+        assert_eq!(info.album_artist, "Pink Floyd");
+        assert_eq!(info.album, "The Wall");
+        assert_eq!(info.title, "Comfortably Numb");
+        assert_eq!(info.track_number, Some(7));
+        assert_eq!(info.duration, Some(380));
+        assert!(info.playlist_name.is_none() && info.playlist_index.is_none());
+    }
+
+    #[test]
+    fn track_sync_info_falls_back_to_artist_when_album_artist_missing() {
+        let track = serde_json::json!({
+            "artist": "Some Artist",
+            "title": "Solo",
+        });
+        let info = track_sync_info_from_subsonic_json(&track, "x", None, None);
+        assert_eq!(info.album_artist, "Some Artist");
+    }
+
+    #[test]
+    fn track_sync_info_treats_whitespace_only_album_artist_as_missing() {
+        let track = serde_json::json!({
+            "artist": "Real Artist",
+            "albumArtist": "   ",
+            "title": "T",
+        });
+        let info = track_sync_info_from_subsonic_json(&track, "x", None, None);
+        assert_eq!(info.album_artist, "Real Artist");
+    }
+
+    #[test]
+    fn track_sync_info_uses_mp3_default_suffix_when_missing() {
+        let track = serde_json::json!({ "artist": "A", "title": "T" });
+        let info = track_sync_info_from_subsonic_json(&track, "x", None, None);
+        assert_eq!(info.suffix, "mp3");
+    }
+
+    #[test]
+    fn track_sync_info_attaches_playlist_context_when_supplied() {
+        let track = serde_json::json!({ "artist": "A", "title": "T" });
+        let info = track_sync_info_from_subsonic_json(&track, "x", Some("My Mix"), Some(5));
+        assert_eq!(info.playlist_name.as_deref(), Some("My Mix"));
+        assert_eq!(info.playlist_index, Some(5));
+    }
+
+    // ── inject_playlist_context ──────────────────────────────────────────────
+
+    #[test]
+    fn inject_playlist_context_adds_both_keys_when_supplied() {
+        let mut track = serde_json::json!({ "id": "t1", "title": "Song" });
+        inject_playlist_context(&mut track, Some("Mix"), Some(3));
+        assert_eq!(track.get("_playlistName").unwrap(), "Mix");
+        assert_eq!(track.get("_playlistIndex").unwrap().as_u64().unwrap(), 3);
+        // Original keys still intact.
+        assert_eq!(track.get("id").unwrap(), "t1");
+        assert_eq!(track.get("title").unwrap(), "Song");
+    }
+
+    #[test]
+    fn inject_playlist_context_is_noop_when_both_args_none() {
+        let mut track = serde_json::json!({ "id": "t1" });
+        inject_playlist_context(&mut track, None, None);
+        assert!(track.get("_playlistName").is_none());
+        assert!(track.get("_playlistIndex").is_none());
+    }
+
+    #[test]
+    fn inject_playlist_context_attaches_only_supplied_args() {
+        let mut track = serde_json::json!({ "id": "t1" });
+        inject_playlist_context(&mut track, Some("Mix"), None);
+        assert_eq!(track.get("_playlistName").unwrap(), "Mix");
+        assert!(track.get("_playlistIndex").is_none());
+    }
+
+    #[test]
+    fn inject_playlist_context_skips_non_object_values() {
+        // Defensive: if the JSON is somehow a non-object (shouldn't happen), no panic.
+        let mut track = serde_json::json!("just a string");
+        inject_playlist_context(&mut track, Some("Mix"), Some(3));
+        assert_eq!(track, serde_json::json!("just a string"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fetch_subsonic_songs_handles_single_song_object_shape() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/getPlaylist.view"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subsonic-response": {
+                    "playlist": {
+                        "entry": { "id": "only", "title": "Lonely" }
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = crate::file_transfer::subsonic_http_client(std::time::Duration::from_secs(5))
+            .unwrap();
+        let auth = fake_auth(server.uri());
+        let songs = fetch_subsonic_songs(&client, &auth, "getPlaylist.view", "p1")
+            .await
+            .unwrap();
+        assert_eq!(songs.len(), 1, "single-object response normalised to 1-element vec");
+        assert_eq!(songs[0].get("id").unwrap(), "only");
+    }
 }
