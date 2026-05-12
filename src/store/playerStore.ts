@@ -31,11 +31,32 @@ import {
   shallowCloneQueueTracks,
 } from '../utils/queueIdentity';
 import { getWindowKind } from '../app/windowKind';
+import {
+  _resetQueueUndoStacksForTest,
+  consumePendingQueueListScrollTop,
+  popQueueRedoSnapshot,
+  popQueueUndoSnapshot,
+  pushQueueRedoSnapshot,
+  pushQueueUndoFromGetter,
+  pushQueueUndoSnapshot,
+  queueUndoSnapshotFromState,
+  registerQueueListScrollTopReader,
+  setPendingQueueListScrollTop,
+  type QueueUndoSnapshot,
+} from './queueUndo';
 
 // Re-export for backward compatibility with the ~30 call sites that still
 // import these helpers from playerStore. Phase E (store splits) will migrate
 // the imports to '../utils/*' directly and drop these re-exports.
 export { resolveReplayGainDb, shuffleArray, songToTrack };
+
+// Re-export the queue-undo public API so existing callers (QueuePanel,
+// test/helpers/storeReset) keep their `from './playerStore'` imports.
+export {
+  _resetQueueUndoStacksForTest,
+  consumePendingQueueListScrollTop,
+  registerQueueListScrollTopReader,
+};
 
 const QUEUE_VISIBILITY_STORAGE_KEY = 'psysonic_queue_visible';
 
@@ -91,7 +112,7 @@ export interface Track {
   playNextAdded?: boolean;
 }
 
-interface PlayerState {
+export interface PlayerState {
   currentTrack: Track | null;
   waveformBins: number[] | null;
   normalizationNowDb: number | null;
@@ -333,67 +354,6 @@ let radioSessionSeenIds = new Set<string>();
 let cachedLoudnessGainByTrackId: Record<string, number> = {};
 let stableLoudnessGainByTrackId: Record<string, true> = {};
 let lastNormalizationUiUpdateAtMs = 0;
-
-/** Bounded stack of queue snapshots for Ctrl+Z / Cmd+Z undo. */
-const QUEUE_UNDO_MAX = 32;
-type QueueUndoSnapshot = {
-  queue: Track[];
-  queueIndex: number;
-  currentTrack: Track | null;
-  /** Seconds — captured with the snapshot (older entries may omit). */
-  currentTime?: number;
-  progress?: number;
-  isPlaying?: boolean;
-  /** Main queue panel list `scrollTop` when the snapshot was taken. */
-  queueListScrollTop?: number;
-};
-const queueUndoStack: QueueUndoSnapshot[] = [];
-const queueRedoStack: QueueUndoSnapshot[] = [];
-
-/** Test-only: clears module-scoped undo/redo stacks so each test starts clean. */
-export function _resetQueueUndoStacksForTest(): void {
-  queueUndoStack.length = 0;
-  queueRedoStack.length = 0;
-}
-
-/** QueuePanel registers a reader so undo snapshots capture list scroll position. */
-let queueListScrollTopReader: (() => number | undefined) | null = null;
-
-export function registerQueueListScrollTopReader(reader: (() => number | undefined) | null): void {
-  queueListScrollTopReader = reader;
-}
-
-function readQueueListScrollTopForUndo(): number | undefined {
-  return queueListScrollTopReader?.() ?? undefined;
-}
-
-/** Set in applyQueueHistorySnapshot; QueuePanel consumes in useLayoutEffect after commit. */
-let pendingQueueListScrollTop: number | undefined;
-
-export function consumePendingQueueListScrollTop(): number | undefined {
-  const v = pendingQueueListScrollTop;
-  pendingQueueListScrollTop = undefined;
-  return v;
-}
-
-function queueUndoSnapshotFromState(s: PlayerState): QueueUndoSnapshot {
-  const scrollTop = readQueueListScrollTopForUndo();
-  return {
-    queue: shallowCloneQueueTracks(s.queue),
-    queueIndex: s.queueIndex,
-    currentTrack: s.currentTrack ? { ...s.currentTrack } : null,
-    currentTime: s.currentTime,
-    progress: s.progress,
-    isPlaying: s.isPlaying,
-    ...(scrollTop !== undefined ? { queueListScrollTop: scrollTop } : {}),
-  };
-}
-
-function pushQueueUndoFromGetter(get: () => PlayerState) {
-  queueRedoStack.length = 0;
-  queueUndoStack.push(queueUndoSnapshotFromState(get()));
-  while (queueUndoStack.length > QUEUE_UNDO_MAX) queueUndoStack.shift();
-}
 
 /** Reload Rust audio to match a queue-undo snapshot (Zustand alone does not move the engine). */
 function queueUndoRestoreAudioEngine(opts: {
@@ -2142,7 +2102,7 @@ export const usePlayerStore = create<PlayerState>()(
           isAudioPaused = false;
           syncQueueToServer(nextQueue, null, 0);
           if (typeof snap.queueListScrollTop === 'number' && Number.isFinite(snap.queueListScrollTop)) {
-            pendingQueueListScrollTop = Math.max(0, snap.queueListScrollTop);
+            setPendingQueueListScrollTop(Math.max(0, snap.queueListScrollTop));
           }
           return true;
         }
@@ -2165,7 +2125,7 @@ export const usePlayerStore = create<PlayerState>()(
           });
         }
         if (typeof snap.queueListScrollTop === 'number' && Number.isFinite(snap.queueListScrollTop)) {
-          pendingQueueListScrollTop = Math.max(0, snap.queueListScrollTop);
+          setPendingQueueListScrollTop(Math.max(0, snap.queueListScrollTop));
         }
         syncQueueToServer(nextQueue, nextTrack, tRestore);
         return true;
@@ -3396,19 +3356,17 @@ export const usePlayerStore = create<PlayerState>()(
 
       undoLastQueueEdit: () => {
         const prior = get();
-        const snap = queueUndoStack.pop();
+        const snap = popQueueUndoSnapshot();
         if (!snap) return false;
-        queueRedoStack.push(queueUndoSnapshotFromState(prior));
-        while (queueRedoStack.length > QUEUE_UNDO_MAX) queueRedoStack.shift();
+        pushQueueRedoSnapshot(queueUndoSnapshotFromState(prior));
         return applyQueueHistorySnapshot(snap, prior);
       },
 
       redoLastQueueEdit: () => {
         const prior = get();
-        const snap = queueRedoStack.pop();
+        const snap = popQueueRedoSnapshot();
         if (!snap) return false;
-        queueUndoStack.push(queueUndoSnapshotFromState(prior));
-        while (queueUndoStack.length > QUEUE_UNDO_MAX) queueUndoStack.shift();
+        pushQueueUndoSnapshot(queueUndoSnapshotFromState(prior));
         return applyQueueHistorySnapshot(snap, prior);
       },
 
