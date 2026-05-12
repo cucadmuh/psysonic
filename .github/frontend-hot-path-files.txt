@@ -1,0 +1,49 @@
+# Hot-path source files for the per-file ≥70 % coverage gate (frontend).
+#
+# Mirrors `.github/hot-path-files.txt` for the Rust crates. Each entry is a
+# workspace-relative path; the gate script (`scripts/check-frontend-hot-path-
+# coverage.sh`) reads `coverage/coverage-summary.json` produced by
+# `vitest run --coverage` and warns when a listed file drops below the floor.
+#
+# Soft today (warnings only — the workflow carries `continue-on-error: true`).
+# Flip to a hard PR-blocker by removing `continue-on-error` from the
+# `frontend-tests` workflow at the start of M4 in the pre-refactor testing
+# plan (2026-05-11), once Phase 1–3 characterization tests have proven the
+# gate stable on a handful of real PRs.
+#
+# Curation rule (mirrors the backend list): a file belongs here when its
+# hot-path code dominates the file and ≥70 % is a reasonable floor. Files
+# that are partially covered today but contain large untested surface area
+# (e.g. `playerStore.ts`, the unfinished half of `previewStore.ts`) live
+# OUTSIDE the gate until their tests grow. Add them as Phase 1–4 coverage
+# work lands.
+#
+# Deferred from the gate, with current coverage shown for reference:
+#   - src/store/playerStore.ts           (40 % — F1 closed under the 50 % floor; further coverage TBD)
+#   - src/store/authStore.ts             (79 % — F2 cleared 60 % floor; staying out one or two PRs to verify stability)
+#   - src/api/subsonic.ts                (13 % — F3 covered the URL-builder + parser surface; async API endpoints need axios mocking, deferred)
+
+# ── utils (already at or above threshold) ────────────────────────────
+src/utils/coverArtRegisteredSizes.ts
+src/utils/serverDisplayName.ts
+src/utils/serverMagicString.ts
+src/utils/shareLink.ts
+src/utils/dynamicColors.ts
+src/utils/resolvePlaybackUrl.ts
+src/utils/copyEntityShareLink.ts
+
+# ── M0: pure helpers extracted from playerStore.ts (2026-05-12) ──────
+src/utils/shuffleArray.ts
+src/utils/resolveReplayGainDb.ts
+src/utils/songToTrack.ts
+src/utils/buildInfiniteQueueCandidates.ts
+
+# ── Phase B.1: pre-React bootstrap + window-kind detector (2026-05-12) ──
+src/app/windowKind.ts
+src/app/bootstrap.ts
+
+# ── Phase B.2: mini-player webview tree (2026-05-12) ─────────────────
+src/app/MiniPlayerApp.tsx
+
+# ── stores (added as their tests grew past the floor) ────────────────
+src/store/previewStore.ts
