@@ -610,7 +610,7 @@ export const ruTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
-    languageRo: 'Румынский',
+    languageRo: 'Română',
     font: 'Шрифт',
     fontHintOpenDyslexic: 'Подходит для дислексии · без поддержки китайского',
     theme: 'Тема',

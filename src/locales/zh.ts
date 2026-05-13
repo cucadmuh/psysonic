@@ -571,7 +571,7 @@ export const zhTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
-    languageRo: '罗马尼亚语',
+    languageRo: 'Română',
     font: '字体',
     fontHintOpenDyslexic: '阅读障碍友好 · 不支持中文',
     theme: '主题',
