@@ -576,6 +576,7 @@ export const nlTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
+    languageRo: 'Roemeens',
     font: 'Lettertype',
     fontHintOpenDyslexic: 'Dyslexie-vriendelijk · geen Chinese ondersteuning',
     theme: 'Thema',

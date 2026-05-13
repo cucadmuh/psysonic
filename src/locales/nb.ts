@@ -577,6 +577,7 @@ export const nbTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
+    languageRo: 'Rumensk',
     font: 'Skrifttype',
     fontHintOpenDyslexic: 'Dyslexivennlig · ingen kinesisk støtte',
     theme: 'Tema',
