@@ -13,6 +13,7 @@ on:
       - '.github/workflows/frontend-tests.yml'
       - '.github/frontend-hot-path-files.txt'
       - 'scripts/check-frontend-hot-path-coverage.sh'
+      - 'scripts/check-css-import-graph.mjs'
   push:
     branches: [main]
     paths:
@@ -25,6 +26,7 @@ on:
       - '.github/workflows/frontend-tests.yml'
       - '.github/frontend-hot-path-files.txt'
       - 'scripts/check-frontend-hot-path-coverage.sh'
+      - 'scripts/check-css-import-graph.mjs'
   workflow_dispatch:
 
 permissions:
