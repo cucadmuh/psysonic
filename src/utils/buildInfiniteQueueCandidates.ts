@@ -1,4 +1,6 @@
-import { getRandomSongs, getSimilarSongs2, getTopSongs } from '../api/subsonic';
+import { getSimilarSongs2, getTopSongs } from '../api/subsonicArtists';
+import { getRandomSongs } from '../api/subsonicLibrary';
+import type { Track } from '../store/playerStoreTypes';
 import {
   enrichSongsForMixRatingFilter,
   getMixMinRatingsConfigFromAuth,
@@ -6,8 +8,6 @@ import {
 } from './mixRatingFilter';
 import { shuffleArray } from './shuffleArray';
 import { songToTrack } from './songToTrack';
-import type { Track } from '../store/playerStore';
-
 /**
  * Infinite queue source strategy (Instant Mix-like):
  * 1) Prefer artist-driven candidates (Top + Similar) around the current track.

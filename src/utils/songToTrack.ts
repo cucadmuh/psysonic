@@ -1,6 +1,5 @@
-import type { SubsonicSong } from '../api/subsonic';
-import type { Track } from '../store/playerStore';
-
+import type { SubsonicSong } from '../api/subsonicTypes';
+import type { Track } from '../store/playerStoreTypes';
 export function songToTrack(song: SubsonicSong): Track {
   return {
     id: song.id,

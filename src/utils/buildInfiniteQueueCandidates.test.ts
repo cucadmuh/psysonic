@@ -6,11 +6,17 @@
  * refactor (2026-05-12). This test pins the artist-first / random-fallback
  * order, the dedup contract against existingIds, and the autoAdded flag.
  */
+import { getSimilarSongs2, getTopSongs } from '../api/subsonicArtists';
+import { getRandomSongs } from '../api/subsonicLibrary';
+import type { Track } from '../store/playerStoreTypes';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api/subsonic', () => ({
+vi.mock('../api/subsonicArtists', () => ({
   getSimilarSongs2: vi.fn(),
   getTopSongs: vi.fn(),
+}));
+
+vi.mock('../api/subsonicLibrary', () => ({
   getRandomSongs: vi.fn(),
 }));
 
@@ -21,12 +27,10 @@ vi.mock('./mixRatingFilter', () => ({
 }));
 
 import { buildInfiniteQueueCandidates } from './buildInfiniteQueueCandidates';
-import { getRandomSongs, getSimilarSongs2, getTopSongs } from '../api/subsonic';
 import {
   enrichSongsForMixRatingFilter,
   getMixMinRatingsConfigFromAuth,
 } from './mixRatingFilter';
-import type { Track } from '../store/playerStore';
 import { makeSubsonicSong } from '@/test/helpers/factories';
 
 const seed = (overrides: Partial<Track> = {}): Track => ({

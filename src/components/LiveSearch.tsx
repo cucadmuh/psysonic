@@ -1,8 +1,11 @@
+import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonicStreamUrl';
+import { search } from '../api/subsonicSearch';
+import type { SearchResults, SubsonicArtist } from '../api/subsonicTypes';
+import { songToTrack } from '../utils/songToTrack';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Disc3, Users, Music, TextSearch } from 'lucide-react';
-import { search, SearchResults, buildCoverArtUrl, coverArtCacheKey, type SubsonicArtist } from '../api/subsonic';
-import { usePlayerStore, songToTrack } from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
 import { useTranslation } from 'react-i18next';
 import CachedImage, { FETCH_QUEUE_BIAS_SEARCH_ARTIST_OVER_ALBUM } from './CachedImage';

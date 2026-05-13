@@ -1,3 +1,5 @@
+import { getPlaylists } from '../api/subsonicPlaylists';
+import { getAlbumList } from '../api/subsonicLibrary';
 import React, { useState, useRef, useLayoutEffect, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
@@ -17,7 +19,6 @@ import {
 import PsysonicLogo from './PsysonicLogo';
 import PSmallLogo from './PSmallLogo';
 import WhatsNewBanner from './WhatsNewBanner';
-import { getAlbumList, getPlaylists } from '../api/subsonic';
 import { usePlaylistStore } from '../store/playlistStore';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import OverlayScrollArea from './OverlayScrollArea';

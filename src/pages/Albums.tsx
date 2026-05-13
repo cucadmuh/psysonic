@@ -1,11 +1,14 @@
+import { buildDownloadUrl } from '../api/subsonicStreamUrl';
+import { getAlbumsByGenre } from '../api/subsonicGenres';
+import { getAlbumList, getAlbum } from '../api/subsonicLibrary';
+import type { SubsonicAlbum } from '../api/subsonicTypes';
+import { songToTrack } from '../utils/songToTrack';
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import AlbumCard from '../components/AlbumCard';
 import GenreFilterBar from '../components/GenreFilterBar';
 import YearFilterButton from '../components/YearFilterButton';
 import StarFilterButton from '../components/StarFilterButton';
 import SortDropdown from '../components/SortDropdown';
-import { getAlbumList, getAlbumsByGenre, getAlbum, SubsonicAlbum, buildDownloadUrl } from '../api/subsonic';
-import { songToTrack } from '../store/playerStore';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineStore } from '../store/offlineStore';

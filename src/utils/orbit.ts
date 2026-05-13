@@ -1,15 +1,9 @@
-import {
-  createPlaylist,
-  updatePlaylist,
-  updatePlaylistMeta,
-  deletePlaylist,
-  getPlaylist,
-  getPlaylists,
-  getSong,
-} from '../api/subsonic';
+import { createPlaylist, updatePlaylist, updatePlaylistMeta, deletePlaylist, getPlaylist, getPlaylists } from '../api/subsonicPlaylists';
+import { getSong } from '../api/subsonicLibrary';
+import { songToTrack } from '../utils/songToTrack';
 import { useAuthStore } from '../store/authStore';
 import { useOrbitStore } from '../store/orbitStore';
-import { usePlayerStore, songToTrack } from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { encodeSharePayload, decodeOrbitSharePayloadFromText } from './shareLink';
 import {
   makeInitialOrbitState,

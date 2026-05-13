@@ -4,9 +4,8 @@
  * suffix fallback, the null-result skip, and the swallow-on-error
  * contract.
  */
+import type { Track } from './playerStoreTypes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track } from './playerStore';
-
 const { invokeMock, setEntryMock, buildStreamUrlMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(async (_cmd: string, _args?: Record<string, unknown>) => null as { path: string; size: number } | null),
   setEntryMock: vi.fn(),
@@ -14,7 +13,7 @@ const { invokeMock, setEntryMock, buildStreamUrlMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
-vi.mock('../api/subsonic', () => ({ buildStreamUrl: buildStreamUrlMock }));
+vi.mock('../api/subsonicStreamUrl', () => ({ buildStreamUrl: buildStreamUrlMock }));
 vi.mock('./hotCacheStore', () => ({
   useHotCacheStore: { getState: () => ({ setEntry: setEntryMock }) },
 }));

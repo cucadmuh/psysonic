@@ -1,17 +1,14 @@
+import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonicStreamUrl';
+import { getArtist, getArtistInfo } from '../api/subsonicArtists';
+import { getAlbum } from '../api/subsonicLibrary';
+import type { SubsonicAlbum } from '../api/subsonicTypes';
+import { songToTrack } from '../utils/songToTrack';
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Play, ListPlus, Music } from 'lucide-react';
-import {
-  SubsonicAlbum,
-  buildCoverArtUrl,
-  coverArtCacheKey,
-  getAlbum,
-  getArtist,
-  getArtistInfo,
-} from '../api/subsonic';
 import CachedImage, { useCachedUrl } from './CachedImage';
-import { usePlayerStore, songToTrack } from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
 import { playAlbum } from '../utils/playAlbum';
 import AlbumRow from './AlbumRow';

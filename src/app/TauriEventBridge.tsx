@@ -1,3 +1,9 @@
+import { getSimilarSongs } from '../api/subsonicArtists';
+import { getMusicFolders } from '../api/subsonicLibrary';
+import { flushPlayQueuePosition } from '../store/queueSync';
+import { shuffleArray } from '../utils/shuffleArray';
+import { songToTrack } from '../utils/songToTrack';
+import { getPlaybackProgressSnapshot } from '../store/playbackProgress';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listen } from '@tauri-apps/api/event';
@@ -7,20 +13,10 @@ import { showToast } from '../utils/toast';
 import { endOrbitSession, leaveOrbitSession } from '../utils/orbit';
 import { useOrbitStore } from '../store/orbitStore';
 import { useAuthStore } from '../store/authStore';
-import {
-  getMusicFolders,
-  getSimilarSongs,
-  search as subsonicSearch,
-} from '../api/subsonic';
+import { search as subsonicSearch } from '../api/subsonicSearch';
 import i18n from '../i18n';
 import { switchActiveServer } from '../utils/switchActiveServer';
-import {
-  usePlayerStore,
-  getPlaybackProgressSnapshot,
-  songToTrack,
-  shuffleArray,
-  flushPlayQueuePosition,
-} from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { useKeybindingsStore, buildInAppBinding } from '../store/keybindingsStore';
 import { useGlobalShortcutsStore } from '../store/globalShortcutsStore';
 import { useZipDownloadStore } from '../store/zipDownloadStore';

@@ -1,8 +1,8 @@
-import { getAlbum, getSong } from '../api/subsonic';
+import { getAlbum, getSong } from '../api/subsonicLibrary';
+import { songToTrack } from '../utils/songToTrack';
 import { playAlbum } from './playAlbum';
 import { playArtistShuffled } from './playArtistShuffled';
-import { songToTrack, usePlayerStore } from '../store/playerStore';
-
+import { usePlayerStore } from '../store/playerStore';
 /**
  * `getSong` → `getAlbum` → `getArtist`: one opaque Subsonic id may refer to a track,
  * album, or artist depending on the server.

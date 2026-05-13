@@ -1,8 +1,11 @@
+import { getArtist } from '../api/subsonicArtists';
+import { getAlbum, getSong } from '../api/subsonicLibrary';
+import type { SubsonicSong } from '../api/subsonicTypes';
+import { songToTrack } from '../utils/songToTrack';
 import type { NavigateFunction } from 'react-router-dom';
 import type { TFunction } from 'i18next';
-import { getAlbum, getArtist, getSong, type SubsonicSong } from '../api/subsonic';
 import { useAuthStore } from '../store/authStore';
-import { songToTrack, usePlayerStore } from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { findServerIdForShareUrl, type EntitySharePayloadV1 } from './shareLink';
 import { showToast } from './toast';
 

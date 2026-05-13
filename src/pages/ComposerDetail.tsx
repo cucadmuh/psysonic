@@ -1,10 +1,9 @@
+import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonicStreamUrl';
+import { star, unstar } from '../api/subsonicStarRating';
+import { getArtist, getArtistInfo } from '../api/subsonicArtists';
+import type { SubsonicArtist, SubsonicAlbum, SubsonicArtistInfo } from '../api/subsonicTypes';
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  getArtist, getArtistInfo, star, unstar,
-  SubsonicArtist, SubsonicAlbum, SubsonicArtistInfo,
-  buildCoverArtUrl, coverArtCacheKey,
-} from '../api/subsonic';
 import { ndListAlbumsByArtistRole } from '../api/navidromeBrowse';
 import AlbumCard from '../components/AlbumCard';
 import CachedImage from '../components/CachedImage';

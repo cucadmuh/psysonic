@@ -1,3 +1,7 @@
+import { star, unstar, setRating } from '../api/subsonicStarRating';
+import { buildCoverArtUrl, coverArtCacheKey } from '../api/subsonicStreamUrl';
+import type { SubsonicAlbum } from '../api/subsonicTypes';
+import { getPlaybackProgressSnapshot, subscribePlaybackProgress } from '../store/playbackProgress';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -6,11 +10,10 @@ import {
   PictureInPicture2, ArrowLeftRight, Moon, Sunrise, Ellipsis,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { usePlayerStore, getPlaybackProgressSnapshot, subscribePlaybackProgress } from '../store/playerStore';
+import { usePlayerStore } from '../store/playerStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
-import { buildCoverArtUrl, coverArtCacheKey, star, unstar, setRating, SubsonicAlbum } from '../api/subsonic';
 import CachedImage from './CachedImage';
 import WaveformSeek from './WaveformSeek';
 import Equalizer from './Equalizer';

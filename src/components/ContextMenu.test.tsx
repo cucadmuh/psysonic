@@ -6,6 +6,8 @@
  * snapshots — tests survive a refactor that re-orders or re-styles the
  * markup as long as the menu items + their handlers stay observable.
  */
+import type { ServerProfile } from '@/store/authStoreTypes';
+import type { Track } from '@/store/playerStoreTypes';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/api/subsonic', () => ({
@@ -43,8 +45,8 @@ vi.mock('@/utils/orbitBulkGuard', () => ({
 
 import ContextMenu from './ContextMenu';
 import { renderWithProviders } from '@/test/helpers/renderWithProviders';
-import { usePlayerStore, type Track } from '@/store/playerStore';
-import { useAuthStore, type ServerProfile } from '@/store/authStore';
+import { usePlayerStore } from '@/store/playerStore';
+import { useAuthStore } from '@/store/authStore';
 import { resetAllStores } from '@/test/helpers/storeReset';
 import { makeTrack, makeServer } from '@/test/helpers/factories';
 import { onInvoke } from '@/test/mocks/tauri';

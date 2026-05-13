@@ -1,7 +1,7 @@
-import { setRating } from '../api/subsonic';
+import { setRating } from '../api/subsonicStarRating';
+import type { Track } from './playerStoreTypes';
 import { useAuthStore } from './authStore';
-import { usePlayerStore, type Track } from './playerStore';
-
+import { usePlayerStore } from './playerStore';
 /**
  * Skip → 1★ behaviour: every user-initiated `next()` on an unrated track
  * counts in `authStore.skipStarManualSkipCountsByKey` (persisted). Once the
