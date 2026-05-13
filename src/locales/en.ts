@@ -589,7 +589,7 @@ export const enTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
-    languageRo: 'Romanian',
+    languageRo: 'Română',
     font: 'Font',
     fontHintOpenDyslexic: 'Dyslexia-friendly · no Chinese support',
     theme: 'Theme',
