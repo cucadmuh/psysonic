@@ -33,7 +33,20 @@ src/test/
 npm test                       # one-shot run
 npm run test:watch             # watch mode
 npm run test:coverage          # with v8 coverage → ./coverage/
+npm run check:css-imports      # only the global stylesheet @import graph (see below)
 ```
+
+## CSS `@import` graph
+
+Vitest does not load the full global CSS bundle from `main.tsx`, so a broken
+relative `@import` under `src/styles/**` can slip past the suite until Vite
+runs (`ENOENT` from postcss-import).
+
+After **`vitest run`**, **`npm test`** and **`npm run test:coverage`** run
+**`npm run check:css-imports`**, which executes **`scripts/check-css-import-graph.mjs`**
+and walks the same four root stylesheets as **`src/main.tsx`**, resolving
+only filesystem-relative imports (`./…`, `../…`). Package imports such as
+`@fontsource/...` are ignored.
 
 ## Where tests go
 
