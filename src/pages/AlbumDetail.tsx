@@ -1,37 +1,30 @@
 import { buildCoverArtUrl, coverArtCacheKey, buildDownloadUrl } from '../api/subsonicStreamUrl';
 import { setRating, star, unstar } from '../api/subsonicStarRating';
-import { getArtist, getArtistInfo } from '../api/subsonicArtists';
-import { getAlbum } from '../api/subsonicLibrary';
-import type { SubsonicSong, SubsonicAlbum } from '../api/subsonicTypes';
+import { getArtistInfo } from '../api/subsonicArtists';
+import type { SubsonicSong } from '../api/subsonicTypes';
 import { songToTrack } from '../utils/songToTrack';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, X, ListPlus } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../store/playerStore';
 import { useAuthStore } from '../store/authStore';
 import { useOrbitSongRowBehavior } from '../hooks/useOrbitSongRowBehavior';
+import { useAlbumDetailData } from '../hooks/useAlbumDetailData';
+import { useAlbumOfflineState } from '../hooks/useAlbumOfflineState';
+import { useAlbumDetailSort } from '../hooks/useAlbumDetailSort';
 import { useDownloadModalStore } from '../store/downloadModalStore';
 import { useOfflineStore } from '../store/offlineStore';
-import { useOfflineJobStore } from '../store/offlineJobStore';
 import { join } from '@tauri-apps/api/path';
 import { useZipDownloadStore } from '../store/zipDownloadStore';
 import AlbumCard from '../components/AlbumCard';
 import AlbumHeader from '../components/AlbumHeader';
 import AlbumTrackList from '../components/AlbumTrackList';
-import { AddToPlaylistSubmenu } from '../components/ContextMenu';
+import { AlbumDetailToolbar } from '../components/albumDetail/AlbumDetailToolbar';
 import { useCachedUrl } from '../components/CachedImage';
 import { useTranslation } from 'react-i18next';
 import { showToast } from '../utils/toast';
 import { useSelectionStore } from '../store/selectionStore';
-
-function sanitizeFilename(name: string): string {
-  return name
-    .replace(/[/\\?%*:|"<>]/g, '-')
-    .replace(/\.{2,}/g, '.')
-    .replace(/^[\s.]+|[\s.]+$/g, '')
-    .substring(0, 200) || 'download';
-}
+import { sanitizeFilename } from '../utils/albumDetailHelpers';
 
 export default function AlbumDetail() {
   const { t } = useTranslation();
@@ -48,14 +41,13 @@ export default function AlbumDetail() {
   const currentTrack = usePlayerStore(s => s.currentTrack);
   const isPlaying = usePlayerStore(s => s.isPlaying);
 
-  const [album, setAlbum] = useState<Awaited<ReturnType<typeof getAlbum>> | null>(null);
-  const [relatedAlbums, setRelatedAlbums] = useState<SubsonicAlbum[]>([]);
+  const {
+    album, setAlbum, relatedAlbums, loading,
+    isStarred, setIsStarred, starredSongs, setStarredSongs,
+  } = useAlbumDetailData(id);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [bio, setBio] = useState<string | null>(null);
   const [bioOpen, setBioOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [isStarred, setIsStarred] = useState(false);
-  const [starredSongs, setStarredSongs] = useState<Set<string>>(new Set());
   const [offlineStorageFull, setOfflineStorageFull] = useState(false);
 
   const downloadAlbum = useOfflineStore(s => s.downloadAlbum);
@@ -67,9 +59,6 @@ export default function AlbumDetail() {
 
   const [albumEntityRating, setAlbumEntityRating] = useState(0);
   const [filterText, setFilterText] = useState('');
-  const [sortKey, setSortKey] = useState<'natural' | 'title' | 'artist' | 'album' | 'favorite' | 'rating' | 'duration'>('natural');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [sortClickCount, setSortClickCount] = useState(0);
   const [showPlPicker, setShowPlPicker] = useState(false);
   const selectedCount = useSelectionStore(s => s.selectedIds.size);
   const inSelectMode = selectedCount > 0;
@@ -77,49 +66,7 @@ export default function AlbumDetail() {
   // Derive a stable albumId for the selectors below (empty string when not yet loaded).
   const albumId = album?.album.id ?? '';
 
-  // Selectors return primitives so Zustand only triggers a re-render when the VALUE
-  // actually changes — not on every `jobs` array mutation during batch downloads.
-  const offlineStatus = useOfflineStore((s): 'none' | 'downloading' | 'cached' => {
-    if (!albumId) return 'none';
-    const meta = s.albums[`${serverId}:${albumId}`];
-    const isDownloaded = meta && meta.trackIds.length > 0 && meta.trackIds.every(tid => !!s.tracks[`${serverId}:${tid}`]);
-    return isDownloaded ? 'cached' : 'none';
-  });
-  const isOfflineDownloading = useOfflineJobStore(s =>
-    !!albumId && s.jobs.some(j => j.albumId === albumId && (j.status === 'queued' || j.status === 'downloading'))
-  );
-  const offlineProgressDone = useOfflineJobStore(s => {
-    if (!albumId) return 0;
-    return s.jobs.filter(j => j.albumId === albumId && (j.status === 'done' || j.status === 'error')).length;
-  });
-  const offlineProgressTotal = useOfflineJobStore(s => {
-    if (!albumId) return 0;
-    return s.jobs.filter(j => j.albumId === albumId).length;
-  });
-  const resolvedOfflineStatus = isOfflineDownloading ? 'downloading' : offlineStatus;
-  const offlineProgress = offlineProgressTotal > 0
-    ? { done: offlineProgressDone, total: offlineProgressTotal }
-    : null;
-
-  useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    setRelatedAlbums([]);
-    getAlbum(id).then(async data => {
-      setAlbum(data);
-      setIsStarred(!!data.album.starred);
-      const initialStarred = new Set<string>();
-      data.songs.forEach(s => { if (s.starred) initialStarred.add(s.id); });
-      setStarredSongs(initialStarred);
-      setLoading(false);
-      try {
-        const artistData = await getArtist(data.album.artistId);
-        setRelatedAlbums(artistData.albums.filter(a => a.id !== id));
-      } catch (e) {
-        console.error('Failed to fetch related albums', e);
-      }
-    }).catch(() => setLoading(false));
-  }, [id]);
+  const { resolvedOfflineStatus, offlineProgress } = useAlbumOfflineState(albumId, serverId);
 
   useEffect(() => {
     if (!id) return;
@@ -296,64 +243,19 @@ const handleShuffleAll = () => {
     deleteAlbum(album.album.id, serverId);
   };
 
-  const handleSort = (key: typeof sortKey) => {
-    if (key === 'natural') return;
-    if (sortKey === key) {
-      const nextCount = sortClickCount + 1;
-      if (nextCount >= 3) {
-        setSortKey('natural');
-        setSortDir('asc');
-        setSortClickCount(0);
-      } else {
-        setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        setSortClickCount(nextCount);
-      }
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
-      setSortClickCount(1);
-    }
-  };
-
   // Must be before early returns — hooks must be called unconditionally.
   const mergedStarredSongs = useMemo(() => new Set([
     ...[...starredSongs].filter(id => starredOverrides[id] !== false),
     ...Object.entries(starredOverrides).filter(([, v]) => v).map(([k]) => k),
   ]), [starredSongs, starredOverrides]);
 
-  const displayedSongs = useMemo(() => {
-    if (!album) return [];
-    const q = filterText.trim().toLowerCase();
-    if (!q && sortKey === 'natural') return album.songs;
-    let result = [...album.songs];
-    if (q) result = result.filter(s => s.title.toLowerCase().includes(q) || (s.artist ?? '').toLowerCase().includes(q));
-    if (sortKey !== 'natural') {
-      result.sort((a, b) => {
-        let av: string | number;
-        let bv: string | number;
-        switch (sortKey) {
-          case 'title': av = a.title; bv = b.title; break;
-          case 'artist': av = a.artist ?? ''; bv = b.artist ?? ''; break;
-          case 'album': av = a.album ?? ''; bv = b.album ?? ''; break;
-          case 'favorite':
-            av = mergedStarredSongs.has(a.id) ? 1 : 0;
-            bv = mergedStarredSongs.has(b.id) ? 1 : 0;
-            break;
-          case 'rating':
-            av = ratings[a.id] ?? userRatingOverrides[a.id] ?? a.userRating ?? 0;
-            bv = ratings[b.id] ?? userRatingOverrides[b.id] ?? b.userRating ?? 0;
-            break;
-          case 'duration': av = a.duration ?? 0; bv = b.duration ?? 0; break;
-          default: av = a.title; bv = b.title;
-        }
-        if (typeof av === 'number' && typeof bv === 'number') {
-          return sortDir === 'asc' ? av - bv : bv - av;
-        }
-        return sortDir === 'asc' ? (av as string).localeCompare(bv as string) : (bv as string).localeCompare(av as string);
-      });
-    }
-    return result;
-  }, [album, filterText, sortKey, sortDir, mergedStarredSongs, ratings, userRatingOverrides]);
+  const { sortKey, sortDir, handleSort, displayedSongs } = useAlbumDetailSort({
+    songs: album?.songs,
+    filterText,
+    starredSongs: mergedStarredSongs,
+    ratings,
+    userRatingOverrides,
+  });
 
   // Hooks must be called unconditionally — derive from nullable album state.
   // useMemo is required: buildCoverArtUrl generates a new salt on every call, so without
@@ -423,59 +325,15 @@ const handleShuffleAll = () => {
       )}
 
       {songs.length > 0 && (
-        <div className="album-track-toolbar">
-          <div className="album-track-toolbar-filter">
-            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input
-              className="input-search"
-              style={{ width: '100%', paddingRight: filterText ? 28 : undefined }}
-              placeholder={t('albumDetail.filterSongs')}
-              value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-            />
-            {filterText && (
-              <button
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                onClick={() => setFilterText('')}
-                aria-label="Clear filter"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <div className="album-track-toolbar-actions">
-            {inSelectMode && (
-              <>
-                <span className="bulk-action-count">
-                  {t('common.bulkSelected', { count: selectedCount })}
-                </span>
-                <div className="bulk-pl-picker-wrap">
-                  <button
-                    className="btn btn-surface btn-sm"
-                    onClick={() => setShowPlPicker(v => !v)}
-                  >
-                    <ListPlus size={14} />
-                    {t('common.bulkAddToPlaylist')}
-                  </button>
-                  {showPlPicker && (
-                    <AddToPlaylistSubmenu
-                      songIds={[...useSelectionStore.getState().selectedIds]}
-                      onDone={() => { setShowPlPicker(false); useSelectionStore.getState().clearAll(); }}
-                      dropDown
-                    />
-                  )}
-                </div>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => useSelectionStore.getState().clearAll()}
-                >
-                  <X size={13} />
-                  {t('common.bulkClear')}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <AlbumDetailToolbar
+          filterText={filterText}
+          setFilterText={setFilterText}
+          inSelectMode={inSelectMode}
+          selectedCount={selectedCount}
+          showPlPicker={showPlPicker}
+          setShowPlPicker={setShowPlPicker}
+          t={t}
+        />
       )}
 
       <AlbumTrackList
