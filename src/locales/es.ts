@@ -579,6 +579,7 @@ export const esTranslation = {
     languageNb: 'Norsk',
     languageRu: 'Русский',
     languageZh: '中文',
+    languageRo: 'Română',
     font: 'Fuente',
     fontHintOpenDyslexic: 'Compatible con dislexia · sin soporte para chino',
     theme: 'Tema',
