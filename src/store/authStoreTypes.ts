@@ -82,7 +82,7 @@ export interface AuthState {
   showArtistImages: boolean;
   /**
    * Max columns for album/artist/playlist-style card grids (Settings → Library).
-   * Clamped 2…12; higher values mean more tiles per row and more layout/paint work.
+   * Clamped 4…12; higher values mean more tiles per row and more layout/paint work.
    */
   libraryGridMaxColumns: number;
   showTrayIcon: boolean;
