@@ -273,6 +273,14 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 * **`useCachedUrl`** only returns a shared blob URL when it still matches the **current** `cacheKey`, so a track change does not paint one frame with the **previous** track's object URL after refcount handling (player bar, queue header cover, Now Playing / mobile paths on the hook).
 * **`CachedImage`** clears the opacity **load** gate in **`useLayoutEffect`** when `cacheKey` changes so the first paint after a swap cannot briefly show the new `src` at full opacity before the gate runs.
 
+### Library card grids — virtualization + configurable column cap
+
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#711](https://github.com/Psychotoxical/psysonic/pull/711)**
+
+* **`VirtualCardGrid`** centralises responsive album-style card layouts: column count from container width with a **user-configurable maximum**, **TanStack Virtual** row windows, and shared **`cardGridLayout`** helpers (gap, minimum tile width, row-height estimates per card type).
+* Rolled out across the main **card-grid library surfaces** — **Albums**, **Random Albums**, **New Releases**, **Lossless Albums**, **Playlists**, **Composers**, **Composer detail**, **Genre detail**, **Label albums**, **Album detail** (similar / same-artist rails), **Artist detail** (album / appearance / compilation grids), **Internet Radio**, **Offline Library** (albums + playlists), and **Artists** grid mode (virtual rows driven by the same column metrics).
+* **Settings → Appearance → Library card grids:** persisted **maximum columns** (**4–12**, default **6**) with translated copy calling out **performance** trade-offs. Settings search index updated.
+
 ## Removed
 
 ### Settings — Animations 3-state setting under Seekbar Style
