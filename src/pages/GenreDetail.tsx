@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Disc3 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import AlbumCard from '../components/AlbumCard';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 const PAGE_SIZE = 50;
 
@@ -13,6 +15,7 @@ export default function GenreDetail() {
   const { name } = useParams<{ name: string }>();
   const genre = decodeURIComponent(name ?? '');
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const navigate = useNavigate();
   const [albums, setAlbums] = useState<SubsonicAlbum[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,9 +75,14 @@ export default function GenreDetail() {
       {!loading && albums.length === 0 && <p className="loading-text">{t('genres.albumsEmpty')}</p>}
 
       {albums.length > 0 && (
-        <div className="album-grid-wrap">
-          {albums.map(album => <AlbumCard key={album.id} album={album} />)}
-        </div>
+        <VirtualCardGrid
+          items={albums}
+          itemKey={(a, _i) => a.id}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={albums.length}
+          renderItem={album => <AlbumCard album={album} />}
+        />
       )}
 
       {hasMore && !loading && (

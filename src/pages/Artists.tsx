@@ -1,6 +1,6 @@
 import { getArtists } from '../api/subsonicArtists';
 import type { SubsonicArtist } from '../api/subsonicTypes';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutGrid, List, Images, CheckSquare2 } from 'lucide-react';
 import StarFilterButton from '../components/StarFilterButton';
@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { APP_MAIN_SCROLL_VIEWPORT_ID } from '../constants/appScroll';
 import { useElementClientHeightById } from '../hooks/useResizeClientHeight';
+import { useCardGridMetrics } from '../hooks/useCardGridMetrics';
+import { useRemeasureGridVirtualizer } from '../hooks/useRemeasureGridVirtualizer';
 import { usePerfProbeFlags } from '../utils/perf/perfFlags';
 import {
   ALL_SENTINEL,
@@ -81,6 +83,39 @@ export default function Artists() {
   } = useArtistsFiltering({ artists, filter, letterFilter, starredOnly, visibleCount, viewMode });
 
   const mainScrollViewportHeight = useElementClientHeightById(APP_MAIN_SCROLL_VIEWPORT_ID);
+
+  const artistGridMeasureRef = useRef<HTMLDivElement>(null);
+  const { gridCols: artistGridCols, rowHeightEst: artistGridRowHeightEst } = useCardGridMetrics(
+    artistGridMeasureRef,
+    viewMode === 'grid',
+    'artist',
+    visible.length,
+  );
+
+  const artistVirtualRowCount = Math.max(0, Math.ceil(visible.length / Math.max(1, artistGridCols)));
+
+  const artistGridOverscan = Math.max(
+    2,
+    Math.ceil(mainScrollViewportHeight / Math.max(1, artistGridRowHeightEst)),
+  );
+
+  const artistGridVirtualizer = useVirtualizer({
+    count:
+      perfFlags.disableMainstageVirtualLists || viewMode !== 'grid'
+        ? 0
+        : artistVirtualRowCount,
+    getScrollElement: () => document.getElementById(APP_MAIN_SCROLL_VIEWPORT_ID),
+    estimateSize: () => artistGridRowHeightEst,
+    overscan: artistGridOverscan,
+  });
+
+  useRemeasureGridVirtualizer(artistGridVirtualizer, {
+    active: !perfFlags.disableMainstageVirtualLists && viewMode === 'grid' && artistVirtualRowCount > 0,
+    gridCols: artistGridCols,
+    rowHeightEst: artistGridRowHeightEst,
+    virtualRowCount: artistVirtualRowCount,
+  });
+
   /** Mixed row heights; smallest typical step ≈ artist row — one viewport of extra indices each side. */
   const artistListOverscan = Math.max(
     12,
@@ -188,6 +223,13 @@ export default function Artists() {
       {!loading && viewMode === 'grid' && (
         <ArtistsGridView
           visible={visible}
+          gridCols={artistGridCols}
+          measureRef={artistGridMeasureRef}
+          virtualization={
+            perfFlags.disableMainstageVirtualLists
+              ? null
+              : { virtualizer: artistGridVirtualizer }
+          }
           selectionMode={selectionMode}
           selectedIds={selectedIds}
           selectedArtists={selectedArtists}

@@ -16,9 +16,12 @@ import AlphabetFilterBar from '../components/internetRadio/AlphabetFilterBar';
 import RadioCard from '../components/internetRadio/RadioCard';
 import RadioEditModal from '../components/internetRadio/RadioEditModal';
 import RadioDirectoryModal from '../components/internetRadio/RadioDirectoryModal';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 export default function InternetRadio() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const playRadio = usePlayerStore(s => s.playRadio);
   const stop = usePlayerStore(s => s.stop);
   const currentRadio = usePlayerStore(s => s.currentRadio);
@@ -247,10 +250,14 @@ export default function InternetRadio() {
           {displayedStations.length === 0 ? (
             <div className="empty-state">{t('radio.noFavorites')}</div>
           ) : (
-            <div className="album-grid-wrap">
-              {displayedStations.map(s => (
+            <VirtualCardGrid
+              items={displayedStations}
+              itemKey={(s, _i) => s.id}
+              rowVariant="album"
+              disableVirtualization={perfFlags.disableMainstageVirtualLists}
+              layoutSignal={displayedStations.length}
+              renderItem={s => (
                 <RadioCard
-                  key={s.id}
                   s={s}
                   isActive={currentRadio?.id === s.id}
                   isPlaying={isPlaying}
@@ -267,8 +274,8 @@ export default function InternetRadio() {
                   onDropOnto={(srcId, side) => handleReorder(srcId, s.id, side)}
                   onCardMouseLeave={() => { if (deleteConfirmId === s.id) setDeleteConfirmId(null); }}
                 />
-              ))}
-            </div>
+              )}
+            />
           )}
         </>
       )}

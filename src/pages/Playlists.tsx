@@ -27,6 +27,8 @@ import {
 import PlaylistsSmartEditor from '../components/playlists/PlaylistsSmartEditor';
 import PlaylistsHeader from '../components/playlists/PlaylistsHeader';
 import PlaylistCard from '../components/playlists/PlaylistCard';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 function formatDuration(seconds: number): string {
   return formatHumanHoursMinutes(seconds);
@@ -34,6 +36,7 @@ function formatDuration(seconds: number): string {
 
 export default function Playlists() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const navigate = useNavigate();
   const playTrack = usePlayerStore(s => s.playTrack);
   const openContextMenu = usePlayerStore(s => s.openContextMenu);
@@ -251,10 +254,14 @@ export default function Playlists() {
       {playlists.length === 0 ? (
         <div className="empty-state">{t('playlists.empty')}</div>
       ) : (
-        <div className="album-grid-wrap">
-          {playlists.map((pl) => (
+        <VirtualCardGrid
+          items={playlists}
+          itemKey={(pl, _i) => pl.id}
+          rowVariant="playlist"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={playlists.length}
+          renderItem={pl => (
             <PlaylistCard
-              key={pl.id}
               pl={pl}
               selectionMode={selectionMode}
               selectedIds={selectedIds}
@@ -272,8 +279,8 @@ export default function Playlists() {
               filteredSongCountByPlaylist={filteredSongCountByPlaylist}
               filteredDurationByPlaylist={filteredDurationByPlaylist}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
 
 

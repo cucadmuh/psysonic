@@ -6,9 +6,12 @@ import { ChevronLeft } from 'lucide-react';
 import AlbumCard from '../components/AlbumCard';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/authStore';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 export default function LabelAlbums() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [albums, setAlbums] = useState<SubsonicAlbum[]>([]);
@@ -53,11 +56,14 @@ export default function LabelAlbums() {
       ) : albums.length === 0 ? (
         <div className="empty-state">{t('common.noAlbums')}</div>
       ) : (
-        <div className="album-grid-wrap">
-          {albums.map(a => (
-            <AlbumCard key={a.id} album={a} />
-          ))}
-        </div>
+        <VirtualCardGrid
+          items={albums}
+          itemKey={(a, _i) => a.id}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={albums.length}
+          renderItem={a => <AlbumCard album={a} />}
+        />
       )}
     </div>
   );

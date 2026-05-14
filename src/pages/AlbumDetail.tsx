@@ -27,9 +27,12 @@ import { showToast } from '../utils/ui/toast';
 import { useSelectionStore } from '../store/selectionStore';
 import { sanitizeFilename } from '../utils/componentHelpers/albumDetailHelpers';
 import { deriveAlbumHeaderArtistRefs } from '../utils/album/deriveAlbumHeaderArtistRefs';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 export default function AlbumDetail() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const auth = useAuthStore();
@@ -359,9 +362,14 @@ const handleShuffleAll = () => {
         <div className="album-related">
           <div className="album-related-divider" />
           <h2 className="section-title album-related-title">{t('albumDetail.moreByArtist', { artist: info.artist })}</h2>
-          <div className="album-grid-wrap">
-            {relatedAlbums.map(a => <AlbumCard key={a.id} album={a} />)}
-          </div>
+          <VirtualCardGrid
+            items={relatedAlbums}
+            itemKey={(a, i) => `${a.id}-${i}`}
+            rowVariant="album"
+            disableVirtualization={perfFlags.disableMainstageVirtualLists}
+            layoutSignal={relatedAlbums.length}
+            renderItem={a => <AlbumCard album={a} />}
+          />
         </div>
       )}
     </div>

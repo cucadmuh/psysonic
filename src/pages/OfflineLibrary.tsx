@@ -6,11 +6,14 @@ import { useOfflineStore } from '../store/offlineStore';
 import { useAuthStore } from '../store/authStore';
 import { usePlayerStore } from '../store/playerStore';
 import CachedImage from '../components/CachedImage';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 type FilterType = 'all' | 'album' | 'playlist' | 'artist';
 
 export default function OfflineLibrary() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const serverId = useAuthStore(s => s.activeServerId ?? '');
   const offlineAlbums = useOfflineStore(s => s.albums);
   const offlineTracks = useOfflineStore(s => s.tracks);
@@ -62,7 +65,7 @@ export default function OfflineLibrary() {
     const cacheKey = album.coverArt ? coverArtCacheKey(album.coverArt, 300) : '';
     const trackCount = album.trackIds.filter(tid => !!offlineTracks[`${serverId}:${tid}`]).length;
     return (
-      <div key={`${album.serverId}:${album.id}`} className="album-card card offline-library-card">
+      <div className="album-card card offline-library-card">
         <div className="album-card-cover">
           {coverUrl ? (
             <CachedImage src={coverUrl} cacheKey={cacheKey} alt={`${album.name} Cover`} loading="lazy" />
@@ -124,9 +127,14 @@ export default function OfflineLibrary() {
     return sortedArtists.map(artistName => (
       <div key={artistName} className="offline-artist-group">
         <h2 className="offline-artist-group-heading">{artistName}</h2>
-        <div className="album-grid-wrap">
-          {groups[artistName].map(renderCard)}
-        </div>
+        <VirtualCardGrid
+          items={groups[artistName]}
+          itemKey={(a, _i) => `${a.serverId}:${a.id}`}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={groups[artistName].length}
+          renderItem={renderCard}
+        />
       </div>
     ));
   };
@@ -172,9 +180,14 @@ export default function OfflineLibrary() {
       ) : filter === 'artist' ? (
         renderArtistGroups()
       ) : (
-        <div className="album-grid-wrap">
-          {filtered.map(renderCard)}
-        </div>
+        <VirtualCardGrid
+          items={filtered}
+          itemKey={(a, _i) => `${a.serverId}:${a.id}`}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={filtered.length}
+          renderItem={renderCard}
+        />
       )}
     </div>
   );
