@@ -17,6 +17,8 @@ import { join } from '@tauri-apps/api/path';
 import { showToast } from '../utils/ui/toast';
 import { useZipDownloadStore } from '../store/zipDownloadStore';
 import { useRangeSelection } from '../hooks/useRangeSelection';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 const PAGE_SIZE = 30;
 
@@ -31,6 +33,7 @@ async function fetchByGenres(genres: string[]): Promise<SubsonicAlbum[]> {
 
 export default function NewReleases() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
   const auth = useAuthStore();
   const serverId = useAuthStore(s => s.activeServerId ?? '');
@@ -177,18 +180,22 @@ export default function NewReleases() {
         </div>
       ) : (
         <>
-          <div className="album-grid-wrap">
-            {albums.map(a => (
+          <VirtualCardGrid
+            items={albums}
+            itemKey={(a, _i) => a.id}
+            rowVariant="album"
+            disableVirtualization={perfFlags.disableMainstageVirtualLists}
+            layoutSignal={albums.length}
+            renderItem={a => (
               <AlbumCard
-                key={a.id}
                 album={a}
                 selectionMode={selectionMode}
                 selected={selectedIds.has(a.id)}
                 onToggleSelect={toggleSelect}
                 selectedAlbums={selectedAlbums}
               />
-            ))}
-          </div>
+            )}
+          />
           {!filtered && (
             <div ref={observerTarget} style={{ height: '20px', margin: '2rem 0', display: 'flex', justifyContent: 'center' }}>
               {loading && hasMore && <div className="spinner" style={{ width: 20, height: 20 }} />}

@@ -17,6 +17,7 @@ import {
   DEFAULT_LOUDNESS_PRE_ANALYSIS_ATTENUATION_DB,
   DEFAULT_LYRICS_SOURCES,
   DEFAULT_TRACK_PREVIEW_LOCATIONS,
+  DEFAULT_LIBRARY_GRID_MAX_COLUMNS,
 } from './authStoreDefaults';
 import { computeAuthStoreRehydration } from './authStoreRehydrate';
 import type { AuthState } from './authStoreTypes';
@@ -58,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
       infiniteQueueEnabled: false,
       preservePlayNextOrder: false,
       showArtistImages: false,
+      libraryGridMaxColumns: DEFAULT_LIBRARY_GRID_MAX_COLUMNS,
       showTrayIcon: true,
       minimizeToTray: false,
       showOrbitTrigger: true,

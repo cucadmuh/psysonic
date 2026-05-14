@@ -38,3 +38,8 @@ export const DEFAULT_LYRICS_SOURCES: LyricsSourceConfig[] = [
 export const MIX_MIN_RATING_FILTER_MAX_STARS = 3;
 
 export const RANDOM_MIX_SIZE_OPTIONS: readonly number[] = [50, 75, 100, 125, 150];
+
+/** Default max columns for album/artist/playlist card grids (Settings → Library). */
+export const DEFAULT_LIBRARY_GRID_MAX_COLUMNS = 6;
+export const LIBRARY_GRID_MAX_COLUMNS_MIN = 4;
+export const LIBRARY_GRID_MAX_COLUMNS_MAX = 12;

@@ -17,6 +17,7 @@ import { showToast } from '../utils/ui/toast';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { CheckSquare2, Download, HardDriveDownload, ListPlus } from 'lucide-react';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 /** Per-loadMore budget — tuned for snappy initial paint over completeness.
  *  100 songs ≈ 500 KB response (Navidrome's /api/song carries lyrics/tags/
@@ -261,18 +262,22 @@ export default function LosslessAlbums() {
         </div>
       ) : (
         <>
-          <div className="album-grid-wrap">
-            {albums.map(a => (
+          <VirtualCardGrid
+            items={albums}
+            itemKey={(a, _i) => a.id}
+            rowVariant="album"
+            disableVirtualization={perfFlags.disableMainstageVirtualLists}
+            layoutSignal={albums.length}
+            renderItem={a => (
               <AlbumCard
-                key={a.id}
                 album={a}
                 selectionMode={selectionMode}
                 selected={selectedIds.has(a.id)}
                 onToggleSelect={toggleSelect}
                 selectedAlbums={selectedAlbums}
               />
-            ))}
-          </div>
+            )}
+          />
           <div ref={observerTarget} style={{ height: '20px', margin: '2rem 0', display: 'flex', justifyContent: 'center' }}>
             {loading && hasMore && <div className="spinner" style={{ width: 20, height: 20 }} />}
           </div>

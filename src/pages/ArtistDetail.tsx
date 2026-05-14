@@ -40,10 +40,13 @@ import {
 import ArtistDetailHero from '../components/artistDetail/ArtistDetailHero';
 import ArtistDetailTopTracks from '../components/artistDetail/ArtistDetailTopTracks';
 import ArtistDetailSimilarArtists from '../components/artistDetail/ArtistDetailSimilarArtists';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 
 export default function ArtistDetail() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
@@ -364,18 +367,30 @@ export default function ArtistDetail() {
               </h2>
               {albums.length > 0 ? (
                 groupedAlbums.length === 1 ? (
-                  <div className="album-grid-wrap album-grid-wrap--artist">
-                    {albums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
-                  </div>
+                  <VirtualCardGrid
+                    items={albums}
+                    itemKey={(a, i) => `${a.id}-${i}`}
+                    rowVariant="album"
+                    disableVirtualization={perfFlags.disableMainstageVirtualLists}
+                    layoutSignal={albums.length}
+                    wrapClassName="album-grid-wrap album-grid-wrap--artist"
+                    renderItem={a => <AlbumCard album={a} />}
+                  />
                 ) : groupedAlbums.map(([label, group]) => (
                   <div key={label} className="artist-release-group">
                     <div className="artist-release-group__header">
                       <h3>{label}</h3>
                       <span className="artist-release-group__count">{group.length}</span>
                     </div>
-                    <div className="album-grid-wrap album-grid-wrap--artist">
-                      {group.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
-                    </div>
+                    <VirtualCardGrid
+                      items={group}
+                      itemKey={(a, i) => `${a.id}-${i}`}
+                      rowVariant="album"
+                      disableVirtualization={perfFlags.disableMainstageVirtualLists}
+                      layoutSignal={group.length}
+                      wrapClassName="album-grid-wrap album-grid-wrap--artist"
+                      renderItem={a => <AlbumCard album={a} />}
+                    />
                   </div>
                 ))
               ) : (
@@ -396,9 +411,16 @@ export default function ArtistDetail() {
                   ))}
                 </div>
               ) : (
-                <div className="album-grid-wrap album-grid-wrap--artist" style={{ animation: 'fadeIn 0.3s ease' }}>
-                  {featuredAlbums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
-                </div>
+                <VirtualCardGrid
+                  items={featuredAlbums}
+                  itemKey={(a, i) => `${a.id}-${i}`}
+                  rowVariant="album"
+                  disableVirtualization={perfFlags.disableMainstageVirtualLists}
+                  layoutSignal={featuredAlbums.length}
+                  wrapClassName="album-grid-wrap album-grid-wrap--artist"
+                  wrapStyle={{ animation: 'fadeIn 0.3s ease' }}
+                  renderItem={a => <AlbumCard album={a} />}
+                />
               )}
             </Fragment>
           );

@@ -16,9 +16,12 @@ import { useTranslation } from 'react-i18next';
 import { copyEntityShareLink } from '../utils/share/copyEntityShareLink';
 import { showToast } from '../utils/ui/toast';
 import { sanitizeHtml } from '../utils/sanitizeHtml';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 export default function ComposerDetail() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [artist, setArtist] = useState<SubsonicArtist | null>(null);
@@ -266,9 +269,14 @@ export default function ComposerDetail() {
           {t('composerDetail.noWorks')}
         </div>
       ) : (
-        <div className="album-grid-wrap">
-          {albums.map((a, i) => <AlbumCard key={`${a.id}-${i}`} album={a} />)}
-        </div>
+        <VirtualCardGrid
+          items={albums}
+          itemKey={(a, i) => `${a.id}-${i}`}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={albums.length}
+          renderItem={a => <AlbumCard album={a} />}
+        />
       )}
     </div>
   );

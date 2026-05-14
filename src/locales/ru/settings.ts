@@ -237,6 +237,10 @@ export const settings = {
   aboutContributorsLabel: 'Участники',
   showChangelogOnUpdate: 'Показывать «Что нового» после обновления',
   showChangelogOnUpdateDesc: 'После обновления над «Сейчас играет» появится ненавязчивый баннер журнала изменений. Клик открывает заметки о выпуске, X скрывает.',
+  libraryGridMaxColumnsTitle: 'Сетки карточек в библиотеке',
+  libraryGridMaxColumnsPerfHint: 'Больше колонок — больше плиток в ряд и больше работы по вёрстке и отрисовке; на очень больших библиотеках или слабом железе это заметнее.',
+  libraryGridMaxColumnsRangeLabel: 'Максимум колонок ({{min}}–{{max}})',
+  libraryGridMaxColumnsDesc: 'Действует для альбомов, исполнителей, плейлистов, радио, офлайн-библиотеки и других экранов с карточками. Меньше колонок — крупнее плитки и обычно меньше нагрузка на CPU.',
   randomMixTitle: 'Чёрный список случайного микса',
   luckyMixMenuTitle: 'Показывать «Мне повезёт» в меню',
   luckyMixMenuDesc:

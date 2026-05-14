@@ -11,6 +11,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { APP_MAIN_SCROLL_VIEWPORT_ID } from '../constants/appScroll';
 import { useElementClientHeightById } from '../hooks/useResizeClientHeight';
 import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 const ALL_SENTINEL = 'ALL';
 const ALPHABET = [ALL_SENTINEL, '#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
@@ -276,10 +277,16 @@ export default function Composers() {
       {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><div className="spinner" /></div>}
 
       {!loading && viewMode === 'grid' && (
-        <div className="composer-grid-wrap">
-          {visible.map(artist => (
+        <VirtualCardGrid
+          items={visible}
+          itemKey={(a, _i) => a.id}
+          rowVariant="composer"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={visible.length}
+          wrapClassName="composer-grid-wrap"
+          gridGap="var(--space-2)"
+          renderItem={artist => (
             <div
-              key={artist.id}
               className="composer-card"
               onClick={() => navigate(`/composer/${artist.id}`)}
               onContextMenu={(e) => {
@@ -294,8 +301,8 @@ export default function Composers() {
                 </div>
               )}
             </div>
-          ))}
-        </div>
+          )}
+        />
       )}
 
       {!loading && viewMode === 'list' && (

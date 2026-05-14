@@ -1,4 +1,5 @@
 import type { AuthState } from './authStoreTypes';
+import { clampLibraryGridMaxColumns } from './authStoreHelpers';
 
 type SetState = (
   partial: Partial<AuthState> | ((state: AuthState) => Partial<AuthState>),
@@ -12,6 +13,7 @@ type SetState = (
 export function createUiAppearanceActions(set: SetState): Pick<
   AuthState,
   | 'setShowArtistImages'
+  | 'setLibraryGridMaxColumns'
   | 'setShowTrayIcon'
   | 'setMinimizeToTray'
   | 'setShowOrbitTrigger'
@@ -30,6 +32,7 @@ export function createUiAppearanceActions(set: SetState): Pick<
 > {
   return {
     setShowArtistImages: (v) => set({ showArtistImages: v }),
+    setLibraryGridMaxColumns: (v) => set({ libraryGridMaxColumns: clampLibraryGridMaxColumns(v) }),
     setShowTrayIcon: (v) => set({ showTrayIcon: v }),
     setMinimizeToTray: (v) => set({ minimizeToTray: v }),
     setShowOrbitTrigger: (v) => set({ showOrbitTrigger: v }),

@@ -18,6 +18,8 @@ import { join } from '@tauri-apps/api/path';
 import { showToast } from '../utils/ui/toast';
 import { useZipDownloadStore } from '../store/zipDownloadStore';
 import { useRangeSelection } from '../hooks/useRangeSelection';
+import { usePerfProbeFlags } from '../utils/perf/perfFlags';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
 
 const ALBUM_COUNT = 30;
 /** Extra pool when mix rating filter is on so we can still fill the grid after filtering. */
@@ -38,6 +40,7 @@ async function fetchByGenres(genres: string[]): Promise<SubsonicAlbum[]> {
 
 export default function RandomAlbums() {
   const { t } = useTranslation();
+  const perfFlags = usePerfProbeFlags();
   const auth = useAuthStore();
   const musicLibraryFilterVersion = auth.musicLibraryFilterVersion;
   const mixMinRatingFilterEnabled = auth.mixMinRatingFilterEnabled;
@@ -178,18 +181,22 @@ export default function RandomAlbums() {
           <div className="spinner" />
         </div>
       ) : (
-        <div className="album-grid-wrap">
-          {albums.map(a => (
+        <VirtualCardGrid
+          items={albums}
+          itemKey={(a, _i) => a.id}
+          rowVariant="album"
+          disableVirtualization={perfFlags.disableMainstageVirtualLists}
+          layoutSignal={albums.length}
+          renderItem={a => (
             <AlbumCard
-              key={a.id}
               album={a}
               selectionMode={selectionMode}
               selected={selectedIds.has(a.id)}
               onToggleSelect={toggleSelect}
               selectedAlbums={selectedAlbums}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </div>
   );

@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { Clock, Maximize2, Palette, Sliders, Type, ZoomIn } from 'lucide-react';
+import { Clock, LayoutGrid, Maximize2, Palette, Sliders, Type, ZoomIn } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import {
+  LIBRARY_GRID_MAX_COLUMNS_MAX,
+  LIBRARY_GRID_MAX_COLUMNS_MIN,
+} from '../../store/authStoreDefaults';
 import type { SeekbarStyle } from '../../store/authStoreTypes';
 import { useFontStore, FontId } from '../../store/fontStore';
 import { useThemeStore } from '../../store/themeStore';
@@ -105,6 +109,46 @@ export function AppearanceTab() {
               </div>
             );
           })()}
+        </div>
+      </SettingsSubSection>
+
+      <SettingsSubSection
+        title={t('settings.libraryGridMaxColumnsTitle')}
+        icon={<LayoutGrid size={16} />}
+      >
+        <div className="settings-card">
+          <div className="settings-hint settings-hint-info" style={{ marginBottom: '0.75rem' }}>
+            {t('settings.libraryGridMaxColumnsPerfHint')}
+          </div>
+          <div className="form-group">
+            <label className="settings-label" htmlFor="library-grid-max-cols">
+              {t('settings.libraryGridMaxColumnsRangeLabel', {
+                min: LIBRARY_GRID_MAX_COLUMNS_MIN,
+                max: LIBRARY_GRID_MAX_COLUMNS_MAX,
+              })}
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: 8 }}>
+              <input
+                id="library-grid-max-cols"
+                type="range"
+                min={LIBRARY_GRID_MAX_COLUMNS_MIN}
+                max={LIBRARY_GRID_MAX_COLUMNS_MAX}
+                step={1}
+                value={auth.libraryGridMaxColumns}
+                onChange={e => auth.setLibraryGridMaxColumns(Number(e.target.value))}
+                style={{ flex: 1, maxWidth: 360 }}
+                aria-valuemin={LIBRARY_GRID_MAX_COLUMNS_MIN}
+                aria-valuemax={LIBRARY_GRID_MAX_COLUMNS_MAX}
+                aria-valuenow={auth.libraryGridMaxColumns}
+              />
+              <span style={{ minWidth: 28, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {auth.libraryGridMaxColumns}
+              </span>
+            </div>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: '0.75rem', lineHeight: 1.45 }}>
+            {t('settings.libraryGridMaxColumnsDesc')}
+          </p>
         </div>
       </SettingsSubSection>
 
