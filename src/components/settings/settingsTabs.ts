@@ -46,6 +46,7 @@ export const SETTINGS_INDEX: SearchIndexEntry[] = [
   { tab: 'personalisation',titleKey: 'settings.artistLayoutTitle',        keywords: 'artist page layout sections order' },
   { tab: 'personalisation',titleKey: 'settings.homeCustomizerTitle',      keywords: 'home page customize sections' },
   { tab: 'personalisation',titleKey: 'settings.queueToolbarTitle',        keywords: 'queue toolbar buttons reorder customize shuffle save load' },
+  { tab: 'appearance',     titleKey: 'settings.libraryGridMaxColumnsTitle', keywords: 'grid columns album artist playlist cards layout appearance performance scroll paint' },
   { tab: 'library',        titleKey: 'settings.randomMixTitle',           keywords: 'random mix blacklist genre keywords filter audiobook' },
   { tab: 'library',        titleKey: 'settings.ratingsSectionTitle',      keywords: 'ratings stars skip threshold manual' },
   { tab: 'storage',        titleKey: 'settings.offlineDirTitle',          keywords: 'offline library download directory folder cache' },

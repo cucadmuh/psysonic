@@ -30,6 +30,10 @@ vi.mock('@/api/subsonic', () => ({
 import { useAuthStore } from './authStore';
 import { resetAuthStore, resetPlayerStore } from '@/test/helpers/storeReset';
 import { onInvoke } from '@/test/mocks/tauri';
+import {
+  LIBRARY_GRID_MAX_COLUMNS_MAX,
+  LIBRARY_GRID_MAX_COLUMNS_MIN,
+} from './authStoreDefaults';
 
 beforeEach(() => {
   resetAuthStore();
@@ -118,6 +122,17 @@ describe('setters with validation / clamping', () => {
 
     useAuthStore.getState().setTrackPreviewDurationSec(30.7);
     expect(useAuthStore.getState().trackPreviewDurationSec).toBe(31);
+  });
+
+  it('setLibraryGridMaxColumns clamps to the allowed column range', () => {
+    useAuthStore.getState().setLibraryGridMaxColumns(99);
+    expect(useAuthStore.getState().libraryGridMaxColumns).toBe(LIBRARY_GRID_MAX_COLUMNS_MAX);
+
+    useAuthStore.getState().setLibraryGridMaxColumns(1);
+    expect(useAuthStore.getState().libraryGridMaxColumns).toBe(LIBRARY_GRID_MAX_COLUMNS_MIN);
+
+    useAuthStore.getState().setLibraryGridMaxColumns(6);
+    expect(useAuthStore.getState().libraryGridMaxColumns).toBe(6);
   });
 
   it('setTrackPreviewsEnabled coerces truthy/falsy to boolean', () => {

@@ -3,15 +3,27 @@
  * and row-height estimates derived from measured cell width (TanStack virtual rows).
  */
 
+import {
+  DEFAULT_LIBRARY_GRID_MAX_COLUMNS,
+  LIBRARY_GRID_MAX_COLUMNS_MAX,
+  LIBRARY_GRID_MAX_COLUMNS_MIN,
+} from '../store/authStoreDefaults';
+
 export const CARD_GRID_GAP_PX = 16;
 export const CARD_GRID_MIN_TILE_PX = 140;
-export const CARD_GRID_MAX_COLS = 6;
 
-export function computeCardGridColumnCount(containerWidthPx: number): number {
+/** @deprecated use `DEFAULT_LIBRARY_GRID_MAX_COLUMNS` from `authStoreDefaults` */
+export const CARD_GRID_MAX_COLS = DEFAULT_LIBRARY_GRID_MAX_COLUMNS;
+
+export function computeCardGridColumnCount(containerWidthPx: number, maxColumns: number): number {
+  const cap = Math.max(
+    LIBRARY_GRID_MAX_COLUMNS_MIN,
+    Math.min(LIBRARY_GRID_MAX_COLUMNS_MAX, Math.round(maxColumns)),
+  );
   const raw = Math.floor(
     (containerWidthPx + CARD_GRID_GAP_PX) / (CARD_GRID_MIN_TILE_PX + CARD_GRID_GAP_PX),
   );
-  return Math.min(CARD_GRID_MAX_COLS, Math.max(1, raw));
+  return Math.min(cap, Math.max(1, raw));
 }
 
 export function computeCellWidthPx(containerWidthPx: number, columnCount: number): number {

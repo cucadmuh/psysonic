@@ -1,6 +1,7 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
+import { useAuthStore } from '../store/authStore';
+import { clampLibraryGridMaxColumns } from '../store/authStoreHelpers';
 import {
-  CARD_GRID_MAX_COLS,
   type CardGridRowHeightVariant,
   computeCardGridColumnCount,
   computeCellWidthPx,
@@ -8,8 +9,8 @@ import {
 } from '../utils/cardGridLayout';
 
 /**
- * ResizeObserver-driven column count (max six) and virtual row height estimate
- * from the measured cell width.
+ * ResizeObserver-driven column count (capped by Settings → Library) and
+ * virtual row height estimate from the measured cell width.
  */
 export function useCardGridMetrics(
   measureRef: RefObject<HTMLElement | null>,
@@ -17,9 +18,13 @@ export function useCardGridMetrics(
   variant: CardGridRowHeightVariant,
   layoutSignal: number,
 ): { gridCols: number; rowHeightEst: number } {
+  const maxCols = useAuthStore(s => clampLibraryGridMaxColumns(s.libraryGridMaxColumns));
   const [gridCols, setGridCols] = useState(4);
   const [rowHeightEst, setRowHeightEst] = useState(() =>
-    estimateRowHeightPx(computeCellWidthPx(960, CARD_GRID_MAX_COLS), variant),
+    estimateRowHeightPx(
+      computeCellWidthPx(960, clampLibraryGridMaxColumns(useAuthStore.getState().libraryGridMaxColumns)),
+      variant,
+    ),
   );
 
   useLayoutEffect(() => {
@@ -28,7 +33,7 @@ export function useCardGridMetrics(
     if (!el) return;
     const onResize = () => {
       const w = el.clientWidth;
-      const cols = computeCardGridColumnCount(w);
+      const cols = computeCardGridColumnCount(w, maxCols);
       setGridCols(cols);
       setRowHeightEst(estimateRowHeightPx(computeCellWidthPx(w, cols), variant));
     };
@@ -36,7 +41,7 @@ export function useCardGridMetrics(
     const ro = new ResizeObserver(onResize);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [observerEnabled, variant, layoutSignal]);
+  }, [observerEnabled, variant, layoutSignal, maxCols]);
 
   return { gridCols, rowHeightEst };
 }

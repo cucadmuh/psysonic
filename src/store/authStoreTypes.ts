@@ -80,6 +80,11 @@ export interface AuthState {
   infiniteQueueEnabled: boolean;
   preservePlayNextOrder: boolean;
   showArtistImages: boolean;
+  /**
+   * Max columns for album/artist/playlist-style card grids (Settings → Library).
+   * Clamped 2…12; higher values mean more tiles per row and more layout/paint work.
+   */
+  libraryGridMaxColumns: number;
   showTrayIcon: boolean;
   minimizeToTray: boolean;
   /** Whether the "Orbit" topbar trigger is rendered. Users who never
@@ -252,6 +257,7 @@ export interface AuthState {
   setInfiniteQueueEnabled: (v: boolean) => void;
   setPreservePlayNextOrder: (v: boolean) => void;
   setShowArtistImages: (v: boolean) => void;
+  setLibraryGridMaxColumns: (v: number) => void;
   setShowTrayIcon: (v: boolean) => void;
   setMinimizeToTray: (v: boolean) => void;
   setShowOrbitTrigger: (v: boolean) => void;

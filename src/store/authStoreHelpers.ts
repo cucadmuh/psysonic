@@ -1,6 +1,9 @@
 import { clampStoredLoudnessPreAnalysisAttenuationRefDb } from '../utils/audio/loudnessPreAnalysisSlider';
 import {
   DEFAULT_LOUDNESS_PRE_ANALYSIS_ATTENUATION_DB,
+  DEFAULT_LIBRARY_GRID_MAX_COLUMNS,
+  LIBRARY_GRID_MAX_COLUMNS_MAX,
+  LIBRARY_GRID_MAX_COLUMNS_MIN,
   LOUDNESS_LUFS_PRESETS,
   MIX_MIN_RATING_FILTER_MAX_STARS,
   RANDOM_MIX_SIZE_OPTIONS,
@@ -39,6 +42,13 @@ export function clampRandomMixSize(v: number): number {
     if (d < bestDelta) { nearest = opt; bestDelta = d; }
   }
   return nearest;
+}
+
+/** Persisted max columns for library card grids (albums, artists, playlists, …). */
+export function clampLibraryGridMaxColumns(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_LIBRARY_GRID_MAX_COLUMNS;
+  return Math.max(LIBRARY_GRID_MAX_COLUMNS_MIN, Math.min(LIBRARY_GRID_MAX_COLUMNS_MAX, Math.round(n)));
 }
 
 export function clampSkipStarThreshold(v: number): number {

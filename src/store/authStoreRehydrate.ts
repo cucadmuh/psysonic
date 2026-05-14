@@ -7,6 +7,7 @@ import { DEFAULT_LOUDNESS_PRE_ANALYSIS_ATTENUATION_DB } from './authStoreDefault
 import {
   clampMixFilterMinStars,
   clampRandomMixSize,
+  clampLibraryGridMaxColumns,
   sanitizeLoudnessLufsPreset,
   sanitizeLoudnessPreAnalysisFromStorage,
   sanitizeSkipStarCounts,
@@ -116,6 +117,9 @@ export function computeAuthStoreRehydration(state: AuthState): Partial<AuthState
     mixMinRatingAlbum: clampMixFilterMinStars(state.mixMinRatingAlbum as number),
     mixMinRatingArtist: clampMixFilterMinStars(state.mixMinRatingArtist as number),
     randomMixSize: clampRandomMixSize(state.randomMixSize as number),
+    libraryGridMaxColumns: clampLibraryGridMaxColumns(
+      (state as { libraryGridMaxColumns?: unknown }).libraryGridMaxColumns,
+    ),
     skipStarManualSkipCountsByKey: sanitizeSkipStarCounts(
       (state as { skipStarManualSkipCountsByKey?: unknown }).skipStarManualSkipCountsByKey,
     ),
