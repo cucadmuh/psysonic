@@ -10,7 +10,14 @@
  * Network-bound endpoints (`getAlbum`, `search`, etc.) require axios
  * mocking and are not in this PR.
  */
-import { buildCoverArtUrl, buildDownloadUrl, buildStreamUrl, coverArtCacheKey } from './subsonicStreamUrl';
+import {
+  buildCoverArtUrl,
+  buildCoverArtUrlForServer,
+  buildDownloadUrl,
+  buildStreamUrl,
+  coverArtCacheKey,
+  coverArtCacheKeyForServer,
+} from './subsonicStreamUrl';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { parseSubsonicEntityStarRating } from './subsonicRatings';
 import { getClient, libraryFilterParams } from './subsonicClient';
@@ -170,6 +177,24 @@ describe('buildCoverArtUrl', () => {
     setUpServer();
     const url = new URL(buildCoverArtUrl('cover-1'));
     expect(url.searchParams.get('size')).toBe('256');
+  });
+});
+
+describe('buildCoverArtUrlForServer', () => {
+  it('builds getCoverArt URL with explicit server credentials', () => {
+    const url = new URL(buildCoverArtUrlForServer('https://remote.example', 'bob', 'secret', 'art-9', 40));
+    expect(url.origin).toBe('https://remote.example');
+    expect(url.pathname).toBe('/rest/getCoverArt.view');
+    expect(url.searchParams.get('id')).toBe('art-9');
+    expect(url.searchParams.get('size')).toBe('40');
+    expect(url.searchParams.get('u')).toBe('bob');
+    expect(url.searchParams.get('t')).toBeTruthy();
+  });
+});
+
+describe('coverArtCacheKeyForServer', () => {
+  it('scopes cache keys by server id', () => {
+    expect(coverArtCacheKeyForServer('srv-b', 'cover-1', 80)).toBe('srv-b:cover:cover-1:80');
   });
 });
 

@@ -178,6 +178,20 @@
   background: var(--bg-hover);
 }
 
+.search-result-item:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.search-result-item--muted {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+.search-result-item--muted:hover {
+  background: transparent;
+}
+
 .search-result-icon {
   width: 32px;
   height: 32px;

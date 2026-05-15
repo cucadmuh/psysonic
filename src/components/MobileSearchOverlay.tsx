@@ -11,6 +11,8 @@ import { useAuthStore } from '../store/authStore';
 import { useTranslation } from 'react-i18next';
 import CachedImage, { FETCH_QUEUE_BIAS_SEARCH_ARTIST_OVER_ALBUM } from './CachedImage';
 import { showToast } from '../utils/ui/toast';
+import { useShareSearch } from '../hooks/useShareSearch';
+import ShareSearchResults from './search/ShareSearchResults';
 
 const STORAGE_KEY = 'psysonic_recent_searches';
 const MAX_RECENT = 6;
@@ -67,6 +69,7 @@ export default function MobileSearchOverlay({ onClose }: { onClose: () => void }
   const [recentSearches, setRecentSearches] = useState<string[]>(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
+  const share = useShareSearch(query, onClose);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -86,7 +89,14 @@ export default function MobileSearchOverlay({ onClose }: { onClose: () => void }
     [musicLibraryFilterVersion]
   );
 
-  useEffect(() => { doSearch(query); }, [query, doSearch]);
+  useEffect(() => {
+    if (share.shareMatch) {
+      setResults(null);
+      setLoading(false);
+      return;
+    }
+    doSearch(query);
+  }, [query, doSearch, share.shareMatch]);
 
   const commit = (q: string) => {
     if (q.trim()) setRecentSearches(prev => saveRecent(q, prev));
@@ -114,7 +124,9 @@ export default function MobileSearchOverlay({ onClose }: { onClose: () => void }
     });
   };
 
-  const hasResults = results && (results.artists.length || results.albums.length || results.songs.length);
+  const hasResults =
+    !!share.shareMatch ||
+    (results && (results.artists.length || results.albums.length || results.songs.length));
   const showEmpty = !query;
 
   return createPortal(
@@ -209,8 +221,34 @@ export default function MobileSearchOverlay({ onClose }: { onClose: () => void }
           </div>
         )}
 
+        {share.shareMatch && (
+          <ShareSearchResults
+            variant="mobile"
+            shareMatch={share.shareMatch}
+            shareServerLabel={share.shareServerLabel}
+            shareCoverServer={share.shareCoverServer}
+            shareQueueBusy={share.shareQueueBusy}
+            onEnqueue={() => void share.enqueueShareMatch()}
+            onOpenAlbum={share.openShareAlbum}
+            onOpenArtist={share.openShareArtist}
+            onOpenComposer={share.openShareComposer}
+            shareTrackSong={share.shareTrackSong}
+            shareTrackResolving={share.shareTrackResolving}
+            shareTrackUnavailable={share.shareTrackUnavailable}
+            shareAlbum={share.shareAlbum}
+            shareAlbumResolving={share.shareAlbumResolving}
+            shareAlbumUnavailable={share.shareAlbumUnavailable}
+            shareArtist={share.shareArtist}
+            shareArtistResolving={share.shareArtistResolving}
+            shareArtistUnavailable={share.shareArtistUnavailable}
+            shareComposer={share.shareComposer}
+            shareComposerResolving={share.shareComposerResolving}
+            shareComposerUnavailable={share.shareComposerUnavailable}
+          />
+        )}
+
         {/* ── Results ── */}
-        {hasResults && (
+        {hasResults && !share.shareMatch && (
           <>
             {results!.artists.length > 0 && (
               <div className="mobile-search-section">

@@ -30,6 +30,15 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 
 ## Added
 
+### Search — queue pasted share links from Live Search and mobile search
+
+Inspired by [@DanielWTE](https://github.com/DanielWTE)'s [PR #551](https://github.com/Psychotoxical/psysonic/pull/551).
+
+* Pasting a `psysonic2-` share link into **Live Search** or the **mobile search overlay** shows a dedicated share row: track and queue links **enqueue** (append) instead of replacing the queue like global paste does; album, artist, and composer links preview metadata **without switching the active server**, then navigate on confirm.
+* Queue share links expose a **Preview** action that opens a scrollable track list (resolved lazily against the share server) before **Add to queue**.
+* Shared tracks and queues resolve against the matching saved server via explicit credentials; `orbitBulkGuard` applies before bulk enqueue.
+* i18n: `search.share*` keys across all 9 locales.
+
 ### HTTP — gzip + brotli decompression for the Rust-side clients
 
 **By [@Psychotoxical](https://github.com/Psychotoxical), PR [#704](https://github.com/Psychotoxical/psysonic/pull/704)**
