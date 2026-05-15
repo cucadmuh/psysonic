@@ -102,11 +102,13 @@ export function AddToPlaylistSubmenu({ songIds, onDone, dropDown, triggerId }: P
     onDone();
   };
 
+  // Flush to the parent edge (left/right/top 100%). Actual “hole” cases are handled
+  // in ContextMenu via a short delayed mouseleave + :hover check on the trigger row.
   const subStyle: React.CSSProperties = dropDown
-    ? { top: 'calc(100% + 4px)', left: 0, right: 'auto' }
+    ? { top: '100%', left: 0, right: 'auto' }
     : flipLeft
-      ? { right: 'calc(100% + 4px)', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
-      : { left: 'calc(100% + 4px)', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
+      ? { right: '100%', left: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' }
+      : { left: '100%', right: 'auto', top: flipUp ? 'auto' : -4, bottom: flipUp ? 0 : 'auto' };
 
   return (
     <div className="context-submenu" data-parent-trigger-id={triggerId ?? ''} ref={subRef} style={subStyle}>
