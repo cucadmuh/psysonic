@@ -498,6 +498,12 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 * Opening **Now Playing** (sidebar, mobile route, or queue info panel) switches to the queue server before Subsonic metadata loads, with per-server fetch caches so artist/album cards do not show the wrong library.
 * **Scrobble**, **now-playing report**, and **savePlayQueue** sync use the queue server as well; removing that server profile clears `queueServerId`; the mini-player bridge receives `queueServerId`; enqueue/play-next from another browsed server is blocked with a toast.
 
+### UI — selectstart blocker no longer throws on Text node targets
+
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#718](https://github.com/Psychotoxical/psysonic/pull/718)**
+
+* The global **`selectstart`** handler assumed `event.target` was always an **`Element`**. Starting selection inside text (e.g. Now Playing **`[data-selectable]`** copy) could pass a **Text** node and crash with **`target.closest is not a function`**. The handler now resolves Text nodes to their parent element before applying allow/deny rules.
+
 ## [1.45.0] - 2026-05-04
 
 ## Added
