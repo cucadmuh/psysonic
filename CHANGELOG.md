@@ -174,6 +174,13 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 * **One-time migration:** if you had previously opened the per-tab Advanced group or customised any of the three sub-sections, Advanced Mode is auto-enabled on first launch — your existing tweaks stay visible.
 * i18n: `settings.advancedMode`, `settings.advancedModeTooltip`, `settings.advancedBadge`, and `settings.playlistLayout*` across all 9 locales.
 
+### Offline Library — show cached albums from all servers
+
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#719](https://github.com/Psychotoxical/psysonic/pull/719)**
+
+* **Offline Library** lists every cached album across all saved servers, not only the currently active one. Cover art loads from each album's source server; play and enqueue switch to that server when needed.
+* Sidebar entry, mobile **More** menu, disconnect auto-navigation, and the offline banner treat **any** cached content as available offline. With multiple servers, cards show which server the album came from.
+
 ## Changed
 
 ### Backend — Cargo workspace with 5 domain crates (Rust refactor)
