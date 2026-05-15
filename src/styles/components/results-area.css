@@ -12,3 +12,12 @@
   font-size: 15px;
 }
 
+.mobile-search-item:disabled {
+  opacity: 0.65;
+}
+
+.mobile-search-item--muted {
+  cursor: default;
+  color: var(--text-muted);
+}
+

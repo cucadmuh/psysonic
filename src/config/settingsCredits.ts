@@ -111,6 +111,7 @@ const CONTRIBUTOR_ENTRIES = [
       'Search: filter search3 artist rows with zero albums (report: zunoz on Psysonic Discord) (PR #697)',
       'Internet Radio: portal add/edit station modal to document.body — fixes clipped modal on empty library (report: voidboywannabe on Psysonic Discord) (PR #699)',
       'Now Playing: composite list keys on similar artists, album-card tracklist, and top songs — avoids duplicate React keys when Subsonic repeats ids (PR #703)',
+      'Search: share links in live/mobile search + queue preview modal (PR #716)',
     ],
   },
   {
@@ -188,6 +189,13 @@ const CONTRIBUTOR_ENTRIES = [
     since: '1.46.0',
     contributions: [
       'Romanian (ro) full UI translation (PR #663)',
+    ],
+  },
+  {
+    github: 'DanielWTE',
+    since: '1.46.0',
+    contributions: [
+      'Search: queue pasted share links from live search (PR #551)',
     ],
   },
   {

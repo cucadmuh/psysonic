@@ -14,5 +14,7 @@ export const sharePaste = {
   openedQueuePartial:
     'Playing {{played}} of {{total}} tracks from the link ({{skipped}} not found on this server).',
   queueAllUnavailable: 'None of the tracks from this link were found on the server.',
+  playQueue: 'Play queue',
+  playQueueing: 'Starting playback…',
   genericError: 'Could not open the share link.',
 };

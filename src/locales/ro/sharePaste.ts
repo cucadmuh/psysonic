@@ -14,5 +14,7 @@ export const sharePaste = {
   openedQueuePartial:
     'Se redau {{played}} din {{total}} piese din link ({{skipped}} nu au fost găsite în server).',
   queueAllUnavailable: 'Nicio piesă din acest link nu a fost găsită în server.',
+  playQueue: 'Play queue',
+  playQueueing: 'Starting playback…',
   genericError: 'Nu s-a putut deschide link-ul distribuit.',
 };

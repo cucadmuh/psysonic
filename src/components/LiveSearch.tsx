@@ -10,6 +10,8 @@ import { useAuthStore } from '../store/authStore';
 import { useTranslation } from 'react-i18next';
 import CachedImage, { FETCH_QUEUE_BIAS_SEARCH_ARTIST_OVER_ALBUM } from './CachedImage';
 import { showToast } from '../utils/ui/toast';
+import { useShareSearch } from '../hooks/useShareSearch';
+import ShareSearchResults from './search/ShareSearchResults';
 
 function debounce(fn: (q: string) => void, ms: number): (q: string) => void {
   let timer: ReturnType<typeof setTimeout>;
@@ -67,6 +69,13 @@ export default function LiveSearch() {
   const compactHeaderControlsRef = useRef(false);
   const musicLibraryFilterVersion = useAuthStore(s => s.musicLibraryFilterVersion);
 
+  const closeSearch = useCallback(() => {
+    setOpen(false);
+    setQuery('');
+  }, []);
+
+  const share = useShareSearch(query, closeSearch);
+
   const doSearch = useCallback(
     debounce(async (q: string) => {
       if (!q.trim()) { setResults(null); setOpen(false); return; }
@@ -82,7 +91,17 @@ export default function LiveSearch() {
     [musicLibraryFilterVersion]
   );
 
-  useEffect(() => { doSearch(query); setActiveIndex(-1); }, [query, doSearch]);
+  useEffect(() => {
+    if (share.shareMatch) {
+      setResults(null);
+      setLoading(false);
+      setOpen(true);
+      setActiveIndex(-1);
+      return;
+    }
+    doSearch(query);
+    setActiveIndex(-1);
+  }, [query, doSearch, share.shareMatch]);
 
   const isSearchActive = isFocused || open || query.trim().length > 0;
 
@@ -202,10 +221,22 @@ export default function LiveSearch() {
     return () => document.removeEventListener('mousedown', handler);
   }, [ctxIsOpen]);
 
-  const hasResults = results && (results.artists.length || results.albums.length || results.songs.length);
+  const hasResults =
+    !!share.shareMatch ||
+    (results && (results.artists.length || results.albums.length || results.songs.length));
 
   // Flat list of all navigable items for keyboard nav
-  const flatItems = results ? [
+  const flatItems = share.shareMatch && share.hasShareKeyboardTarget ? [
+    {
+      id: 'share-link',
+      action: () => {
+        if (share.canQueueShareMatch) void share.enqueueShareMatch();
+        else if (share.canOpenShareAlbum) share.openShareAlbum();
+        else if (share.canOpenShareArtist) share.openShareArtist();
+        else if (share.canOpenShareComposer) share.openShareComposer();
+      },
+    },
+  ] : results ? [
     ...(results.artists.map(a => ({ id: a.id, action: () => { navigate(`/artist/${a.id}`); setOpen(false); setQuery(''); } }))),
     ...(results.albums.map(a => ({ id: a.id, action: () => { navigate(`/album/${a.id}`); setOpen(false); setQuery(''); } }))),
    ...(results.songs.map(s => ({ id: s.id, action: () => {
@@ -217,6 +248,22 @@ export default function LiveSearch() {
   ] : [];
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (share.shareMatch) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (share.canQueueShareMatch) void share.enqueueShareMatch();
+        else if (share.canOpenShareAlbum) share.openShareAlbum();
+        else if (share.canOpenShareArtist) share.openShareArtist();
+        else if (share.canOpenShareComposer) share.openShareComposer();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex(share.hasShareKeyboardTarget ? 0 : -1);
+      } else if (e.key === 'Escape') {
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+      return;
+    }
     if (!open || !flatItems.length) {
       if (e.key === 'Enter' && query.trim()) { setOpen(false); navigate(`/search?q=${encodeURIComponent(query.trim())}`); }
       return;
@@ -312,7 +359,36 @@ export default function LiveSearch() {
             <div className="search-empty">{t('search.noResults', { query })}</div>
           )}
 
+          {share.shareMatch && (
+            <ShareSearchResults
+              variant="desktop"
+              shareMatch={share.shareMatch}
+              shareServerLabel={share.shareServerLabel}
+              shareCoverServer={share.shareCoverServer}
+              activeIndex={activeIndex}
+              shareQueueBusy={share.shareQueueBusy}
+              onEnqueue={() => void share.enqueueShareMatch()}
+              onOpenAlbum={share.openShareAlbum}
+              onOpenArtist={share.openShareArtist}
+              onOpenComposer={share.openShareComposer}
+              onContextMenu={(e, item, type) => openContextMenu(e.clientX, e.clientY, item, type)}
+              shareTrackSong={share.shareTrackSong}
+              shareTrackResolving={share.shareTrackResolving}
+              shareTrackUnavailable={share.shareTrackUnavailable}
+              shareAlbum={share.shareAlbum}
+              shareAlbumResolving={share.shareAlbumResolving}
+              shareAlbumUnavailable={share.shareAlbumUnavailable}
+              shareArtist={share.shareArtist}
+              shareArtistResolving={share.shareArtistResolving}
+              shareArtistUnavailable={share.shareArtistUnavailable}
+              shareComposer={share.shareComposer}
+              shareComposerResolving={share.shareComposerResolving}
+              shareComposerUnavailable={share.shareComposerUnavailable}
+            />
+          )}
+
           {(() => {
+            if (share.shareMatch) return null;
             let idx = 0;
             return <>
               {results?.artists.length ? (
