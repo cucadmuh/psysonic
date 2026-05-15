@@ -13,5 +13,7 @@ export const sharePaste = {
   openedQueue_other: '正在播放分享队列中的 {{count}} 首曲目。',
   openedQueuePartial: '正在播放链接中的 {{played}} / {{total}} 首曲目（{{skipped}} 首在此服务器上未找到）。',
   queueAllUnavailable: '此链接中的曲目在服务器上均未找到。',
+  playQueue: 'Play queue',
+  playQueueing: 'Starting playback…',
   genericError: '无法打开分享链接。',
 };

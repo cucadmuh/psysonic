@@ -8,6 +8,8 @@ import { formatTrackTime } from '../../utils/format/formatDuration';
 import type { ShareQueuePreviewState } from '../../hooks/useShareQueuePreview';
 import { sharePayloadTotal, type QueueableShareSearchPayload } from '../../utils/share/shareSearch';
 import CachedImage from '../CachedImage';
+import OverlayScrollArea from '../OverlayScrollArea';
+import { usePlayerStore } from '../../store/playerStore';
 import {
   buildCoverArtUrl,
   buildCoverArtUrlForServer,
@@ -24,6 +26,8 @@ type ShareQueuePreviewModalProps = {
   coverServer?: ServerProfile | null;
   onEnqueue: () => void;
   enqueueBusy: boolean;
+  confirmLabel?: string;
+  confirmBusyLabel?: string;
 };
 
 function QueuePreviewTrackRow({
@@ -93,11 +97,18 @@ function PreviewBody({
           {t('search.shareQueuePreviewSkipped', { skipped: preview.skipped, total: preview.total })}
         </p>
       )}
-      <ul className="share-queue-preview-modal__list">
-        {preview.songs.map(song => (
-          <QueuePreviewTrackRow key={song.id} song={song} coverServer={coverServer} />
-        ))}
-      </ul>
+      <OverlayScrollArea
+        className="share-queue-preview-modal__list-wrap"
+        viewportClassName="share-queue-preview-modal__list-viewport"
+        measureDeps={[preview.songs.length, preview.skipped]}
+        railInset="panel"
+      >
+        <ul className="share-queue-preview-modal__list">
+          {preview.songs.map(song => (
+            <QueuePreviewTrackRow key={song.id} song={song} coverServer={coverServer} />
+          ))}
+        </ul>
+      </OverlayScrollArea>
     </>
   );
 }
@@ -111,16 +122,30 @@ export default function ShareQueuePreviewModal({
   coverServer,
   onEnqueue,
   enqueueBusy,
+  confirmLabel,
+  confirmBusyLabel,
 }: ShareQueuePreviewModalProps) {
   const { t } = useTranslation();
+  const actionLabel = confirmLabel ?? t('search.shareQueueAction');
+  const actionBusyLabel = confirmBusyLabel ?? t('search.shareQueueing');
 
   useEffect(() => {
     if (!open) return;
+    usePlayerStore.getState().closeContextMenu();
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
+    const blockContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      usePlayerStore.getState().closeContextMenu();
+    };
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    document.addEventListener('contextmenu', blockContextMenu, true);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.removeEventListener('contextmenu', blockContextMenu, true);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -132,6 +157,10 @@ export default function ShareQueuePreviewModal({
     <div
       className="modal-overlay share-queue-preview-modal-overlay"
       role="presentation"
+      onContextMenu={e => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       onMouseDown={e => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -141,6 +170,10 @@ export default function ShareQueuePreviewModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-queue-preview-title"
+        onContextMenu={e => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onMouseDown={e => e.stopPropagation()}
       >
         <button type="button" className="modal-close" onClick={onClose} aria-label={t('common.close')}>
@@ -172,7 +205,7 @@ export default function ShareQueuePreviewModal({
             disabled={!canEnqueue || enqueueBusy}
             onClick={() => void onEnqueue()}
           >
-            {enqueueBusy ? t('search.shareQueueing') : t('search.shareQueueAction')}
+            {enqueueBusy ? actionBusyLabel : actionLabel}
           </button>
         </footer>
       </div>

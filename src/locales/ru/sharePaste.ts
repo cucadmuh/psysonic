@@ -16,5 +16,7 @@ export const sharePaste = {
   openedQueuePartial:
     'Воспроизводится {{played}} из {{total}} треков по ссылке ({{skipped}} на этом сервере не найдены).',
   queueAllUnavailable: 'Ни один из треков по ссылке не найден на сервере.',
+  playQueue: 'Воспроизвести очередь',
+  playQueueing: 'Запуск воспроизведения…',
   genericError: 'Не удалось открыть ссылку для обмена.',
 };

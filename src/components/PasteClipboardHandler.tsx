@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/authStore';
+import type { EntitySharePayloadV1 } from '../utils/share/shareLink';
 import { decodeSharePayloadFromText } from '../utils/share/shareLink';
 import { decodeServerMagicStringFromText } from '../utils/server/serverMagicString';
-import { applySharePastePayload } from '../utils/share/applySharePaste';
+import { applySharePastePayload, applySharePasteQueue } from '../utils/share/applySharePaste';
+import { shareQueueServerContext } from '../utils/share/shareServerOriginLabel';
 import { showToast } from '../utils/ui/toast';
+import { useShareQueuePreview } from '../hooks/useShareQueuePreview';
+import ShareQueuePreviewModal from './search/ShareQueuePreviewModal';
 import {
   parseOrbitShareLink,
   joinOrbitSession,
@@ -30,13 +34,27 @@ const ORBIT_JOIN_ERROR_KEYS: Record<string, string> = {
  * Global paste: library share links (`psysonic2-`) and server invites (`psysonic1-`)
  * outside text fields. Shares require login; invites open add-server (settings or login).
  */
+type QueuePastePayload = Extract<EntitySharePayloadV1, { k: 'queue' }>;
+
 export default function PasteClipboardHandler() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const isLoggedIn = useAuthStore(s => s.isLoggedIn);
+  const servers = useAuthStore(s => s.servers);
+  const activeServerId = useAuthStore(s => s.activeServerId);
   const busy = useRef(false);
   const [orbitConfirm, setOrbitConfirm] = useState<{ sid: string; host: string; name: string } | null>(null);
   const [orbitInvalid, setOrbitInvalid] = useState(false);
+  const [queuePaste, setQueuePaste] = useState<QueuePastePayload | null>(null);
+  const [queuePasteBusy, setQueuePasteBusy] = useState(false);
+  const queuePreview = useShareQueuePreview(queuePaste, !!queuePaste);
+  const { label: queuePasteServerLabel, coverServer: queuePasteCoverServer } = useMemo(
+    () =>
+      queuePaste
+        ? shareQueueServerContext(queuePaste.srv, servers, activeServerId)
+        : { label: null, coverServer: null },
+    [queuePaste, servers, activeServerId],
+  );
 
   // `not-found` and `ended` collapse into a single "link no longer valid"
   // dialog — from the guest's POV both mean the same thing: the invite
@@ -137,13 +155,21 @@ export default function PasteClipboardHandler() {
           showToast(t('sharePaste.notLoggedIn'), 4000, 'info');
           return;
         }
-        if (busy.current) {
+        if (busy.current || queuePaste) {
           e.preventDefault();
           e.stopPropagation();
           return;
         }
         e.preventDefault();
         e.stopPropagation();
+        if (share.k === 'queue') {
+          if (share.ids.length === 0) {
+            showToast(t('sharePaste.genericError'), 5000, 'error');
+            return;
+          }
+          setQueuePaste(share);
+          return;
+        }
         busy.current = true;
         void applySharePastePayload(share, navigate, t).finally(() => {
           busy.current = false;
@@ -171,10 +197,37 @@ export default function PasteClipboardHandler() {
     };
     document.addEventListener('paste', onPaste, true);
     return () => document.removeEventListener('paste', onPaste, true);
-  }, [navigate, t, isLoggedIn]);
+  }, [navigate, t, isLoggedIn, queuePaste]);
+
+  const closeQueuePaste = () => {
+    if (queuePasteBusy) return;
+    setQueuePaste(null);
+  };
+
+  const confirmQueuePaste = async () => {
+    if (!queuePaste || queuePasteBusy) return;
+    setQueuePasteBusy(true);
+    const ok = await applySharePasteQueue(queuePaste, t);
+    setQueuePasteBusy(false);
+    if (ok) setQueuePaste(null);
+  };
 
   return (
     <>
+      {queuePaste && (
+        <ShareQueuePreviewModal
+          open
+          onClose={closeQueuePaste}
+          payload={queuePaste}
+          preview={queuePreview}
+          shareServerLabel={queuePasteServerLabel}
+          coverServer={queuePasteCoverServer}
+          onEnqueue={() => void confirmQueuePaste()}
+          enqueueBusy={queuePasteBusy}
+          confirmLabel={t('sharePaste.playQueue')}
+          confirmBusyLabel={t('sharePaste.playQueueing')}
+        />
+      )}
       <ConfirmModal
         open={!!orbitConfirm}
         title={t('orbit.confirmJoinTitle')}

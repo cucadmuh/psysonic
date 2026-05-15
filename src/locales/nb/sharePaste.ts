@@ -14,5 +14,7 @@ export const sharePaste = {
   openedQueuePartial:
     'Spiller {{played}} av {{total}} spor fra lenken ({{skipped}} ble ikke funnet på denne serveren).',
   queueAllUnavailable: 'Ingen av sporene fra denne lenken ble funnet på serveren.',
+  playQueue: 'Play queue',
+  playQueueing: 'Starting playback…',
   genericError: 'Klarte ikke å åpne delingslenken.',
 };

@@ -23,3 +23,20 @@ export function shareServerOriginLabel(
 
   return serverListDisplayLabel(server, servers);
 }
+
+/** Server label and profile for queue preview when the link targets another saved server. */
+export function shareQueueServerContext(
+  shareSrv: string,
+  servers: ServerProfile[],
+  activeServerId: string | null,
+): { label: string | null; coverServer: ServerProfile | null } {
+  const match: ShareSearchMatch = {
+    type: 'queueable',
+    payload: { srv: shareSrv, k: 'queue', ids: [] },
+  };
+  const label = shareServerOriginLabel(match, servers, activeServerId);
+  const serverId = findServerIdForShareUrl(servers, shareSrv);
+  const coverServer =
+    serverId && serverId !== activeServerId ? servers.find(s => s.id === serverId) ?? null : null;
+  return { label, coverServer };
+}

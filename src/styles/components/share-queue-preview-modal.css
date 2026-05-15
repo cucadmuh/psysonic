@@ -2,6 +2,8 @@
 .share-queue-preview-modal-overlay {
   align-items: center;
   padding-top: 0;
+  /* Above .context-menu (10000) and .context-submenu (10001). */
+  z-index: 10002;
 }
 
 .share-queue-preview-modal {
@@ -59,12 +61,17 @@
   color: var(--text-muted);
 }
 
-.share-queue-preview-modal__list {
-  flex: 1;
+.share-queue-preview-modal__list-wrap.overlay-scroll {
+  flex: 1 1 auto;
   min-height: 120px;
   max-height: min(52vh, 480px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+}
+
+.share-queue-preview-modal__list-viewport {
+  padding-right: var(--space-1);
+}
+
+.share-queue-preview-modal__list {
   margin: 0;
   padding: 0;
   list-style: none;

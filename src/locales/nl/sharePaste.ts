@@ -14,5 +14,7 @@ export const sharePaste = {
   openedQueuePartial:
     '{{played}} van {{total}} nummers uit de link worden afgespeeld ({{skipped}} niet gevonden op deze server).',
   queueAllUnavailable: 'Geen enkel nummer uit deze link is op de server gevonden.',
+  playQueue: 'Play queue',
+  playQueueing: 'Starting playback…',
   genericError: 'De deellink kon niet worden geopend.',
 };
