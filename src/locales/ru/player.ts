@@ -9,6 +9,7 @@ export const player = {
   prev: 'Предыдущий трек',
   play: 'Играть',
   pause: 'Пауза',
+  bufferingStream: 'Загрузка трека с сервера',
   previewActive: 'Превью воспроизводится',
   previewLabel: 'Превью',
   delayModalTitle: 'Таймер',

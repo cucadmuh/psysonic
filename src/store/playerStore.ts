@@ -39,6 +39,7 @@ export const usePlayerStore = create<PlayerState>()(
       queueServerId: null,
       queueIndex: 0,
       isPlaying: false,
+      isPlaybackBuffering: false,
       progress: 0,
       buffered: 0,
       currentTime: 0,
