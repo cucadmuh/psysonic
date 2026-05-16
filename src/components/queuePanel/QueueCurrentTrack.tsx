@@ -194,7 +194,7 @@ export function QueueCurrentTrack({
         );
       })()}
       <div className="queue-current-track-body">
-        <div className="queue-current-cover">
+        <div className={`queue-current-cover${showBufferingOverlay ? ' playback-buffering' : ''}`}>
           {currentTrack.coverArt ? (
             <img src={currentCoverSrc} alt="" loading="eager" />
           ) : (

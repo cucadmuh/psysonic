@@ -62,7 +62,7 @@ export function PlayerTrackInfo({
   return (
     <div className="player-track-info">
       <div
-        className={`player-album-art-wrap ${currentTrack && !isRadio && !showPreviewMeta ? 'clickable' : ''}`}
+        className={`player-album-art-wrap${showBufferingOverlay && !isRadio && !showPreviewMeta ? ' playback-buffering' : ''}${currentTrack && !isRadio && !showPreviewMeta ? ' clickable' : ''}`}
         onClick={() => !isRadio && !showPreviewMeta && currentTrack && toggleFullscreen()}
         data-tooltip={!isRadio && !showPreviewMeta && currentTrack ? t('player.openFullscreen') : undefined}
       >
