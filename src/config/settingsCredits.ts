@@ -113,8 +113,8 @@ const CONTRIBUTOR_ENTRIES = [
       'Now Playing: composite list keys on similar artists, album-card tracklist, and top songs — avoids duplicate React keys when Subsonic repeats ids (PR #703)',
       'Search: share links in live/mobile search + queue preview modal (PR #716)',
       'Multi-server: pin queue streams, cover art, links, context menu, and Now Playing to queue server (PR #717)',
-      'M4A/MP4 streaming: moov-at-end tail prefetch and Symphonia isomp4 probe fix',
-      'HTTP stream buffering — seekbar/timer at zero and cover overlay until playback arms',
+      'M4A/MP4 streaming: moov-at-end tail prefetch and Symphonia isomp4 probe fix (PR #737)',
+      'HTTP stream buffering — seekbar/timer at zero and cover overlay until playback arms (PR #737)',
     ],
   },
   {

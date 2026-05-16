@@ -337,14 +337,14 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 
 ### Playback — stream buffering indicator on cover art
 
-**By [@cucadmuh](https://github.com/cucadmuh)**
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#737](https://github.com/Psychotoxical/psysonic/pull/737)**
 
 * While an **HTTP stream** is still opening, the **player bar** and **queue** cover art is **greyscaled** with a static **clock** overlay; the seekbar and timer stay at **0** until the Rust engine arms playback (no optimistic drift).
 * **`audio:progress`** carries an optional **`buffering`** flag; the UI only updates **`isPlaybackBuffering`** when the flag changes to avoid redundant store writes.
 
 ### Hot cache — promote completed ranged streams larger than 64 MiB
 
-**By [@cucadmuh](https://github.com/cucadmuh)**
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#737](https://github.com/Psychotoxical/psysonic/pull/737)**
 
 * Completed **ranged HTTP** downloads above the in-RAM promote cap (including long **M4A** / **ALAC** albums) are **spilled to disk** under app-data **`stream-spill/`**, then **renamed into hot cache** on promote instead of being skipped.
 * Orphan spill files from prior sessions are **removed on startup** (best-effort).
@@ -362,7 +362,7 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 
 ### Playback — M4A / MP4 streaming (moov-at-end) and seekbar during buffer
 
-**By [@cucadmuh](https://github.com/cucadmuh)**
+**By [@cucadmuh](https://github.com/cucadmuh), PR [#737](https://github.com/Psychotoxical/psysonic/pull/737)**
 
 * **M4A** and **MP4** tracks streamed from the server (including **AAC** and **ALAC** in `.m4a` / `.mp4` containers) with **`moov` at the end of the file** — typical for many Navidrome / iTunes-style encoders — **start audibly sooner**: playback no longer waits for the entire **`mdat`** blob to download before Symphonia can open the file.
 * **Tail prefetch** on the ranged HTTP path pulls the end of the file first so metadata is available while the linear download still fills from byte 0.
