@@ -536,7 +536,14 @@ pub fn take_stream_completed_spill_for_url(
     state: &AudioEngine,
     url: &str,
 ) -> Option<std::path::PathBuf> {
-    let mut guard = state.stream_completed_spill.lock().unwrap();
+    take_stream_completed_spill_from_slot(&state.stream_completed_spill, url)
+}
+
+pub(crate) fn take_stream_completed_spill_from_slot(
+    slot: &std::sync::Arc<std::sync::Mutex<Option<crate::state::StreamCompletedSpill>>>,
+    url: &str,
+) -> Option<std::path::PathBuf> {
+    let mut guard = slot.lock().unwrap();
     if guard
         .as_ref()
         .is_some_and(|p| same_playback_target(&p.url, url))
@@ -1521,12 +1528,13 @@ mod stream_spill_tests {
         let dir = scratch_dir("take");
         let path = dir.join("t.complete");
         std::fs::write(&path, b"x").unwrap();
-        let (engine, _thread) = crate::engine::create_engine();
+        let slot: Arc<Mutex<Option<crate::state::StreamCompletedSpill>>> =
+            Arc::new(Mutex::new(None));
         let url = "https://server/stream?id=1";
-        install_stream_completed_spill(&engine.stream_completed_spill, url.into(), path.clone());
-        let taken = take_stream_completed_spill_for_url(&engine, url);
+        install_stream_completed_spill(&slot, url.into(), path.clone());
+        let taken = take_stream_completed_spill_from_slot(&slot, url);
         assert_eq!(taken.as_deref(), Some(path.as_path()));
-        assert!(take_stream_completed_spill_for_url(&engine, url).is_none());
+        assert!(take_stream_completed_spill_from_slot(&slot, url).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
