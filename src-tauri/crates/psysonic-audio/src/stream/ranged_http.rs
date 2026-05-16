@@ -26,6 +26,10 @@ use super::{
     RADIO_YIELD_MS, TRACK_READ_TIMEOUT_SECS, TRACK_STREAM_MAX_RECONNECTS,
     TRACK_STREAM_PROMOTE_MAX_BYTES,
 };
+use crate::helpers::{
+    install_stream_completed_spill, spawn_analysis_seed_from_spill_file, write_stream_spill_file,
+};
+use crate::state::StreamCompletedSpill;
 
 /// Clears `AudioEngine::ranged_loudness_seed_hold` only if it still matches this play.
 struct RangedLoudnessSeedHoldClear {
@@ -437,7 +441,7 @@ async fn ranged_prefetch_mp4_tail(
 /// Linear downloader for `RangedHttpSource`: fills the pre-allocated buffer
 /// from offset 0 to total_size. Reconnects via HTTP Range from the current
 /// `downloaded` offset on transient errors. On completion (full track) the
-/// data is promoted to `stream_completed_cache` for fast replay.
+/// data is promoted to `stream_completed_cache` (≤ 64 MiB) or spilled to disk for hot cache.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn ranged_download_task(
     gen: u64,
@@ -451,6 +455,7 @@ pub(crate) async fn ranged_download_task(
     downloaded_to: Arc<AtomicUsize>,
     done: Arc<AtomicBool>,
     promote_cache_slot: Arc<Mutex<Option<PreloadedTrack>>>,
+    spill_cache_slot: Arc<Mutex<Option<StreamCompletedSpill>>>,
     normalization_engine: Arc<AtomicU32>,
     normalization_target_lufs: Arc<AtomicU32>,
     loudness_pre_analysis_attenuation_db: Arc<AtomicU32>,
@@ -597,34 +602,76 @@ pub(crate) async fn ranged_download_task(
         );
     }
 
-    if downloaded == total_size && total_size > 0 && total_size <= TRACK_STREAM_PROMOTE_MAX_BYTES {
-        if let Some(ref tid) = cache_track_id {
-            crate::app_deprintln!(
-                "[stream] ranged: HTTP buffer full track_id={} size_mib={:.2} — cloning {} bytes then full-track analysis (cpu-seed queue; this task awaits completion)",
-                tid,
-                total_size as f64 / (1024.0 * 1024.0),
-                total_size
-            );
-        }
-        let t_clone = Instant::now();
-        let data = buf.lock().unwrap().clone();
-        if total_size > 32 * 1024 * 1024 {
-            crate::app_deprintln!(
-                "[stream] ranged: buffer cloned in_ms={}",
-                t_clone.elapsed().as_millis()
-            );
-        }
-        if let Some(track_id) = cache_track_id {
-            let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
-            if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
-                crate::app_eprintln!("[analysis] ranged seed failed for {}: {}", track_id, e);
+    if downloaded == total_size && total_size > 0 {
+        if total_size <= TRACK_STREAM_PROMOTE_MAX_BYTES {
+            if let Some(ref tid) = cache_track_id {
+                crate::app_deprintln!(
+                    "[stream] ranged: HTTP buffer full track_id={} size_mib={:.2} — cloning {} bytes then full-track analysis (cpu-seed queue; this task awaits completion)",
+                    tid,
+                    total_size as f64 / (1024.0 * 1024.0),
+                    total_size
+                );
+            }
+            let t_clone = Instant::now();
+            let data = buf.lock().unwrap().clone();
+            if total_size > 32 * 1024 * 1024 {
+                crate::app_deprintln!(
+                    "[stream] ranged: buffer cloned in_ms={}",
+                    t_clone.elapsed().as_millis()
+                );
+            }
+            if let Some(track_id) = cache_track_id {
+                let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
+                if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), data.clone(), high).await {
+                    crate::app_eprintln!("[analysis] ranged seed failed for {}: {}", track_id, e);
+                }
+            }
+            if gen_arc.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            *promote_cache_slot.lock().unwrap() = Some(PreloadedTrack { url, data });
+            crate::app_deprintln!("[stream] promoted to stream_completed_cache for replay");
+        } else if let Some(track_id) = cache_track_id.clone() {
+            if gen_arc.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            let spill_result = {
+                let spill_bytes = buf.lock().unwrap();
+                if gen_arc.load(Ordering::SeqCst) != gen {
+                    return;
+                }
+                write_stream_spill_file(&app, &track_id, &spill_bytes)
+            };
+            match spill_result {
+                Ok(path) => {
+                    crate::app_deprintln!(
+                        "[stream] ranged: spilled to disk track_id={} size_mib={:.2} path={}",
+                        track_id,
+                        total_size as f64 / (1024.0 * 1024.0),
+                        path.display()
+                    );
+                    if gen_arc.load(Ordering::SeqCst) != gen {
+                        let _ = std::fs::remove_file(&path);
+                        return;
+                    }
+                    install_stream_completed_spill(&spill_cache_slot, url, path.clone());
+                    spawn_analysis_seed_from_spill_file(
+                        &app,
+                        &track_id,
+                        path,
+                        gen,
+                        &gen_arc,
+                    );
+                }
+                Err(e) => {
+                    crate::app_eprintln!(
+                        "[stream] ranged: spill write failed track_id={}: {}",
+                        track_id,
+                        e
+                    );
+                }
             }
         }
-        if gen_arc.load(Ordering::SeqCst) != gen {
-            return;
-        }
-        *promote_cache_slot.lock().unwrap() = Some(PreloadedTrack { url, data });
-        crate::app_deprintln!("[stream] promoted to stream_completed_cache for replay");
     }
 }
 

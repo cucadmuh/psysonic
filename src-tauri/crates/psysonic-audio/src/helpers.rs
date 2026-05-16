@@ -531,6 +531,54 @@ pub fn take_stream_completed_for_url(state: &AudioEngine, url: &str) -> Option<V
     None
 }
 
+/// Take (consume) on-disk spill for a completed large ranged stream.
+pub fn take_stream_completed_spill_for_url(
+    state: &AudioEngine,
+    url: &str,
+) -> Option<std::path::PathBuf> {
+    let mut guard = state.stream_completed_spill.lock().unwrap();
+    if guard
+        .as_ref()
+        .is_some_and(|p| same_playback_target(&p.url, url))
+    {
+        return guard.take().map(|p| p.path);
+    }
+    None
+}
+
+/// Atomically write completed stream bytes to app-data `stream-spill/` (sync; no await while holding `buf`).
+pub(crate) fn write_stream_spill_file(
+    app: &AppHandle,
+    track_id: &str,
+    bytes: &[u8],
+) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("stream-spill");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{track_id}.complete"));
+    let part = dir.join(format!("{track_id}.complete.part"));
+    std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+pub(crate) fn install_stream_completed_spill(
+    slot: &std::sync::Arc<std::sync::Mutex<Option<crate::state::StreamCompletedSpill>>>,
+    url: String,
+    path: std::path::PathBuf,
+) {
+    let mut guard = slot.lock().unwrap();
+    if let Some(old) = guard.take() {
+        if old.path != path {
+            let _ = std::fs::remove_file(&old.path);
+        }
+    }
+    *guard = Some(crate::state::StreamCompletedSpill { url, path });
+}
+
 /// Fetch track bytes from the preload cache or via HTTP.
 pub(crate) async fn fetch_data(
     url: &str,
@@ -549,6 +597,25 @@ pub(crate) async fn fetch_data(
     };
     if let Some(data) = streamed_cached {
         return Ok(Some(data));
+    }
+
+    let spill_path = {
+        let guard = state.stream_completed_spill.lock().unwrap();
+        guard
+            .as_ref()
+            .filter(|p| same_playback_target(&p.url, url))
+            .map(|p| p.path.clone())
+    };
+    if let Some(path) = spill_path {
+        let data = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
+        if !data.is_empty() {
+            crate::app_deprintln!(
+                "[stream] fetch_data from spill path={} bytes={}",
+                path.display(),
+                data.len()
+            );
+            return Ok(Some(data));
+        }
     }
 
     // Check preload cache next.
@@ -644,6 +711,72 @@ pub(crate) fn spawn_analysis_seed_from_in_memory_bytes(
         if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(app.clone(), track_id.clone(), bytes, high).await {
             crate::app_eprintln!(
                 "[analysis] in-memory play path seed failed for {}: {}",
+                track_id,
+                e
+            );
+        }
+    });
+}
+
+/// Full-track analysis for a completed ranged stream spilled to disk (> RAM promote cap).
+pub(crate) fn spawn_analysis_seed_from_spill_file(
+    app: &AppHandle,
+    track_id: &str,
+    spill_path: std::path::PathBuf,
+    gen: u64,
+    gen_arc: &Arc<AtomicU64>,
+) {
+    let track_id = track_id.trim().to_string();
+    if track_id.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    let gen_arc = gen_arc.clone();
+    let max_bytes = crate::stream::LOCAL_FILE_PLAYBACK_SEED_MAX_BYTES;
+    tokio::spawn(async move {
+        if gen_arc.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let bytes = match tokio::fs::read(&spill_path).await {
+            Ok(b) if b.is_empty() => return,
+            Ok(b) if b.len() > max_bytes => {
+                crate::app_deprintln!(
+                    "[stream] spill analysis skip track_id={} bytes={} max={}",
+                    track_id,
+                    b.len(),
+                    max_bytes
+                );
+                return;
+            }
+            Ok(b) => b,
+            Err(e) => {
+                crate::app_eprintln!(
+                    "[stream] spill analysis read failed track_id={}: {}",
+                    track_id,
+                    e
+                );
+                return;
+            }
+        };
+        if gen_arc.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        crate::app_deprintln!(
+            "[stream] spill path: scheduling full-track analysis track_id={} size_mib={:.2}",
+            track_id,
+            bytes.len() as f64 / (1024.0 * 1024.0)
+        );
+        let high = crate::engine::analysis_seed_high_priority_for_track(&app, &track_id);
+        if let Err(e) = psysonic_analysis::analysis_runtime::submit_analysis_cpu_seed(
+            app,
+            track_id.clone(),
+            bytes,
+            high,
+        )
+        .await
+        {
+            crate::app_eprintln!(
+                "[analysis] spill path seed failed for {}: {}",
                 track_id,
                 e
             );

@@ -33,7 +33,8 @@ pub(crate) const RADIO_BUF_CAPACITY: usize = 256 * 1024;
 pub(crate) const TRACK_STREAM_MIN_BUF_CAPACITY: usize = 1024 * 1024;
 /// Cap ring buffer growth when content-length is known.
 pub(crate) const TRACK_STREAM_MAX_BUF_CAPACITY: usize = 32 * 1024 * 1024;
-/// Max bytes kept in memory to promote a completed streamed track for fast replay/seek recovery.
+/// Max bytes kept in RAM (`stream_completed_cache`) for fast replay; larger completed
+/// ranged streams are spilled under app-data `stream-spill/` for hot-cache promote.
 pub(crate) const TRACK_STREAM_PROMOTE_MAX_BYTES: usize = 64 * 1024 * 1024;
 /// Hot/offline `psysonic-local://` files are read from disk for waveform/LUFS seeding — not the
 /// same heap pressure as retaining a full HTTP capture. FLAC/DSD tracks often exceed 64 MiB;

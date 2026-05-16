@@ -302,6 +302,7 @@ async fn open_ranged_or_streaming_input(
             downloaded_to.clone(),
             done.clone(),
             state.stream_completed_cache.clone(),
+            state.stream_completed_spill.clone(),
             state.normalization_engine.clone(),
             state.normalization_target_lufs.clone(),
             state.loudness_pre_analysis_attenuation_db.clone(),
