@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter};
 
 use super::super::state::PreloadedTrack;
 use super::{
-    RADIO_READ_TIMEOUT_SECS, RADIO_YIELD_MS, TRACK_STREAM_MAX_RECONNECTS,
+    RADIO_YIELD_MS, TRACK_READ_TIMEOUT_SECS, TRACK_STREAM_MAX_RECONNECTS,
     TRACK_STREAM_PROMOTE_MAX_BYTES,
 };
 
@@ -49,12 +49,31 @@ pub(crate) struct RangedHttpSource {
     pub(crate) buf: Arc<Mutex<Vec<u8>>>,
     /// Bytes contiguously downloaded from offset 0.
     pub(crate) downloaded_to: Arc<AtomicUsize>,
+    /// When set, bytes `[tail_filled_from..total_size)` are valid (moov-at-end prefetch).
+    pub(crate) tail_ready: Arc<AtomicBool>,
+    pub(crate) tail_filled_from: Arc<AtomicU64>,
     pub(crate) total_size: u64,
     pub(crate) pos: u64,
     /// Set when the download task terminates (success or hard error).
     pub(crate) done: Arc<AtomicBool>,
     pub(crate) gen_arc: Arc<AtomicU64>,
     pub(crate) gen: u64,
+}
+
+impl RangedHttpSource {
+    fn region_ready(&self, start: u64, end: u64) -> bool {
+        let dl = self.downloaded_to.load(Ordering::Relaxed) as u64;
+        if end <= dl {
+            return true;
+        }
+        if self.tail_ready.load(Ordering::Relaxed) {
+            let tail_from = self.tail_filled_from.load(Ordering::Relaxed);
+            if start >= tail_from && end <= self.total_size {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Read for RangedHttpSource {
@@ -75,7 +94,9 @@ impl Read for RangedHttpSource {
         }
         let target_end = self.pos + max_read as u64;
 
-        let deadline = Instant::now() + Duration::from_secs(RADIO_READ_TIMEOUT_SECS);
+        let stall_timeout = Duration::from_secs(TRACK_READ_TIMEOUT_SECS);
+        let mut deadline = Instant::now() + stall_timeout;
+        let mut last_dl_seen = self.downloaded_to.load(Ordering::Relaxed) as u64;
         loop {
             if self.gen_arc.load(Ordering::SeqCst) != self.gen {
                 crate::app_deprintln!(
@@ -85,13 +106,20 @@ impl Read for RangedHttpSource {
                 );
                 return Ok(0);
             }
-            let dl = self.downloaded_to.load(Ordering::SeqCst) as u64;
-            if dl >= target_end {
+            if self.region_ready(self.pos, target_end) {
                 break;
+            }
+            let dl = self.downloaded_to.load(Ordering::SeqCst) as u64;
+            if dl > last_dl_seen {
+                last_dl_seen = dl;
+                deadline = Instant::now() + stall_timeout;
             }
             // Download finished but our cursor is past downloaded_to (e.g. seek
             // beyond a partial download that aborted). Return what we have.
             if self.done.load(Ordering::SeqCst) {
+                if self.region_ready(self.pos, target_end) {
+                    break;
+                }
                 if dl > self.pos {
                     let avail = (dl - self.pos) as usize;
                     let src = self.buf.lock().unwrap();
@@ -188,6 +216,7 @@ pub(crate) async fn ranged_http_download_loop<F>(
     gen: u64,
     gen_arc: &Arc<AtomicU64>,
     mut on_partial: F,
+    playback_armed: Option<&AtomicBool>,
 ) -> (usize, RangedHttpLoopOutcome)
 where
     F: FnMut(usize, usize),
@@ -274,6 +303,9 @@ where
             }
             downloaded += n;
             downloaded_to.store(downloaded, Ordering::SeqCst);
+            if let Some(armed) = playback_armed {
+                super::maybe_arm_stream_playback(downloaded as u64, armed);
+            }
             on_partial(downloaded, total_size);
             let mb = downloaded / (1024 * 1024);
             while mb >= next_progress_mb {
@@ -302,6 +334,106 @@ where
     }
 }
 
+/// Fetch `bytes=start-end` into `buf[start..=end]` (inclusive HTTP Range).
+async fn ranged_write_http_range(
+    http_client: &reqwest::Client,
+    url: &str,
+    buf: &Arc<Mutex<Vec<u8>>>,
+    start: u64,
+    end_inclusive: u64,
+    gen: u64,
+    gen_arc: &Arc<AtomicU64>,
+) -> Result<usize, ()> {
+    if gen_arc.load(Ordering::SeqCst) != gen {
+        return Err(());
+    }
+    let response = http_client
+        .get(url)
+        .header(reqwest::header::RANGE, format!("bytes={start}-{end_inclusive}"))
+        .send()
+        .await
+        .map_err(|_| ())?;
+    if gen_arc.load(Ordering::SeqCst) != gen {
+        return Err(());
+    }
+    if !(response.status() == reqwest::StatusCode::PARTIAL_CONTENT
+        || response.status() == reqwest::StatusCode::OK)
+    {
+        return Err(());
+    }
+    let mut written = 0usize;
+    let start_usize = start as usize;
+    let mut byte_stream = response.bytes_stream();
+    while let Some(chunk) = byte_stream.next().await {
+        if gen_arc.load(Ordering::SeqCst) != gen {
+            return Err(());
+        }
+        let chunk = chunk.map_err(|_| ())?;
+        if chunk.is_empty() {
+            continue;
+        }
+        let mut b = buf.lock().unwrap();
+        let end = (start_usize + written + chunk.len()).min(b.len());
+        let n = end.saturating_sub(start_usize + written);
+        b[start_usize + written..start_usize + written + n]
+            .copy_from_slice(&chunk[..n]);
+        written += n;
+        if start_usize + written > end_inclusive as usize {
+            break;
+        }
+    }
+    Ok(written)
+}
+
+/// Prefetch the tail of a moov-at-end MP4 so Symphonia can parse metadata while
+/// the linear download still fills `mdat` from offset 0.
+async fn ranged_prefetch_mp4_tail(
+    http_client: reqwest::Client,
+    url: String,
+    buf: Arc<Mutex<Vec<u8>>>,
+    total_size: usize,
+    tail_ready: Arc<AtomicBool>,
+    tail_filled_from: Arc<AtomicU64>,
+    playback_armed: Arc<AtomicBool>,
+    gen: u64,
+    gen_arc: Arc<AtomicU64>,
+) {
+    const MIN_TAIL: u64 = 256 * 1024;
+    const MAX_TAIL: u64 = 8 * 1024 * 1024;
+    let total = total_size as u64;
+    if total < MIN_TAIL + 64 * 1024 {
+        return;
+    }
+    let tail_len = MAX_TAIL.min(total / 2).max(MIN_TAIL);
+    let tail_from = total.saturating_sub(tail_len);
+    let end_inclusive = total.saturating_sub(1);
+    match ranged_write_http_range(
+        &http_client,
+        &url,
+        &buf,
+        tail_from,
+        end_inclusive,
+        gen,
+        &gen_arc,
+    )
+    .await
+    {
+        Ok(written) if written > 0 => {
+            tail_filled_from.store(tail_from, Ordering::Relaxed);
+            tail_ready.store(true, Ordering::SeqCst);
+            super::maybe_arm_stream_playback(tail_from + written as u64, &playback_armed);
+            crate::app_deprintln!(
+                "[stream] ranged: moov-at-end tail prefetch {} KiB (from byte {})",
+                written / 1024,
+                tail_from / 1024
+            );
+        }
+        _ => {
+            crate::app_deprintln!("[stream] ranged: moov-at-end tail prefetch failed");
+        }
+    }
+}
+
 /// Linear downloader for `RangedHttpSource`: fills the pre-allocated buffer
 /// from offset 0 to total_size. Reconnects via HTTP Range from the current
 /// `downloaded` offset on transient errors. On completion (full track) the
@@ -326,6 +458,10 @@ pub(crate) async fn ranged_download_task(
     // When `Some`, ranged playback seeds on completion — defer HTTP backfill for that
     // track; `None` for large files where ranged skips seed (needs backfill).
     loudness_seed_hold: Option<LoudnessSeedHold>,
+    playback_armed: Arc<AtomicBool>,
+    format_hint: Option<String>,
+    tail_ready: Arc<AtomicBool>,
+    tail_filled_from: Arc<AtomicU64>,
 ) {
     let _ranged_loudness_hold_clear = match (loudness_seed_hold.as_ref(), cache_track_id.as_ref()) {
         (Some(slot), Some(tid)) => {
@@ -393,6 +529,33 @@ pub(crate) async fn ranged_download_task(
         );
     };
 
+    let tail_prefetch = super::mp4::mp4_needs_tail_prefetch(&[], format_hint.as_deref());
+    let tail_handle = if tail_prefetch {
+        let client = http_client.clone();
+        let url_tail = url.clone();
+        let buf_tail = buf.clone();
+        let tail_ready_bg = tail_ready.clone();
+        let tail_from_bg = tail_filled_from.clone();
+        let armed_bg = playback_armed.clone();
+        let gen_bg = gen_arc.clone();
+        Some(tokio::spawn(async move {
+            ranged_prefetch_mp4_tail(
+                client,
+                url_tail,
+                buf_tail,
+                total_size,
+                tail_ready_bg,
+                tail_from_bg,
+                armed_bg,
+                gen,
+                gen_bg,
+            )
+            .await;
+        }))
+    } else {
+        None
+    };
+
     let (downloaded, outcome) = ranged_http_download_loop(
         http_client,
         &url,
@@ -402,9 +565,15 @@ pub(crate) async fn ranged_download_task(
         gen,
         &gen_arc,
         on_partial,
+        Some(&playback_armed),
     )
     .await;
 
+    if let Some(handle) = tail_handle {
+        let _ = handle.await;
+    }
+
+    playback_armed.store(true, Ordering::SeqCst);
     done.store(true, Ordering::SeqCst);
 
     if matches!(outcome, RangedHttpLoopOutcome::Superseded) {
@@ -474,6 +643,8 @@ mod tests {
         RangedHttpSource {
             buf,
             downloaded_to,
+            tail_ready: Arc::new(AtomicBool::new(true)),
+            tail_filled_from: Arc::new(AtomicU64::new(0)),
             total_size: total,
             pos: 0,
             done,
@@ -541,6 +712,8 @@ mod tests {
         let mut src = RangedHttpSource {
             buf,
             downloaded_to,
+            tail_ready: Arc::new(AtomicBool::new(false)),
+            tail_filled_from: Arc::new(AtomicU64::new(0)),
             total_size: total,
             pos: 0,
             done,
@@ -555,6 +728,35 @@ mod tests {
     }
 
     #[test]
+    fn read_blocks_until_download_progress_reaches_seek_target() {
+        let total: u64 = 8;
+        let buf = Arc::new(Mutex::new(vec![1, 2, 3, 4, 5, 6, 7, 8]));
+        let downloaded_to = Arc::new(AtomicUsize::new(2));
+        let done = Arc::new(AtomicBool::new(false));
+        let gen_arc = Arc::new(AtomicU64::new(1));
+        let dl_bg = downloaded_to.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            dl_bg.store(8, Ordering::SeqCst);
+        });
+        let mut src = RangedHttpSource {
+            buf,
+            downloaded_to,
+            tail_ready: Arc::new(AtomicBool::new(false)),
+            tail_filled_from: Arc::new(AtomicU64::new(0)),
+            total_size: total,
+            pos: 6,
+            done,
+            gen_arc,
+            gen: 1,
+        };
+        let mut out = [0u8; 2];
+        let n = src.read(&mut out).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(out, [7, 8]);
+    }
+
+    #[test]
     fn read_returns_zero_when_done_with_no_data_ahead_of_cursor() {
         let total: u64 = 8;
         let src_buf = Arc::new(Mutex::new(vec![0u8; total as usize]));
@@ -564,6 +766,8 @@ mod tests {
         let mut src = RangedHttpSource {
             buf: src_buf,
             downloaded_to,
+            tail_ready: Arc::new(AtomicBool::new(false)),
+            tail_filled_from: Arc::new(AtomicU64::new(0)),
             total_size: total,
             pos: 5, // past downloaded_to
             done,
@@ -676,6 +880,7 @@ mod tests {
             1,
             &gen_arc,
             |_, _| {},
+            None,
         )
         .await;
 
@@ -710,6 +915,7 @@ mod tests {
             1,
             &gen_arc,
             |downloaded, total| calls.lock().unwrap().push((downloaded, total)),
+            None,
         )
         .await;
 
@@ -736,7 +942,7 @@ mod tests {
         let (buf, dl, gen_arc) = loop_state(1024);
 
         let (downloaded, outcome) =
-            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {})
+            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {}, None)
                 .await;
 
         assert_eq!(outcome, RangedHttpLoopOutcome::Aborted);
@@ -767,7 +973,7 @@ mod tests {
         gen_arc.store(99, Ordering::SeqCst);
 
         let (downloaded, outcome) =
-            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {})
+            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {}, None)
                 .await;
 
         assert_eq!(outcome, RangedHttpLoopOutcome::Superseded);
@@ -826,7 +1032,7 @@ mod tests {
         let (buf, dl, gen_arc) = loop_state(body.len());
 
         let (downloaded, outcome) =
-            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {})
+            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {}, None)
                 .await;
 
         // Stream finishes via a Range-resumed second request.
@@ -868,7 +1074,7 @@ mod tests {
         let (buf, dl, gen_arc) = loop_state(body.len());
 
         let (downloaded, outcome) =
-            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {})
+            ranged_http_download_loop(client, &url, initial, &buf, &dl, 1, &gen_arc, |_, _| {}, None)
                 .await;
 
         // Reconnect server returned 200 instead of 206 → Aborted, downloaded

@@ -41,6 +41,7 @@ export const queue = {
   sourceOffline: 'Играет из офлайн-библиотеки',
   sourceHot: 'Играет из кэша',
   sourceStream: 'Играет из сетевого потока',
+  bufferingStream: 'Загрузка трека с сервера',
   clearCachedLoudnessWaveform: 'Сбросить кэш громкости (LUFS) и формы волны и заново проанализировать трек',
   recalculatingLoudnessWaveform: 'Пересчёт громкости и формы волны для этого трека…',
 };

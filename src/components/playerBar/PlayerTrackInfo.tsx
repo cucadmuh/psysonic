@@ -10,6 +10,8 @@ import LastfmIcon from '../LastfmIcon';
 import MarqueeText from '../MarqueeText';
 import { OpenArtistRefInline } from '../OpenArtistRefInline';
 import StarRating from '../StarRating';
+import { PlaybackBufferingOverlay } from '../playback/PlaybackBufferingOverlay';
+import { usePlayerStore } from '../../store/playerStore';
 import {
   usePlayerBarLayoutStore,
   type PlayerBarLayoutItemId,
@@ -52,6 +54,7 @@ export function PlayerTrackInfo({
   userRatingOverrides, setUserRatingOverride, toggleFullscreen,
   navigate, openContextMenu, t,
 }: Props) {
+  const showBufferingOverlay = usePlayerStore(s => s.isPlaybackBuffering);
   const layoutItems = usePlayerBarLayoutStore(s => s.items);
   const isLayoutVisible = (id: PlayerBarLayoutItemId) =>
     layoutItems.find(i => i.id === id)?.visible !== false;
@@ -92,6 +95,9 @@ export function PlayerTrackInfo({
           <div className="player-art-expand-hint" aria-hidden="true">
             <Maximize2 size={16} />
           </div>
+        )}
+        {showBufferingOverlay && !isRadio && !showPreviewMeta && (
+          <PlaybackBufferingOverlay />
         )}
       </div>
       <div className="player-track-meta">

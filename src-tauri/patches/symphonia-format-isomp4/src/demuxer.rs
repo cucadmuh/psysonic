@@ -26,6 +26,29 @@ use crate::stream::*;
 
 use log::{debug, info, trace, warn};
 
+/// When `mdat` claims the rest of the file (common moov-at-end M4A), locate `moov` in the
+/// tail instead of seeking to EOF (which yields end-of-stream during probe).
+fn find_moov_atom_offset_in_tail(
+    mss: &mut MediaSourceStream,
+    total_len: u64,
+) -> Result<Option<u64>> {
+    const MAX_SCAN: u64 = 8 * 1024 * 1024;
+    if total_len < 16 {
+        return Ok(None);
+    }
+    let scan_len = MAX_SCAN.min(total_len) as usize;
+    let scan_start = total_len - scan_len as u64;
+    mss.seek(SeekFrom::Start(scan_start))?;
+    let mut buf = vec![0u8; scan_len];
+    mss.read_buf_exact(&mut buf).map_err(Error::from)?;
+    for i in 0..buf.len().saturating_sub(8) {
+        if &buf[i + 4..i + 8] == b"moov" {
+            return Ok(Some(scan_start + i as u64));
+        }
+    }
+    Ok(None)
+}
+
 pub struct TrackState {
     codec_params: CodecParameters,
     /// The track number.
@@ -396,6 +419,29 @@ impl FormatReader for IsoMp4Reader {
 
                         // The remainder of the stream will be read incrementally.
                         break;
+                    }
+                    let end = iter.current_atom_end();
+                    let file_len = total_len.unwrap_or(end);
+                    if moov.is_none() {
+                        let mut mss = iter.into_inner();
+                        let resume_at = if end < file_len.saturating_sub(8) {
+                            // Bounded mdat — `moov` is the next top-level sibling.
+                            end
+                        } else if let Some(tl) = total_len {
+                            match find_moov_atom_offset_in_tail(&mut mss, tl)? {
+                                Some(off) => off,
+                                None => return unsupported_error("isomp4: missing moov atom"),
+                            }
+                        } else {
+                            end
+                        };
+                        mss.seek(SeekFrom::Start(resume_at))?;
+                        iter = AtomIterator::new_root(mss, total_len);
+                    } else if end < file_len.saturating_sub(8) {
+                        // Fast-start: skip a bounded mdat without linear read.
+                        let mut mss = iter.into_inner();
+                        mss.seek(SeekFrom::Start(end))?;
+                        iter = AtomIterator::new_root(mss, total_len);
                     }
                 }
                 AtomType::Meta => {

@@ -2,7 +2,7 @@
 //! Subsonic hints, decide whether to play from in-memory bytes, a seekable
 //! local file, a seekable RangedHttpSource, or a non-seekable streaming reader.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use super::helpers::{
 use super::stream::{
     ranged_download_task, track_download_task, AudioStreamReader,
     LocalFileSource, RangedHttpSource, LOCAL_FILE_PLAYBACK_SEED_MAX_BYTES,
-    RADIO_READ_TIMEOUT_SECS, TRACK_STREAM_MAX_BUF_CAPACITY, TRACK_STREAM_MIN_BUF_CAPACITY,
+    TRACK_READ_TIMEOUT_SECS, TRACK_STREAM_MAX_BUF_CAPACITY, TRACK_STREAM_MIN_BUF_CAPACITY,
 };
 
 /// What `audio_play` will hand to `build_source` / `build_streaming_source`.
@@ -284,6 +284,10 @@ async fn open_ranged_or_streaming_input(
         let buf = Arc::new(Mutex::new(vec![0u8; total_usize]));
         let downloaded_to = Arc::new(AtomicUsize::new(0));
         let done = Arc::new(AtomicBool::new(false));
+        state.stream_playback_armed.store(false, Ordering::SeqCst);
+        let playback_armed = state.stream_playback_armed.clone();
+        let tail_ready = Arc::new(AtomicBool::new(false));
+        let tail_filled_from = Arc::new(AtomicU64::new(0));
         let loudness_hold_for_defer = (total_usize <= super::stream::TRACK_STREAM_PROMOTE_MAX_BYTES)
             .then_some(state.ranged_loudness_seed_hold.clone());
         tokio::spawn(ranged_download_task(
@@ -303,10 +307,16 @@ async fn open_ranged_or_streaming_input(
             state.loudness_pre_analysis_attenuation_db.clone(),
             ctx.cache_id_for_tasks.map(|s| s.to_string()),
             loudness_hold_for_defer,
+            playback_armed,
+            stream_hint.clone(),
+            tail_ready.clone(),
+            tail_filled_from.clone(),
         ));
         let reader = RangedHttpSource {
             buf,
             downloaded_to,
+            tail_ready,
+            tail_filled_from,
             total_size: total,
             pos: 0,
             done,
@@ -332,6 +342,8 @@ async fn open_ranged_or_streaming_input(
     let rb = HeapRb::<u8>::new(buffer_cap);
     let (prod, cons) = rb.split();
     let done = Arc::new(AtomicBool::new(false));
+    state.stream_playback_armed.store(false, Ordering::SeqCst);
+    let playback_armed = state.stream_playback_armed.clone();
     tokio::spawn(track_download_task(
         ctx.gen,
         state.generation.clone(),
@@ -346,14 +358,16 @@ async fn open_ranged_or_streaming_input(
         state.normalization_target_lufs.clone(),
         state.loudness_pre_analysis_attenuation_db.clone(),
         ctx.cache_id_for_tasks.map(|s| s.to_string()),
+        playback_armed,
     ));
 
     let (_new_cons_tx, new_cons_rx) = std::sync::mpsc::channel::<HeapCons<u8>>();
     let reader = AudioStreamReader {
+        read_timeout_secs: TRACK_READ_TIMEOUT_SECS,
         cons: Mutex::new(cons),
         new_cons_rx: Mutex::new(new_cons_rx),
         deadline: std::time::Instant::now()
-            + Duration::from_secs(RADIO_READ_TIMEOUT_SECS),
+            + Duration::from_secs(TRACK_READ_TIMEOUT_SECS),
         gen_arc: state.generation.clone(),
         gen: ctx.gen,
         source_tag: "track-stream",
@@ -364,6 +378,47 @@ async fn open_ranged_or_streaming_input(
         reader,
         format_hint: stream_hint,
     }))
+}
+
+/// Legacy `AudioStreamReader`: keep the sink paused until the download task arms
+/// playback, then reset counters and emit `audio:playing` so the UI does not
+/// extrapolate ahead of audible output.
+pub(super) fn spawn_legacy_stream_start_when_armed(
+    gen: u64,
+    gen_arc: Arc<AtomicU64>,
+    playback_armed: Arc<AtomicBool>,
+    samples_played: Arc<AtomicU64>,
+    current: Arc<Mutex<super::engine::AudioCurrent>>,
+    app: AppHandle,
+    duration_secs: f64,
+) {
+    tokio::spawn(async move {
+        loop {
+            if gen_arc.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            if playback_armed.load(Ordering::Relaxed) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        if gen_arc.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        samples_played.store(0, Ordering::Relaxed);
+        let sink = current.lock().unwrap().sink.clone();
+        if let Some(sink) = sink {
+            {
+                let mut cur = current.lock().unwrap();
+                cur.play_started = Some(std::time::Instant::now());
+                cur.paused_at = None;
+                cur.seek_offset = 0.0;
+            }
+            sink.play();
+            app.emit("audio:playing", duration_secs).ok();
+            crate::app_deprintln!("[stream] legacy track-stream: playback started after buffer ready");
+        }
+    });
 }
 
 /// Pulled out of the format_hint extraction block in `audio_play` — strip the
@@ -517,6 +572,7 @@ pub(super) async fn build_source_from_play_input(
                 fade_in_dur,
                 state.samples_played.clone(),
                 target_rate,
+                None,
             )
         }
         PlayInput::Streaming { reader, format_hint: stream_hint } => {
@@ -536,6 +592,7 @@ pub(super) async fn build_source_from_play_input(
                 fade_in_dur,
                 state.samples_played.clone(),
                 target_rate,
+                Some(state.stream_playback_armed.clone()),
             )
         }
     }?;

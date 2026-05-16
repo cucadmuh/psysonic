@@ -242,6 +242,9 @@ pub(crate) fn sniff_stream_format_extension(data: &[u8]) -> Option<String> {
 pub struct ProgressPayload {
     pub current_time: f64,
     pub duration: f64,
+    /// HTTP stream still filling its play buffer — UI must not extrapolate
+    /// progress until this clears.
+    pub buffering: bool,
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
