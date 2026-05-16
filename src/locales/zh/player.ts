@@ -9,6 +9,7 @@ export const player = {
   prev: '上一首',
   play: '播放',
   pause: '暂停',
+  bufferingStream: 'Loading track from server',
   previewActive: '正在试听',
   previewLabel: '试听',
   delayModalTitle: '定时',

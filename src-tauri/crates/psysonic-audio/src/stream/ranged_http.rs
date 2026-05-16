@@ -391,6 +391,7 @@ async fn ranged_write_http_range(
 
 /// Prefetch the tail of a moov-at-end MP4 so Symphonia can parse metadata while
 /// the linear download still fills `mdat` from offset 0.
+#[allow(clippy::too_many_arguments)]
 async fn ranged_prefetch_mp4_tail(
     http_client: reqwest::Client,
     url: String,

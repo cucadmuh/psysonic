@@ -546,6 +546,20 @@ pub fn take_stream_completed_spill_for_url(
     None
 }
 
+/// Atomically write completed stream bytes under `dir` (`{track_id}.complete.part` → rename).
+pub(crate) fn write_stream_spill_bytes_in_dir(
+    dir: &std::path::Path,
+    track_id: &str,
+    bytes: &[u8],
+) -> Result<std::path::PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{track_id}.complete"));
+    let part = dir.join(format!("{track_id}.complete.part"));
+    std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// Atomically write completed stream bytes to app-data `stream-spill/` (sync; no await while holding `buf`).
 pub(crate) fn write_stream_spill_file(
     app: &AppHandle,
@@ -557,12 +571,27 @@ pub(crate) fn write_stream_spill_file(
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("stream-spill");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{track_id}.complete"));
-    let part = dir.join(format!("{track_id}.complete.part"));
-    std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&part, &path).map_err(|e| e.to_string())?;
-    Ok(path)
+    write_stream_spill_bytes_in_dir(&dir, track_id, bytes)
+}
+
+/// Remove leftover `stream-spill/*.complete*` from prior sessions (best-effort).
+pub fn cleanup_orphan_stream_spill_dir(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir().map(|d| d.join("stream-spill")) else {
+        return;
+    };
+    if !dir.is_dir() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let lossy = name.to_string_lossy();
+        if lossy.ends_with(".complete") || lossy.ends_with(".complete.part") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 pub(crate) fn install_stream_completed_spill(
@@ -599,6 +628,8 @@ pub(crate) async fn fetch_data(
         return Ok(Some(data));
     }
 
+    // Spill path is cloned (not taken) so replay of the same URL can still read from disk
+    // until hot-cache promote consumes the file via `take_stream_completed_spill_for_url`.
     let spill_path = {
         let guard = state.stream_completed_spill.lock().unwrap();
         guard
@@ -1432,5 +1463,70 @@ mod tests {
         };
         let g = resolve_loudness_gain_with_cache(&cache, "abc", -14.0, opts);
         assert!(g.is_some());
+    }
+}
+
+#[cfg(test)]
+mod stream_spill_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "psysonic-audio-spill-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn write_stream_spill_bytes_in_dir_creates_complete_file() {
+        let dir = scratch_dir("write");
+        let path =
+            write_stream_spill_bytes_in_dir(&dir, "track-1", b"hello").expect("write spill");
+        assert!(path.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+        assert!(!dir.join("track-1.complete.part").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn install_stream_completed_spill_replaces_prior_file() {
+        let dir = scratch_dir("install");
+        let old_path = dir.join("old.complete");
+        let new_path = dir.join("new.complete");
+        std::fs::write(&old_path, b"old").unwrap();
+        std::fs::write(&new_path, b"new").unwrap();
+        let slot: Arc<Mutex<Option<crate::state::StreamCompletedSpill>>> =
+            Arc::new(Mutex::new(None));
+        install_stream_completed_spill(
+            &slot,
+            "http://example/a".into(),
+            old_path.clone(),
+        );
+        install_stream_completed_spill(
+            &slot,
+            "http://example/b".into(),
+            new_path.clone(),
+        );
+        assert!(!old_path.exists(), "previous spill file must be removed");
+        assert!(new_path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn take_stream_completed_spill_for_url_consumes_slot() {
+        let dir = scratch_dir("take");
+        let path = dir.join("t.complete");
+        std::fs::write(&path, b"x").unwrap();
+        let (engine, _thread) = crate::engine::create_engine();
+        let url = "https://server/stream?id=1";
+        install_stream_completed_spill(&engine.stream_completed_spill, url.into(), path.clone());
+        let taken = take_stream_completed_spill_for_url(&engine, url);
+        assert_eq!(taken.as_deref(), Some(path.as_path()));
+        assert!(take_stream_completed_spill_for_url(&engine, url).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

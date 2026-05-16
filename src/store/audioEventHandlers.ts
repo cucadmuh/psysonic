@@ -109,7 +109,7 @@ export function handleAudioProgress(
   const store = usePlayerStore.getState();
   const track = store.currentTrack;
   if (!track) return;
-  if (!store.currentRadio) {
+  if (!store.currentRadio && store.isPlaybackBuffering !== buffering) {
     usePlayerStore.setState({ isPlaybackBuffering: buffering });
   }
   // Some backends can emit stale progress ticks shortly after pause/stop.

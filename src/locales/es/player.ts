@@ -9,6 +9,7 @@ export const player = {
   prev: 'Pista Anterior',
   play: 'Reproducir',
   pause: 'Pausa',
+  bufferingStream: 'Loading track from server',
   previewActive: 'Vista previa activa',
   previewLabel: 'Vista previa',
   delayModalTitle: 'Temporizador',

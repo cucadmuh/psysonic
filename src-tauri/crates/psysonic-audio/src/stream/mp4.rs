@@ -125,4 +125,15 @@ mod tests {
         assert!(!mp4_moov_follows_mdat(&buf));
         assert!(!mp4_needs_tail_prefetch(&buf, Some("m4a")));
     }
+
+    #[test]
+    fn empty_prefix_with_m4a_hint_needs_tail_prefetch() {
+        assert!(mp4_needs_tail_prefetch(&[], Some("m4a")));
+    }
+
+    #[test]
+    fn empty_prefix_without_mp4_hint_skips_tail_prefetch() {
+        assert!(!mp4_needs_tail_prefetch(&[], Some("mp3")));
+        assert!(!mp4_needs_tail_prefetch(&[], None));
+    }
 }

@@ -9,6 +9,7 @@ export const player = {
   prev: 'Forrige spor',
   play: 'Spill av',
   pause: 'Pause',
+  bufferingStream: 'Loading track from server',
   previewActive: 'Forhåndsvisning spilles av',
   previewLabel: 'Forhåndsvisning',
   delayModalTitle: 'Tidsur',

@@ -335,6 +335,20 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 * Rolled out across the main **card-grid library surfaces** — **Albums**, **Random Albums**, **New Releases**, **Lossless Albums**, **Playlists**, **Composers**, **Composer detail**, **Genre detail**, **Label albums**, **Album detail** (similar / same-artist rails), **Artist detail** (album / appearance / compilation grids), **Internet Radio**, **Offline Library** (albums + playlists), and **Artists** grid mode (virtual rows driven by the same column metrics).
 * **Settings → Appearance → Library card grids:** persisted **maximum columns** (**4–12**, default **6**) with translated copy calling out **performance** trade-offs. Settings search index updated.
 
+### Playback — stream buffering indicator on cover art
+
+**By [@cucadmuh](https://github.com/cucadmuh)**
+
+* While an **HTTP stream** is still opening, the **player bar** and **queue** cover art is **greyscaled** with a static **clock** overlay; the seekbar and timer stay at **0** until the Rust engine arms playback (no optimistic drift).
+* **`audio:progress`** carries an optional **`buffering`** flag; the UI only updates **`isPlaybackBuffering`** when the flag changes to avoid redundant store writes.
+
+### Hot cache — promote completed ranged streams larger than 64 MiB
+
+**By [@cucadmuh](https://github.com/cucadmuh)**
+
+* Completed **ranged HTTP** downloads above the in-RAM promote cap (including long **M4A** / **ALAC** albums) are **spilled to disk** under app-data **`stream-spill/`**, then **renamed into hot cache** on promote instead of being skipped.
+* Orphan spill files from prior sessions are **removed on startup** (best-effort).
+
 ## Removed
 
 ### Settings — Animations 3-state setting under Seekbar Style
@@ -345,6 +359,15 @@ Foundational work: faster reviews, narrower diffs, and a safety net under the pa
 * Anyone who had `'reduced'` or `'static'` selected silently lands on the normal animation path on first launch after upgrade — the persist layer strips the obsolete field, no user-facing prompt.
 
 ## Fixed
+
+### Playback — M4A / MP4 streaming (moov-at-end) and seekbar during buffer
+
+**By [@cucadmuh](https://github.com/cucadmuh)**
+
+* **M4A** and **MP4** tracks streamed from the server (including **AAC** and **ALAC** in `.m4a` / `.mp4` containers) with **`moov` at the end of the file** — typical for many Navidrome / iTunes-style encoders — **start audibly sooner**: playback no longer waits for the entire **`mdat`** blob to download before Symphonia can open the file.
+* **Tail prefetch** on the ranged HTTP path pulls the end of the file first so metadata is available while the linear download still fills from byte 0.
+* **Symphonia `isomp4` patch** (vendored): when a top-level **`mdat`** atom spans to EOF, the demuxer **scans the file tail for `moov`** instead of seeking past end-of-stream during probe — fixes failures such as **`format probe failed: end of stream`** and long stalls before the first sample on large moov-at-end files.
+* While the stream is still opening, the **seekbar and elapsed time stay at 0** (and the cover shows the buffering state — see **Added** above) instead of advancing ahead of decoded audio — the same guard applies to **legacy** HTTP readers and **`RangedHttpSource`**.
 
 ### Mixes — rating filter and Lucky Mix queue fill
 

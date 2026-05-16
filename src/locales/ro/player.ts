@@ -9,6 +9,7 @@ export const player = {
   prev: 'Piesa anterioară',
   play: 'Redă',
   pause: 'Pauză',
+  bufferingStream: 'Loading track from server',
   previewActive: 'Previzualizează redarea',
   previewLabel: 'Previzualizare',
   delayModalTitle: 'Temporizator',

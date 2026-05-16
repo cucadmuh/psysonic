@@ -388,6 +388,25 @@ mod tests {
     // ── tests ─────────────────────────────────────────────────────────────────
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn progress_emits_buffering_while_stream_not_armed() {
+        let h = TaskHarness::new(240.0);
+        h.stream_playback_armed.store(false, Ordering::SeqCst);
+        h.samples_played.store(441_000, Ordering::SeqCst);
+
+        let emitter = Arc::new(MockEmitter::default());
+        h.spawn_with(emitter.clone());
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert!(
+            emitter.progress.lock().unwrap().iter().any(|p| p.buffering),
+            "progress payload must flag HTTP stream buffering before armed"
+        );
+
+        h.gen_counter.store(99, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn legacy_stream_holds_progress_at_zero_until_armed() {
         let h = TaskHarness::new(240.0);
         h.stream_playback_armed.store(false, Ordering::SeqCst);
